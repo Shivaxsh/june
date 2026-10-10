@@ -1,0 +1,8 @@
+node_modules/
+.next/
+.env*
+!.env.example
+.june-work/
+next-env.d.ts
+*.tsbuildinfo
+.DS_Store
