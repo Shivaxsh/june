@@ -1,0 +1,171 @@
+/* A few shared colours keep the design easy to change. */
+:root {
+  color-scheme: dark;
+  --background: #101916;
+  --text: #f2f0e3;
+  --muted: #afc0b6;
+  --accent: #8ee9d0;
+  --line: #314039;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Three rows keep the greeting centred and the footer near the bottom. */
+.page {
+  min-height: 100vh;
+  min-height: 100svh;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 32px clamp(24px, 6vw, 88px) 24px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.masthead, .footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -1.2px;
+}
+
+.brand-dot, .status-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.brand-dot { width: 8px; height: 8px; }
+.status-dot { width: 5px; height: 5px; }
+
+.version, .eyebrow, .phase {
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+
+.version {
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  padding: 8px 13px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.introduction {
+  min-width: 0;
+  padding: 60px 0 70px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* CSS shapes form the orb; no image, script or connected model is needed. */
+.orb {
+  position: relative;
+  width: 144px;
+  height: 144px;
+  margin-bottom: 42px;
+}
+
+.orb-ring {
+  position: absolute;
+  inset: 5px;
+  border: 1px solid #42685a;
+  border-radius: 50%;
+  transform: rotate(-30deg) scaleY(.46);
+}
+
+.orb-core {
+  position: absolute;
+  inset: 23px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 28%, #e1fff0 0%, #8ee9d0 19%, #3f9b7e 53%, #173d30 82%);
+  box-shadow: 0 0 34px #60b99524, inset -10px -12px 20px #06170f50;
+  animation: breathe 6s ease-in-out infinite;
+}
+
+.eyebrow {
+  margin: 0 0 21px;
+  font-size: 11px;
+  line-height: 1.7;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+
+h1 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(52px, 7.5vw, 108px);
+  font-weight: 400;
+  line-height: 1.06;
+  letter-spacing: -.045em;
+}
+
+h1 em { color: var(--accent); font-weight: 400; }
+
+.description {
+  max-width: 420px;
+  margin: 24px 0 0;
+  font-size: 17px;
+  line-height: 1.75;
+  color: var(--muted);
+  text-wrap: balance;
+}
+
+.phase {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 35px;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.footer {
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.footer p { margin: 0; }
+.footer-star { margin-left: 14px; color: var(--accent); font-size: 16px; }
+
+@keyframes breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+/* Smaller screens keep generous spacing without pushing text off the page. */
+@media (max-width: 600px) {
+  .page { padding-top: 24px; }
+  .introduction { padding: 56px 0; }
+  .orb { width: 124px; height: 124px; margin-bottom: 32px; }
+  .description { font-size: 16px; }
+  .footer { align-items: flex-start; font-size: 10px; }
+  .footer p:last-child { text-align: right; }
+}
+
+/* Honour the user's motion preference without removing the decoration. */
+@media (prefers-reduced-motion: reduce) {
+  .orb-core { animation: none; }
+}
