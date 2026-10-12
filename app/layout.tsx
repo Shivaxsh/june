@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "June v0.1 · Your local assistant",
-  description: "A personal text assistant, built one phase at a time.",
+  title: "June v0.2 · Your local assistant",
+  description: "A local assistant with an animated, audio-reactive face.",
 };
 
 export default function Layout({ children }: { children: React.ReactNode }) {

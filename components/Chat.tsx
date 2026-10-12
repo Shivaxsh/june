@@ -5,9 +5,18 @@ import type { ChatEvent, ChatMessage, ChatMode, ModelStatus } from "@/lib/chat-t
 import { MAX_MESSAGE_LENGTH } from "@/lib/chat-types";
 import { readJsonLines } from "@/lib/ndjson";
 
+import Orb from "./orb/Orb";
+import AudioPanel from "./orb/AudioPanel";
+import OrbControls from "./orb/OrbControls";
+import { useAudio } from "./orb/useAudio";
+import { resolveOrb, type Preview } from "@/lib/orb/state";
+
 type DisplayMessage = ChatMessage & { id: string; state?: "pending" | "complete" | "stopped" | "failed" };
 
 export default function Chat() {
+  const audio = useAudio();
+  const [preview, setPreview] = useState<Preview>("auto");
+  const [still, setStill] = useState(false);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState<ChatMode>("local");
@@ -50,6 +59,7 @@ export default function Chat() {
   }, [messages]);
 
   function newChat(nextMode = mode) {
+    audio.stop(); setPreview("auto");
     requestId.current += 1;
     active.current?.abort();
     active.current = null;
@@ -69,6 +79,7 @@ export default function Chat() {
   async function send() {
     const content = draft.trim();
     if (!content || busyRef.current || content.length > MAX_MESSAGE_LENGTH) return;
+    setPreview("auto");
     busyRef.current = true;
     setBusy(true);
     setError("");
@@ -156,19 +167,21 @@ export default function Chat() {
     }
   }
 
+  const orb = resolveOrb(busy, mode === "demo", preview, audio.phase);
   const connection = mode === "demo" ? "Practice mode · simulated replies" : status?.message || "Connecting to your local model…";
   return (
     <div className="chat-page">
       <header className="masthead">
         <a className="wordmark" href="/" aria-label="June home"><span className="brand-dot" />june</a>
-        <div className="header-actions"><span className="version">June v0.1</span><button className="quiet-button" onClick={() => newChat()}>New chat</button></div>
+        <div className="header-actions"><span className="version">June v0.2</span><button className="quiet-button" onClick={() => newChat()}>New chat</button></div>
       </header>
 
       <main className="chat-shell">
-        <section className="chat-heading" aria-labelledby="june-title">
-          <div className={`orb ${busy ? "thinking" : ""}`} aria-hidden="true"><span className="orb-ring" /><span className="orb-core" /></div>
-          <div><p className="eyebrow">Phase 1 · Modern JavaScript</p><h1 id="june-title">A little conversation.<br />A little more <em>June.</em></h1><p className="subtitle">Your personal assistant, taking her first words.</p></div>
+        <section className="face-section" aria-labelledby="june-title">
+          <div className="face-copy"><p className="eyebrow">Phase 2 · June gets a face</p><h1 id="june-title">A little spark.<br />A little more <em>June.</em></h1><p className="subtitle">A living network, moving with your conversation.</p><a className="learn-link" href="/learn/phase-2">Explore how her orb works <span aria-hidden="true">↗</span></a><OrbControls preview={preview} onPreview={setPreview} still={still} onStill={setStill} disabled={busy} /></div>
+          <Orb mood={orb.mood} label={orb.label} level={audio.level} still={still} />
         </section>
+        <details className="sound-workshop"><summary>Sound &amp; microphone <span>{audio.phase === "listening" ? "Microphone active" : audio.phase === "playing" ? "Audio playing" : audio.phase === "requesting" ? "Permission pending" : audio.phase === "paused" ? "Paused" : "Explore audio reactivity"}</span></summary><AudioPanel audio={audio} onActivate={() => setPreview("auto")} /></details>
 
         <div className="connection-bar">
           <div className="connection-copy"><span className={`status-dot ${mode === "demo" ? "demo" : status?.state === "ready" ? "ready" : "offline"}`} /><span><strong>{mode === "demo" ? "Simulated demo" : status?.model || "Local AI"}</strong><span className="connection-description">{connection}</span></span></div>

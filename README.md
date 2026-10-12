@@ -1,6 +1,6 @@
-# June v0.1
+# June v0.2
 
-A personal text assistant, built one phase at a time. June now has a React/Next.js chat screen, a June system prompt and real streamed replies from a small local model.
+A personal assistant, built one phase at a time. June combines local streamed text chat with a Canvas particle orb, audio visualisation and a Phase 2 learning studio.
 
 **Open locally:** <http://127.0.0.1:3001>
 
@@ -56,6 +56,38 @@ The model download is about 523 MB. June's helper stores models in `~/Library/Ap
 Only completed message/reply pairs become follow-up context. Failed and interrupted turns stay visible but are excluded; on failure your input is restored for retry. Switching reply source starts a new chat. Refreshing clears messages. There is no database, local-storage chat history or cross-session memory.
 
 Messages are limited to 2,000 characters; a request may contain up to 20 messages and 6,000 characters of conversation text. June asks you to start a new chat when the limit is reached rather than quietly forgetting text. Generation uses a 4,096-token context, a 256-token reply cap, temperature 0.6 and thinking disabled. A small model can answer incorrectly; long answers can hit the reply cap.
+
+## Phase 2 — explore her face
+
+Open **Sound & microphone** on the chat page. Play the original 18-second June tones sample, choose a local audio file, or explicitly start the microphone. The microphone only measures sound; it does not understand words, save recordings or send sound to the model. Microphone input is never played through the speakers.
+
+- **Auto** follows actual activity. A model request takes visual priority; the sound controls still report their independent state.
+- **Idle / Listening / Thinking / Speaking** are labelled visual previews. Sending a message exits preview mode.
+- **Still view**, or your system's reduced-motion preference, freezes the network while keeping activity labels and the sound meter.
+- **Pause audio** preserves playback position; **Stop audio** releases the source. Starting another source releases the previous one.
+- **New chat**, leaving the page or hiding the tab stops sound and microphone input. Nothing starts automatically on return.
+- Microphone permission requests time out after 30 seconds. Stop also cancels a pending request logically; a later permission grant immediately releases the newly returned tracks.
+- A selected audio file stays in browser memory for this page only. Its temporary object URL is released on Stop or source replacement.
+
+The [learning studio](http://127.0.0.1:3001/learn/phase-2) follows the workbook's exact topic order: Canvas, Three.js, Web Audio, GLSL shaders, moods, optional React Three Fiber. One example is active at a time. Exploring these examples does not tick learning checkboxes.
+
+### How the animation works
+
+1. `components/orb/Orb.tsx` creates 110 repeatable points and projects them onto a 2D canvas. Nearby points get lines; small moving dots represent travelling signals.
+2. One animation loop redraws at approximately 30 frames per second, with drawing resolution capped to reduce work. React does not rerender for each sound reading.
+3. `lib/orb/audio-controller.ts` owns one AudioContext and source. An AnalyserNode reads the waveform, calculates RMS amplitude and smooths it into a value from zero to one.
+4. The renderer reads that shared value to change radius and glow. The meter shows the same measured signal. Manual moods never invent audio measurements.
+5. `lib/orb/state.ts` resolves generation, preview and audio state into an appearance and an honest label. The existing chat API contracts are unchanged.
+
+Three.js is a separate, dynamically loaded learning example in `components/orb/GraphicsDemo.tsx`. Its geometry, material and renderer are disposed on topic changes. The shader example uses GLSL for colour and glow; the ordinary CSS fallback remains available without WebGL. React Three Fiber is explained as optional and is not installed.
+
+The original standalone circle exercise in `../June-Canvas-Practice` remains available.
+
+### Sound troubleshooting
+
+If microphone permission stays pending, check your browser's permission prompt. If the embedded browser cannot provide microphone access, open June's same local URL in a browser that supports it. Denial, missing devices and unsupported files display a message while text chat stays usable. The sample needs a deliberate Play click; there is no autoplay.
+
+A file with an unsupported codec may fail even when its extension looks correct. Try the bundled WAV sample or another browser-supported file.
 
 ## Edit and learn — Phase 1 order
 
@@ -114,16 +146,17 @@ Both servers bind to loopback. Remote hosting and authentication are later work.
 
 ```sh
 npm run typecheck
+npm test
 npm run build
 git diff
-git add app components lib scripts package.json package-lock.json tsconfig.json next.config.ts .env.example .gitignore README.md docs
-git commit -m "Build June v0.1 local AI chat"
+git add app components lib scripts public tests package.json package-lock.json tsconfig.json next.config.ts .env.example .gitignore README.md docs
+git commit -m "Build June v0.2 animated face and learning studio"
 ```
 
-Manual checks: empty input, Enter/Shift+Enter, wrapping, safe `<script>` text, genuine streaming, follow-up context, cancellation, context clearing, and recovery from a stopped model server. See `docs/verification.md` for this run's results.
+Manual checks: empty input, Enter/Shift+Enter, wrapping, safe `<script>` text, genuine streaming, follow-up context, cancellation, context clearing, and recovery from a stopped model server. See `docs/verification-v0.2.md` for Phase 2 results and limits, and `docs/verification.md` for the earlier Phase 1 checks. The detailed graphics/audio walkthrough is in `docs/phase-2.md`.
 
 ## Phase 0 and the public site
 
-The existing `index.html` and `styles.css` are preserved. [GitHub Pages](https://shivaxsh.github.io/june/) still publishes v0.0 from **main / root**. June v0.1 is on **codex/june-v0.1**, runs locally and is not the Pages publishing branch. [Source repository](https://github.com/Shivaxsh/june).
+The existing `index.html` and `styles.css` are preserved. [GitHub Pages](https://shivaxsh.github.io/june/) still publishes v0.0 from **main / root**. June v0.2 is on **codex/june-v0.2**, runs locally and is not the Pages publishing branch. [Source repository](https://github.com/Shivaxsh/june).
 
 Keep `.env.local`, models, screenshots, progress backups and private personality notes out of public Git commits.
