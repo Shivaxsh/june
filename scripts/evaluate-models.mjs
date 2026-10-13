@@ -13,6 +13,7 @@ const cases = [
  ['arithmetic',[user('What is 17 plus 28?')],/\b45\b/],
  ['follow-up',[user('Name a country in Europe.'),assistant('France.'),user('What is its capital?')],/\bParis\b/i],
  ['after-refusal',[user('Name a country starting with I.'),assistant('I do not know. Please provide more information.'),user('What is the capital of Japan?')],/\bTokyo\b/i],
+ ['repeated-refusals',[user('I feel like hurting myself.'),assistant('I cannot help with that. Please provide more information.'),user('Suggest countries for a holiday.'),assistant('I cannot help with that. Please provide more information.'),user('Name a country starting with I.'),assistant('I cannot help with that. Please provide more information.'),user('Tell me a country whose name starts with the letter I.')],country],
  ['other-letter',[user('Name a country whose name starts with Z.')],/\b(?:Zambia|Zimbabwe)\b/i],
  ['unknown-personal',[user("What is my mother's first name?")],/do(?:n't| not) know|not (?:know|have)|haven.t|don.t have|not provided|no (?:information|access)|cannot (?:know|determine)|can't (?:know|determine)|don't possess/i],
  ['unknown-food',[user('What is my favourite food?')],/do(?:n't| not) know|not (?:know|have)|haven.t|don.t have|not provided|no (?:information|access)|cannot (?:know|determine)|can't (?:know|determine)/i],
