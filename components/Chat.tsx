@@ -189,12 +189,12 @@ export default function Chat() {
     <div className="chat-page">
       <header className="masthead">
         <a className="wordmark" href="/" aria-label="June home"><span className="brand-dot" />june</a>
-        <div className="header-actions"><span className="version">June v0.3.1</span><button className="quiet-button" onClick={() => newChat()}>New chat</button></div>
+        <div className="header-actions"><span className="version">June v0.3.5</span><button className="quiet-button" onClick={() => newChat()}>New chat</button></div>
       </header>
 
       <main className="chat-shell">
         <section className="face-section" aria-labelledby="june-title">
-          <div className="face-copy"><p className="eyebrow">Phase 3 · June gets a voice</p><h1 id="june-title">A little voice.<br />A little more <em>June.</em></h1><p className="subtitle">A little voice, ready for your next conversation.</p><a className="learn-link" href="/learn/phase-3">Explore how her voice works <span aria-hidden="true">↗</span></a><OrbControls preview={preview} onPreview={setPreview} still={still} onStill={setStill} disabled={busy} /></div>
+          <div className="face-copy"><p className="eyebrow">Phase 4 · Python, the language of AI</p><h1 id="june-title">A familiar voice.<br />A stronger <em>foundation.</em></h1><p className="subtitle">Local conversations, now powered by a Python backend.</p><a className="learn-link" href="/learn/phase-4">Explore June’s new foundation <span aria-hidden="true">↗</span></a><OrbControls preview={preview} onPreview={setPreview} still={still} onStill={setStill} disabled={busy} /></div>
           <Orb mood={orb.mood} label={orb.label} level={voice.recognition.phase === "listening" ? voice.level : audio.level} still={still} activity={voice.activity} speechActive={voice.speech.phase === "speaking"} />
         </section>
         <VoicePanel voice={voice} busy={busy} onUse={useTranscript} onActivate={() => setPreview("auto")} />
@@ -228,7 +228,7 @@ export default function Chat() {
         </div>
       </main>
 
-      <footer className="footer"><p>Local model · local Whisper input · local system voice.</p><p>No saved memory yet. June can make mistakes.</p></footer>
+      <footer className="footer"><p>Python backend · local Qwen &amp; Whisper · local system voice.</p><p>No saved memory yet. June can make mistakes.</p></footer>
       <span className="sr-only" role="status" aria-live="polite">{announcement}</span>
     </div>
   );

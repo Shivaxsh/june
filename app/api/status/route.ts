@@ -1,8 +1,4 @@
-import { getModelStatus } from "@/lib/server/model";
-
+import { proxyBackend } from "@/lib/server/backend";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-export async function GET() {
-  return Response.json(await getModelStatus(), { headers: { "Cache-Control": "no-store" } });
-}
+export function GET(request: Request) { return proxyBackend(request, "/api/status", "model-status"); }

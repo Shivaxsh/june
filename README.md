@@ -1,6 +1,8 @@
-# June v0.3.1
+# June v0.3.5
 
-A personal assistant, built one phase at a time. June combines local streamed text chat with a Canvas particle orb, audio visualisation, local Whisper speech recognition, a local female speaking voice and learning studios.
+A personal assistant, built one phase at a time. June combines a Python backend, local streamed text chat, a Canvas particle orb, local Whisper speech recognition and a local female speaking voice.
+
+**Phase 4:** [Python walkthrough and source map](docs/phase-4.md) · [learning studio](http://127.0.0.1:3001/learn/phase-4). The backend migration preserves the existing chat and local voice flow.
 
 **Open locally:** <http://127.0.0.1:3001>
 
@@ -15,14 +17,14 @@ cd /Users/apple/Documents/June
 npm run model:start
 ```
 
-In the second, start June's web app:
+In the second, start June's Python backend and web app together:
 
 ```sh
 cd /Users/apple/Documents/June
 npm start
 ```
 
-Open <http://127.0.0.1:3001>. The status should show **qwen2.5:1.5b · Ready**. Your Mac and both processes must stay running. Press **Control+C** in each terminal to stop them. Nothing starts automatically at login. Port 3001 is intentional: Mad Realm uses 3000.
+Open <http://127.0.0.1:3001>. The status should show **qwen2.5:1.5b · Ready**. Your Mac and the processes must stay running. Press **Control+C** in each terminal to stop them. June stops only processes it started; a separately started Python backend is left running. Nothing starts automatically at login. Port 3001 is intentional: Mad Realm uses 3000. Python uses local port 8001.
 
 ## First setup or another Mac
 
@@ -31,6 +33,7 @@ Use a recent Node.js release (22 or 24 LTS recommended; this machine uses Node 2
 ```sh
 npm install
 cp .env.example .env.local
+npm run backend:setup
 ```
 
 Install [Ollama from its official source](https://ollama.com/download). The helper uses June's private runtime at `~/Library/Application Support/June/runtime/ollama` if present; otherwise it uses `ollama` in your PATH. This machine has the official universal macOS CLI release **0.40.2**, including Intel support, installed in that runtime folder.

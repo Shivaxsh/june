@@ -2,8 +2,7 @@
 // they never substitute answers in June's production chat.
 import { readFile, writeFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
-const source = await readFile(new URL('../lib/server/model.ts',import.meta.url),'utf8');
-const prompt = process.env.JUNE_EVAL_PROMPT_FILE ? (await readFile(process.env.JUNE_EVAL_PROMPT_FILE,'utf8')).trim() : source.match(/export const JUNE_PROMPT = `([^`]+)`/)[1];
+const prompt = (await readFile(process.env.JUNE_EVAL_PROMPT_FILE || new URL('../backend/june/prompt.txt', import.meta.url), 'utf8')).trim();
 const models = process.argv.slice(2); if(!models.length) models.push('qwen3:0.6b','qwen2.5:1.5b');
 const user = content => ({role:'user',content}); const assistant = content => ({role:'assistant',content});
 const country = /\b(?:India|Iran|Iraq|Ireland|Iceland|Italy|Israel|Indonesia)\b/i;

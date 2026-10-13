@@ -1,3 +1,5 @@
+// Historical Phase 1 adapter, retained for learning/regression comparison.
+// Production routes use the Python backend through backend.ts.
 import type { ChatEvent, ChatMessage, ChatMode, ModelStatus } from "../chat-types";
 import { readJsonLines } from "../ndjson";
 

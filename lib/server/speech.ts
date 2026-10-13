@@ -1,3 +1,4 @@
+// Historical Phase 3 server reference; active transcription is backend/june/speech.py.
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
