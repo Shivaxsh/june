@@ -1,10 +1,10 @@
-# June v0.2
+# June v0.3
 
-A personal assistant, built one phase at a time. June combines local streamed text chat with a Canvas particle orb, audio visualisation and a Phase 2 learning studio.
+A personal assistant, built one phase at a time. June combines local streamed text chat with a Canvas particle orb, audio visualisation, browser speech recognition, a local female speaking voice and learning studios.
 
 **Open locally:** <http://127.0.0.1:3001>
 
-Qwen3 0.6B is an existing pretrained model running through Ollama on your Intel Mac's CPU. This phase builds the assistant around it; it does not train a new model. Voice, saved memory and computer actions follow later phases.
+Qwen3 0.6B is an existing pretrained model running through Ollama on your Intel Mac's CPU. This phase builds the assistant around it; it does not train a new model. The browser voice interface is now available; saved memory and computer actions follow later phases.
 
 ## Start and stop June
 
@@ -56,6 +56,26 @@ The model download is about 523 MB. June's helper stores models in `~/Library/Ap
 Only completed message/reply pairs become follow-up context. Failed and interrupted turns stay visible but are excluded; on failure your input is restored for retry. Switching reply source starts a new chat. Refreshing clears messages. There is no database, local-storage chat history or cross-session memory.
 
 Messages are limited to 2,000 characters; a request may contain up to 20 messages and 6,000 characters of conversation text. June asks you to start a new chat when the limit is reached rather than quietly forgetting text. Generation uses a 4,096-token context, a 256-token reply cap, temperature 0.6 and thinking disabled. A small model can answer incorrectly; long answers can hit the reply cap.
+
+## Phase 3 — talk and hear June
+
+June uses the browser's Web Speech recognition service and local female English synthesis voices. The Qwen model still runs locally. Browser recognition can send microphone audio to its online service; this is stated beside the listening button. This edition does not add a paid speech provider or API key.
+
+1. Choose and preview June's voice. Known female local English identities are offered; Indian English is preferred when available. This Mac/browser currently offers Samantha (American English) and other female English voices, but no recognised female Indian English voice.
+2. Hold **Hold to talk** with mouse/touch, or hold Space/Enter while it is focused. Release ends listening. **Start listening / Finish listening** is a toggle alternative for accessibility.
+3. Review and edit the transcript. **Use transcript** appends it to any existing draft; **Send** is deliberately separate. If the combined text exceeds the message limit, shorten it before using it.
+4. Every reply is spoken by default. **Speak replies** saves your mute preference. Voice and recognition-language choices also survive reload; transcripts and chats do not.
+5. **Stop** cancels the model, recognition and speech. **Stop voice** clears current and queued speech while allowing text generation to continue. **Hear reply** replays a completed answer even when automatic speech is muted.
+
+Streaming text becomes speech one sentence at a time. Fenced code blocks are excluded; formatting markers are removed, while the full written reply stays visible. Sentence ordering and request identifiers keep cancelled or superseded speech from returning later.
+
+Actual listening and speaking control the orb. Speech boundary events highlight words when supported; otherwise captions use approximate timing. Speech movement is explicitly a visual approximation. Browser system synthesis does not expose audio samples for the sound meter, so amplitude is labelled unavailable during speech. Phase 2 sample/file visualisation still uses actual measured sound.
+
+Voice activities and the Phase 2 audio sources operate exclusively. Starting recognition stops speech/audio; starting sample/file playback stops recognition and suppresses the current reply's speech queue. New chat, navigation and hidden tabs stop media work. Recognition controls are disabled during model generation.
+
+Open the [Phase 3 studio](http://127.0.0.1:3001/learn/phase-3) for the six workbook topics, preview controls and an explicitly labelled sentence-streaming demonstration. It never sends demonstration text to the model. The detailed walkthrough is `docs/phase-3.md`.
+
+**Verification limit:** synthesis preview, automatic real-model replies, captions, replay and Stop/mute work in the embedded browser. Its recognition service reached a listening state but returned a network error without producing a transcript. Therefore the real spoken-input conversation is not verified and Phase 3's build checkbox remains unchanged. Try a browser with a functioning recognition service to finish that check; typing and spoken typed replies remain usable.
 
 ## Phase 2 — explore her face
 
@@ -150,13 +170,13 @@ npm test
 npm run build
 git diff
 git add app components lib scripts public tests package.json package-lock.json tsconfig.json next.config.ts .env.example .gitignore README.md docs
-git commit -m "Build June v0.2 animated face and learning studio"
+git commit -m "Build June v0.3 browser voice conversation"
 ```
 
-Manual checks: empty input, Enter/Shift+Enter, wrapping, safe `<script>` text, genuine streaming, follow-up context, cancellation, context clearing, and recovery from a stopped model server. See `docs/verification-v0.2.md` for Phase 2 results and limits, and `docs/verification.md` for the earlier Phase 1 checks. The detailed graphics/audio walkthrough is in `docs/phase-2.md`.
+Manual checks: empty input, Enter/Shift+Enter, wrapping, safe `<script>` text, genuine streaming, follow-up context, cancellation, context clearing, and recovery from a stopped model server. See `docs/verification-v0.3.md` for current voice results and limits, `docs/verification-v0.2.md` for Phase 2 results and limits, and `docs/verification.md` for the earlier Phase 1 checks. The detailed graphics/audio walkthrough is in `docs/phase-2.md`.
 
 ## Phase 0 and the public site
 
-The existing `index.html` and `styles.css` are preserved. [GitHub Pages](https://shivaxsh.github.io/june/) still publishes v0.0 from **main / root**. June v0.2 is on **codex/june-v0.2**, runs locally and is not the Pages publishing branch. [Source repository](https://github.com/Shivaxsh/june).
+The existing `index.html` and `styles.css` are preserved. [GitHub Pages](https://shivaxsh.github.io/june/) still publishes v0.0 from **main / root**. June v0.3 is on **codex/june-v0.3**, runs locally and is not the Pages publishing branch. [Source repository](https://github.com/Shivaxsh/june).
 
 Keep `.env.local`, models, screenshots, progress backups and private personality notes out of public Git commits.

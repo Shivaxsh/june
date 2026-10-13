@@ -167,3 +167,42 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #0c1712; borde
   .lesson-orb .orb-controls { margin-bottom: 20px; }
   .lesson-footer { flex-wrap: wrap; }
 }
+
+/* Phase 3: clear speech controls, transcript review and captions. */
+.voice-panel { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 20px; margin: 0 0 16px; }
+.voice-heading { display: flex; justify-content: space-between; gap: 16px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.voice-heading .motion-option { margin: 0; }
+.voice-settings { display: flex; gap: 9px; align-items: flex-end; flex-wrap: wrap; margin-top: 20px; }
+.voice-settings > label { flex: 1 1 220px; font-size: 11px; color: var(--muted); }
+.voice-settings select { display: block; width: 100%; margin-top: 8px; font-size: 12px; min-height: 35px; }
+.voice-description { color: var(--muted); font-size: 11px; line-height: 1.7; }
+.recognition-notice { color: var(--muted); font-size: 11px; line-height: 1.7; padding-top: 14px; border-top: 1px solid var(--line); }
+.talk-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.talk-button { border: 1px solid #689c86; border-radius: 8px; background: #21382d; color: var(--accent); padding: 12px 18px; font-size: 12px; font-weight: 600; touch-action: none; user-select: none; }
+.talk-button.is-listening { background: #284458; border-color: #86bceb; color: #c2e2fb; }
+.recognition-language { margin-left: auto; font-size: 10px; color: var(--muted); display: grid; gap: 6px; }
+.voice-status { color: var(--accent); font-size: 11px; line-height: 1.7; margin-bottom: 0; }
+.transcript-review { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 18px; }
+.transcript-review > label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 8px; }
+.transcript-review textarea { border: 1px solid var(--line); border-radius: 7px; padding: 10px; background: #101916; }
+.transcript-review > div { display: flex; gap: 8px; margin-top: 8px; }
+.transcript-review p { color: var(--muted); font-size: 10px; line-height: 1.7; }
+.speech-captions { padding: 14px; background: #0f1a15; border: 1px solid #375145; border-radius: 8px; margin-top: 18px; }
+.speech-captions p { font-size: 13px; color: var(--text); line-height: 1.8; margin: 0 0 8px; overflow-wrap: anywhere; }
+.speech-captions mark { background: #315c4b; color: #e7fff3; border-radius: 3px; }
+.speech-captions small { color: var(--muted); font-size: 9px; line-height: 1.7; }
+.voice-panel .error-notice { margin: 16px 0 0; }
+.voice-panel .error-notice p { margin: 0; }
+.hear-reply { margin-top: 12px; }
+.all-stop { display: block; margin: 0 0 16px auto; }
+.level-readout[hidden] { display: none; }
+.stream-example { margin: 20px 0; }
+@media (max-width: 600px) {
+  .voice-panel { padding: 15px; }
+  .voice-heading { align-items: flex-start; }
+  .voice-settings { gap: 8px; }
+  .voice-settings > label { flex-basis: 100%; }
+  .voice-settings .quiet-button { min-height: 38px; }
+  .recognition-language { margin-left: 0; flex-basis: 100%; }
+  .talk-controls > button { min-height: 42px; }
+}

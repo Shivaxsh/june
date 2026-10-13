@@ -11,10 +11,15 @@ import OrbControls from "./orb/OrbControls";
 import { useAudio } from "./orb/useAudio";
 import { resolveOrb, type Preview } from "@/lib/orb/state";
 
+import { useVoice } from "./voice/useVoice";
+import VoicePanel from "./voice/VoicePanel";
+import { mergeTranscript } from "@/lib/voice/sentences";
+
 type DisplayMessage = ChatMessage & { id: string; state?: "pending" | "complete" | "stopped" | "failed" };
 
 export default function Chat() {
   const audio = useAudio();
+  const voice = useVoice(audio.stop);
   const [preview, setPreview] = useState<Preview>("auto");
   const [still, setStill] = useState(false);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -59,7 +64,7 @@ export default function Chat() {
   }, [messages]);
 
   function newChat(nextMode = mode) {
-    audio.stop(); setPreview("auto");
+    audio.stop(); voice.cancel(true); setPreview("auto");
     requestId.current += 1;
     active.current?.abort();
     active.current = null;
@@ -86,6 +91,7 @@ export default function Chat() {
     setTiming("");
     setDraft("");
     const id = ++requestId.current;
+    voice.begin(id);
     const controller = new AbortController();
     active.current = controller;
     const user: ChatMessage = { role: "user", content };
@@ -128,6 +134,7 @@ export default function Chat() {
         if (event.type === "delta" && typeof event.text === "string") {
           if (!firstToken) firstToken = performance.now();
           reply += event.text;
+          voice.push(id, event.text);
           update("pending");
         } else if (event.type === "done" && typeof event.model === "string") {
           complete = true;
@@ -139,6 +146,7 @@ export default function Chat() {
       controller.signal.throwIfAborted();
       if (id !== requestId.current) return;
       if (!complete || !reply.trim()) throw new Error("The reply ended unexpectedly. Please try again.");
+      voice.finish(id);
       history.current = [...context, { role: "assistant", content: reply }];
       update("complete");
       const elapsed = ((performance.now() - started) / 1000).toFixed(1);
@@ -147,6 +155,7 @@ export default function Chat() {
       setAnnouncement("June’s reply is complete.");
     } catch (failure) {
       if (id !== requestId.current) return;
+      voice.stopVoice();
       if (controller.signal.aborted) {
         update("stopped");
         setAnnouncement("Reply stopped. You can send another message.");
@@ -167,21 +176,30 @@ export default function Chat() {
     }
   }
 
-  const orb = resolveOrb(busy, mode === "demo", preview, audio.phase);
+  const voiceActivity = { listening: voice.recognition.phase === "listening", speaking: voice.speech.phase === "speaking", requesting: voice.recognition.phase === "requesting", finishing: voice.recognition.phase === "finishing" };
+  const orb = resolveOrb(busy, mode === "demo", preview, audio.phase, voiceActivity);
+  const stopAll = () => { active.current?.abort(); voice.cancel(); audio.stop(); };
+  function useTranscript(text: string) {
+    const merged = mergeTranscript(draft, text);
+    if (merged.length > MAX_MESSAGE_LENGTH) { setError("The combined message is too long. Shorten your draft or transcript before adding it."); return; }
+    setDraft(merged); voice.clearTranscript(); setError(""); composer.current?.focus();
+  }
   const connection = mode === "demo" ? "Practice mode · simulated replies" : status?.message || "Connecting to your local model…";
   return (
     <div className="chat-page">
       <header className="masthead">
         <a className="wordmark" href="/" aria-label="June home"><span className="brand-dot" />june</a>
-        <div className="header-actions"><span className="version">June v0.2</span><button className="quiet-button" onClick={() => newChat()}>New chat</button></div>
+        <div className="header-actions"><span className="version">June v0.3</span><button className="quiet-button" onClick={() => newChat()}>New chat</button></div>
       </header>
 
       <main className="chat-shell">
         <section className="face-section" aria-labelledby="june-title">
-          <div className="face-copy"><p className="eyebrow">Phase 2 · June gets a face</p><h1 id="june-title">A little spark.<br />A little more <em>June.</em></h1><p className="subtitle">A living network, moving with your conversation.</p><a className="learn-link" href="/learn/phase-2">Explore how her orb works <span aria-hidden="true">↗</span></a><OrbControls preview={preview} onPreview={setPreview} still={still} onStill={setStill} disabled={busy} /></div>
-          <Orb mood={orb.mood} label={orb.label} level={audio.level} still={still} />
+          <div className="face-copy"><p className="eyebrow">Phase 3 · June gets a voice</p><h1 id="june-title">A little voice.<br />A little more <em>June.</em></h1><p className="subtitle">A little voice, ready for your next conversation.</p><a className="learn-link" href="/learn/phase-3">Explore how her voice works <span aria-hidden="true">↗</span></a><OrbControls preview={preview} onPreview={setPreview} still={still} onStill={setStill} disabled={busy} /></div>
+          <Orb mood={orb.mood} label={orb.label} level={audio.level} still={still} activity={voice.activity} speechActive={voice.speech.phase === "speaking"} />
         </section>
-        <details className="sound-workshop"><summary>Sound &amp; microphone <span>{audio.phase === "listening" ? "Microphone active" : audio.phase === "playing" ? "Audio playing" : audio.phase === "requesting" ? "Permission pending" : audio.phase === "paused" ? "Paused" : "Explore audio reactivity"}</span></summary><AudioPanel audio={audio} onActivate={() => setPreview("auto")} /></details>
+        <VoicePanel voice={voice} busy={busy} onUse={useTranscript} onActivate={() => setPreview("auto")} />
+        {(voice.recognition.phase !== "idle" || voice.speech.phase !== "idle") && !busy && <button className="quiet-button all-stop" onClick={stopAll}>Stop all voice activity</button>}
+        <details className="sound-workshop"><summary>Sound &amp; microphone <span>{audio.phase === "listening" ? "Microphone active" : audio.phase === "playing" ? "Audio playing" : audio.phase === "requesting" ? "Permission pending" : audio.phase === "paused" ? "Paused" : "Explore audio reactivity"}</span></summary><AudioPanel audio={audio} disableCapture={busy} onActivate={() => { voice.cancel(); setPreview("auto"); }} /></details>
 
         <div className="connection-bar">
           <div className="connection-copy"><span className={`status-dot ${mode === "demo" ? "demo" : status?.state === "ready" ? "ready" : "offline"}`} /><span><strong>{mode === "demo" ? "Simulated demo" : status?.model || "Local AI"}</strong><span className="connection-description">{connection}</span></span></div>
@@ -194,7 +212,7 @@ export default function Chat() {
           if (panel) nearBottom.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 100;
         }}>
           {!messages.length && <div className="empty-state"><span className="empty-label">A BEGINNING, WITH ROOM TO GROW</span><h2>Hello, I’m <em>June.</em></h2><p>Ask a question, explore an idea, or just say hello.</p><div className="suggestions">{["Introduce yourself, June.", "Explain async/await simply."].map(text => <button key={text} onClick={() => { setDraft(text); composer.current?.focus(); }}>{text}<span aria-hidden="true">↗</span></button>)}</div></div>}
-          {messages.map(message => <article key={message.id} className={`message ${message.role}`} aria-label={message.role === "user" ? "Your message" : "June’s message"}><span className="message-label">{message.role === "user" ? "YOU" : "JUNE"}</span><div className="message-text">{message.content || (message.state === "pending" ? <span className="waiting">Thinking<span aria-hidden="true">…</span></span> : message.state === "stopped" ? "Reply stopped." : "No reply yet.")}</div>{message.state === "stopped" && message.content && <span className="message-note">Stopped · partial reply</span>}{message.state === "failed" && <span className="message-note">Not completed · message restored below</span>}</article>)}
+          {messages.map(message => <article key={message.id} className={`message ${message.role}`} aria-label={message.role === "user" ? "Your message" : "June’s message"}><span className="message-label">{message.role === "user" ? "YOU" : "JUNE"}</span><div className="message-text">{message.content || (message.state === "pending" ? <span className="waiting">Thinking<span aria-hidden="true">…</span></span> : message.state === "stopped" ? "Reply stopped." : "No reply yet.")}</div>{message.state === "stopped" && message.content && <span className="message-note">Stopped · partial reply</span>}{message.state === "failed" && <span className="message-note">Not completed · message restored below</span>}{message.role === "assistant" && message.state === "complete" && <button className="quiet-button hear-reply" disabled={busy || !voice.choices.selected} onClick={() => { setPreview("auto"); voice.replay(message.content); }}>Hear reply</button>}</article>)}
         </div>
 
         <div className="composer-area">
@@ -204,13 +222,13 @@ export default function Chat() {
             <textarea ref={composer} id="message" value={draft} maxLength={MAX_MESSAGE_LENGTH} rows={2} placeholder="What’s on your mind?" disabled={busy} onChange={event => setDraft(event.target.value)} onKeyDown={event => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
             }} />
-            {busy ? <button className="send-button stop-button" type="button" onClick={() => active.current?.abort()}><span aria-hidden="true">■</span> Stop</button> : <button className="send-button" type="submit" disabled={!draft.trim()}><span>Send</span><span aria-hidden="true">↑</span></button>}
+            {busy ? <button className="send-button stop-button" type="button" onClick={stopAll}><span aria-hidden="true">■</span> Stop</button> : <button className="send-button" type="submit" disabled={!draft.trim()}><span>Send</span><span aria-hidden="true">↑</span></button>}
           </form>
           <div className="composer-notes"><span>Enter to send · Shift + Enter for a new line</span><span>{timing || `${draft.length}/${MAX_MESSAGE_LENGTH}`}</span></div>
         </div>
       </main>
 
-      <footer className="footer"><p>On your Mac. In this conversation.</p><p>No saved memory yet. June can make mistakes.</p></footer>
+      <footer className="footer"><p>Local model · browser speech services.</p><p>No saved memory yet. June can make mistakes.</p></footer>
       <span className="sr-only" role="status" aria-live="polite">{announcement}</span>
     </div>
   );

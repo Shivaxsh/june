@@ -2,7 +2,7 @@
 import { useId, useRef, useState } from "react";
 import type { AudioControls } from "./useAudio";
 
-export default function AudioPanel({ audio, onActivate }: { audio: AudioControls; onActivate: () => void }) {
+export default function AudioPanel({ audio, onActivate, disableCapture = false }: { audio: AudioControls; onActivate: () => void; disableCapture?: boolean }) {
   const id = useId();
   const [file, setFile] = useState<File>();
   const input = useRef<HTMLInputElement>(null);
@@ -22,7 +22,7 @@ export default function AudioPanel({ audio, onActivate }: { audio: AudioControls
       <button className="quiet-button" disabled={audio.phase === "idle"} onClick={audio.stop}>Stop audio</button>
       {audio.phase === "listening" || audio.phase === "requesting"
         ? <button className="quiet-button mic-active" onClick={audio.stop}>{audio.phase === "requesting" ? "Cancel microphone" : "Stop microphone"}</button>
-        : <button className="quiet-button" onClick={() => { onActivate(); void audio.microphone(); }}>Start microphone</button>}
+        : <button className="quiet-button" disabled={disableCapture} onClick={() => { onActivate(); void audio.microphone(); }}>Start microphone</button>}
     </div>
     {audio.error && <p className="error-notice" role="alert">{audio.error}</p>}
   </div>;

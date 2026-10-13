@@ -14,7 +14,7 @@ const points = Array.from({ length: 110 }, (_, i) => {
   return { x: Math.cos(angle) * radius, y, z: Math.sin(angle) * radius, group: Math.floor((angle % (Math.PI * 2)) / (Math.PI * 2) * 5) };
 });
 
-export default function Orb({ mood, label, level, still = false }: { mood: Mood; label: string; level: Level; still?: boolean }) {
+export default function Orb({ mood, label, level, still = false, activity, speechActive = false }: { mood: Mood; label: string; level: Level; still?: boolean; activity?: Level; speechActive?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const meter = useRef<HTMLMeterElement>(null);
   const reading = useRef<HTMLSpanElement>(null);
@@ -49,6 +49,7 @@ export default function Orb({ mood, label, level, still = false }: { mood: Mood;
       const dt = previous ? Math.min(60, time - previous) : 0;
       previous = time;
       const signal = Math.max(0, Math.min(1, level.current));
+      const expression = Math.max(signal, (activity?.current || 0) * .3);
       if (meter.current) meter.current.value = signal;
       if (reading.current) reading.current.textContent = `${Math.round(signal * 100)}%`;
       if (reduced && !needsDraw && lastMood === currentMood.current) return;
@@ -59,7 +60,7 @@ export default function Orb({ mood, label, level, still = false }: { mood: Mood;
       const accent = accents[mood];
       const mid = width / 2;
       const radius = width * .31;
-      const breath = reduced ? 1 : 1 + Math.sin(t * (mood === "thinking" ? 2.6 : 1)) * .024 + signal * .12;
+      const breath = reduced ? 1 : 1 + Math.sin(t * (mood === "thinking" ? 2.6 : 1)) * .024 + expression * .12;
       const spin = reduced ? .35 : t * (mood === "thinking" ? .20 : .07) + .35;
       ctx.clearRect(0, 0, width, width);
       const halo = ctx.createRadialGradient(mid, mid, 0, mid, mid, width * .47);
@@ -95,7 +96,7 @@ export default function Orb({ mood, label, level, still = false }: { mood: Mood;
         }
       }
       ctx.globalAlpha = 1;
-      const coreRadius = radius * (.33 + (reduced ? 0 : signal * .14));
+      const coreRadius = radius * (.33 + (reduced ? 0 : expression * .14));
       const core = ctx.createRadialGradient(mid, mid, 0, mid, mid, coreRadius);
       core.addColorStop(0, "#f1fff5"); core.addColorStop(.12, accent + "dc"); core.addColorStop(.4, accent + "30"); core.addColorStop(1, accent + "00");
       ctx.fillStyle = core; ctx.beginPath(); ctx.arc(mid, mid, coreRadius, 0, Math.PI * 2); ctx.fill();
@@ -113,10 +114,10 @@ export default function Orb({ mood, label, level, still = false }: { mood: Mood;
     const visibility = () => { cancelAnimationFrame(frame); previous = 0; if (!document.hidden) frame = requestAnimationFrame(draw); };
     document.addEventListener("visibilitychange", visibility); visibility();
     return () => { cancelAnimationFrame(frame); observer.disconnect(); document.removeEventListener("visibilitychange", visibility); };
-  }, [level, reduced]);
+  }, [level, reduced, activity]);
   return <figure className="network-orb" data-mood={mood} data-motion={reduced ? "still" : "animated"}>
     <canvas ref={canvas} aria-hidden="true" />
     {!available && <div className="orb-fallback">✦</div>}
-    <figcaption><span className="orb-state" role="status">{label}</span><span className="level-readout"><span>Sound level</span><meter ref={meter} min="0" max="1" value="0" aria-label="Sound level" /><span ref={reading}>0%</span></span>{reduced && <span className="motion-caption">Still view · movement reduced</span>}</figcaption>
+    <figcaption><span className="orb-state" role="status">{label}</span><span className="level-readout" hidden={speechActive}><span>Sound level</span><meter ref={meter} min="0" max="1" value="0" aria-label="Sound level" /><span ref={reading}>0%</span></span>{speechActive && <span className="motion-caption">Speech activity · amplitude unavailable</span>}{reduced && <span className="motion-caption">Still view · movement reduced</span>}</figcaption>
   </figure>;
 }
