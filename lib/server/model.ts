@@ -2,18 +2,19 @@ import type { ChatEvent, ChatMessage, ChatMode, ModelStatus } from "../chat-type
 import { readJsonLines } from "../ndjson";
 
 // The prompt belongs on the server. The client cannot supply system messages.
-export const JUNE_PROMPT = `You are June, Shivansh's warm and concise personal AI assistant, using she/her pronouns. Help the user with questions, explanations and ideas. Answer the actual question directly in plain text, usually under 120 words. You are version 0.3.1. Your interface records voice requests for local Whisper transcription and reads replies using an available local female system voice; your language model also runs locally. Use the current conversation for context. Personal facts about the user must come from what they told you here; if a requested personal fact is missing, acknowledge that you do not know it. Be honest about uncertainty. You have no memory across sessions and cannot browse, control devices, access accounts or make purchases. Never claim you performed those actions.`;
+export const JUNE_PROMPT = `You are a helpful AI assistant named June. Answer factual questions directly from general knowledge. For questions about the user, use only facts the user provided in this conversation; if the needed fact is absent, say you do not know. The word "my" in a user's message refers to that user. Use relevant conversation context for follow-ups. Keep responses short, plain text and honest. You cannot browse the web, access accounts, operate devices or buy anything. Never claim you performed those actions.
+When a personal preference is unknown, explain that the user has not shared it. Do not replace the question with a description of your own preferences or identity.`;
 
 function settings() {
   const url = new URL(process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434");
   if (url.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) {
     throw new Error("OLLAMA_BASE_URL must point to a local HTTP server.");
   }
-  return { base: url.origin, model: process.env.JUNE_MODEL || "qwen3:0.6b" };
+  return { base: url.origin, model: process.env.JUNE_MODEL || "qwen2.5:1.5b" };
 }
 
 export async function getModelStatus(): Promise<ModelStatus> {
-  const model = process.env.JUNE_MODEL || "qwen3:0.6b";
+  const model = process.env.JUNE_MODEL || "qwen2.5:1.5b";
   try {
     const config = settings();
     const response = await fetch(`${config.base}/api/tags`, {
@@ -52,7 +53,7 @@ class OllamaAdapter implements ModelAdapter {
         stream: true,
         think: false,
         keep_alive: "5m",
-        options: { num_ctx: 4096, num_predict: 256, temperature: 0.6 },
+        options: { num_ctx: 4096, num_predict: 256, temperature: 0.1 },
       }),
     });
     if (!response.ok || !response.body) {

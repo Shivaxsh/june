@@ -4,7 +4,7 @@ A personal assistant, built one phase at a time. June combines local streamed te
 
 **Open locally:** <http://127.0.0.1:3001>
 
-Qwen3 0.6B is an existing pretrained model running through Ollama on your Intel Mac's CPU. This phase builds the assistant around it; it does not train a new model. The browser voice interface is now available; saved memory and computer actions follow later phases.
+Qwen2.5 1.5B is an existing pretrained model running through Ollama on your Intel Mac's CPU. This phase builds the assistant around it; it does not train a new model. The browser voice interface is now available; saved memory and computer actions follow later phases.
 
 ## Start and stop June
 
@@ -22,7 +22,7 @@ cd /Users/apple/Documents/June
 npm start
 ```
 
-Open <http://127.0.0.1:3001>. The status should show **qwen3:0.6b · Ready**. Your Mac and both processes must stay running. Press **Control+C** in each terminal to stop them. Nothing starts automatically at login. Port 3001 is intentional: Mad Realm uses 3000.
+Open <http://127.0.0.1:3001>. The status should show **qwen2.5:1.5b · Ready**. Your Mac and both processes must stay running. Press **Control+C** in each terminal to stop them. Nothing starts automatically at login. Port 3001 is intentional: Mad Realm uses 3000.
 
 ## First setup or another Mac
 
@@ -44,7 +44,7 @@ npm run build
 npm start
 ```
 
-The model download is about 523 MB. June's helper stores models in `~/Library/Application Support/June/models`, disables Ollama cloud inference and binds the server to the local computer. No API key, account, GPU purchase or paid service is needed. Internet is needed for downloads; inference runs locally after setup.
+The model download is about 986 MB. June's helper stores models in `~/Library/Application Support/June/models`, disables Ollama cloud inference and binds the server to the local computer. No API key, account, GPU purchase or paid service is needed. Internet is needed for downloads; inference runs locally after setup.
 
 ## Chat controls and limits
 
@@ -56,7 +56,7 @@ The model download is about 523 MB. June's helper stores models in `~/Library/Ap
 
 Only completed message/reply pairs become follow-up context. Failed and interrupted turns stay visible but are excluded; on failure your input is restored for retry. Switching reply source starts a new chat. Refreshing clears messages. There is no database, local-storage chat history or cross-session memory.
 
-Messages are limited to 2,000 characters; a request may contain up to 20 messages and 6,000 characters of conversation text. June asks you to start a new chat when the limit is reached rather than quietly forgetting text. Generation uses a 4,096-token context, a 256-token reply cap, temperature 0.6 and thinking disabled. A small model can answer incorrectly; long answers can hit the reply cap.
+Messages are limited to 2,000 characters; a request may contain up to 20 messages and 6,000 characters of conversation text. June asks you to start a new chat when the limit is reached rather than quietly forgetting text. Generation uses a 4,096-token context, a 256-token reply cap, temperature 0.1 and thinking disabled. A small model can answer incorrectly; long answers can hit the reply cap.
 
 ## Phase 3 — talk and hear June
 
@@ -191,3 +191,11 @@ Manual checks: empty input, Enter/Shift+Enter, wrapping, safe `<script>` text, g
 The existing `index.html` and `styles.css` are preserved. [GitHub Pages](https://shivaxsh.github.io/june/) still publishes v0.0 from **main / root**. June v0.3.1 is on **codex/june-v0.3-voice-fix**, runs locally and is not the Pages publishing branch. [Source repository](https://github.com/Shivaxsh/june).
 
 Keep `.env.local`, models, screenshots, progress backups and private personality notes out of public Git commits.
+
+## Basic answer reliability repair
+
+The default is now Qwen2.5 1.5B with temperature 0.1 and a shorter general-knowledge/personal-facts prompt. The older Qwen3 0.6B remains installed for rollback. No answers are substituted by application code. Conversation history remains intact because refusal propagation was not reproduced independently.
+
+See `docs/answer-reliability.md` for the real comparison and limits. Run `node scripts/evaluate-models.mjs qwen2.5:1.5b` for the focused local check. Tests and comparisons use synthetic public questions, not private conversations. This small check is not a guarantee that every answer is correct. The model cannot look up current restaurants, prices or news.
+
+To roll back, set `JUNE_MODEL=qwen3:0.6b` in ignored `.env.local`, then restart June. No existing model is deleted.

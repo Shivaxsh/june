@@ -14,7 +14,7 @@ const url = new URL(process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434");
 if (url.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) {
   throw new Error("June's model server must use a local HTTP address.");
 }
-const child = spawn(binary, command === "pull" ? ["pull", process.env.JUNE_MODEL || "qwen3:0.6b"] : ["serve"], {
+const child = spawn(binary, command === "pull" ? ["pull", process.env.JUNE_MODEL || "qwen2.5:1.5b"] : ["serve"], {
   stdio: "inherit",
   env: {
     ...process.env,
