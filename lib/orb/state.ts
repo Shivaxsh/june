@@ -4,10 +4,10 @@ export type Preview = Mood | "auto";
 
 // Actual listening/speaking lead; generation and labelled previews follow.
 export function resolveOrb(busy: boolean, demo: boolean, preview: Preview, audio: AudioPhase, voice?: { listening: boolean; speaking: boolean; requesting: boolean; finishing: boolean }) {
-  if (voice?.listening) return { mood: "listening" as Mood, label: "Listening · speech recognition" };
+  if (voice?.listening) return { mood: "listening" as Mood, label: "Listening · local recording" };
   if (voice?.speaking) return { mood: "speaking" as Mood, label: "June is speaking · visual approximation" };
-  if (voice?.requesting) return { mood: "idle" as Mood, label: "Waiting for speech access" };
-  if (voice?.finishing) return { mood: "thinking" as Mood, label: "Preparing your transcript" };
+  if (voice?.requesting) return { mood: "idle" as Mood, label: "Waiting for microphone access" };
+  if (voice?.finishing) return { mood: "thinking" as Mood, label: "Transcribing on this Mac" };
   if (busy) return { mood: "thinking" as Mood, label: demo ? "Generating · simulated reply" : "Generating reply" };
   if (preview !== "auto") return { mood: preview, label: `${preview[0].toUpperCase()}${preview.slice(1)} · visual preview` };
   if (audio === "listening") return { mood: "listening" as Mood, label: "Listening · sound visualisation only" };

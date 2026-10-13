@@ -1,45 +1,42 @@
-# Phase 3 — June gets a voice
+# Phase 3 — June gets a voice (v0.3.1)
 
-June v0.3 runs at http://127.0.0.1:3001. The voice learning studio is /learn/phase-3; the Phase 2 studio remains available.
+June: http://127.0.0.1:3001 · learning studio: /learn/phase-3.
 
-## The flow
+## One voice request, step by step
 
-Browser microphone -> browser recognition service -> reviewed transcript -> the existing local chat API -> local Qwen model -> sentence queue -> local female system voice.
+1. Hold to talk or Start listening deliberately asks for microphone access.
+2. AudioWorklet captures mono PCM in browser memory. Its output is silent: the microphone is never echoed to speakers. The actual sample RMS drives the recording meter and orb.
+3. Release / Stop listening flushes the last samples, stops tracks and closes the audio graph. OfflineAudioContext resamples from the microphone's native rate to 16 kHz. A shared helper encodes PCM16 WAV and checks its duration/volume.
+4. The browser sends WAV only to `/api/speech/transcribe` on this Mac. Next.js validates it and launches pinned whisper.cpp with local base.en. There is no vendor speech-service request or API key.
+5. A temporary private directory holds the recording and engine output. Completion, failure, cancellation and timeout remove it. The recogniser returns text for editing; Use transcript appends it to the existing draft. Send remains separate.
+6. The existing chat route sends reviewed text and June's prompt to local Qwen. Complete reply sentences enter a speech queue while remaining text arrives.
+7. An explicitly chosen local female English voice reads them. Text remains visible; fenced code is excluded from speech. Playback start/end/boundary events drive captions and a labelled visual approximation.
 
-The model and synthesis use the local computer. Browser recognition may use an online speech service. June does not save raw recordings or transcripts, and its own server has no speech-upload endpoint. Preferences are the only voice data saved in localStorage: voice identity, recognition language and automatic-speech setting.
+## Learn in the same order as the workbook
 
-## Read these pieces in order
+1. **Web Speech:** learn recognition versus synthesis. Browser recognition may depend on an online service; its network error prompted this repair. June now uses Web Speech only for local synthesis.
+2. **Speech to text:** inspect `lib/voice/capture.ts`, `public/audio/recorder-worklet.js`, `lib/voice/pcm.ts`, `lib/voice/local-recognition.ts`, and `lib/server/speech.ts`. Understand recording, resampling, WAV, local inference and editable review. This English-only model supports English input; selecting an accent does not create a different recogniser.
+3. **Text to speech:** inspect `lib/voice/speech.ts`. Compare the text model's answer with the separate speaking engine. Ordinary pitch is 1; default rate is 0.98.
+4. **Sentence streaming:** inspect `lib/voice/sentences.ts`. Complete sentences preserve order; successful completion flushes the final fragment. Request and utterance tokens reject stale work.
+5. **Orb and captions:** inspect `lib/orb/state.ts` and `components/orb/Orb.tsx`. Actual listening and speech lead generation and previews. Captured microphone levels are measured. System speech has no exposed waveform, so its motion is explicitly approximate.
+6. **Female voice selection:** inspect `lib/voice/voices.ts`. Wait for voiceschanged, filter known local female English identities, prefer Indian English and label the actual fallback accent. Save selection and mute only. Unknown/male/remote voices never become automatic fallbacks.
 
-1. `lib/voice/voices.ts` handles delayed browser voice lists, voiceschanged, local female English filtering and saved selection. Web Speech exposes no gender field, so unknown voice identities do not become defaults. The selector labels the voice's language/accent.
-2. `lib/voice/recognition.ts` manages a recognition instance and its lifecycle. A 10-second startup timeout, 30-second listening limit and 4-second finishing timeout avoid stuck UI. Releasing while permission is pending stops recognition as soon as it starts; cancellation invalidates late results.
-3. `lib/voice/sentences.ts` buffers completed sentences, preserves decimals/basic abbreviations across chunks and removes formatting/fenced code from spoken text. A final fragment is emitted only after successful model completion. The transcript merge helper preserves existing typed text.
-4. `lib/voice/speech.ts` owns the sentence queue and one utterance at a time. Every request and utterance gets a token; late start/end/boundary events cannot restart stopped audio or affect the next sentence. Startup and playback watchdogs show useful errors.
-5. `components/voice/useVoice.ts` connects the browser controllers to React, persists optional settings, and stops work on hidden tabs/navigation/unmount. It coordinates with the existing audio controller.
-6. `components/voice/VoicePanel.tsx` provides pointer/keyboard push-to-talk, a toggle alternative, editable transcript review, voice preview and cancellation. The chat sends reviewed words only when the user chooses Send.
-7. `components/Chat.tsx` forwards model deltas into the speech buffer before completion. Stop cancels both model and voice; Stop voice suppresses the speech queue without cancelling text generation. Completed answers have Hear reply.
+## Cancellation and source ownership
 
-## Orb and captions
+Start recording cancels speech and Phase 2 media. Starting sample/file playback or speech preview cancels recording/transcription. Send is disabled during recording/transcription, but typing stays available. Recording is disabled during model generation. Stop and New chat cancel generation/recording/transcription/speech; Stop voice leaves text generation running. Hiding/leaving the page stops active media work; nothing restarts automatically. A cancelled permission request stops tracks if permission arrives later.
 
-Actual listening has first priority, actual speech playback second, generation third; explicit visual previews and remaining audio activity follow. Word-boundary events highlight the active word when present. Otherwise a timer started only after the real speech-start event approximates caption position. That approximation is labelled.
+Pending access times out after 15 seconds; recordings stop at 30 seconds. Transcription runs with two CPU threads, one job at a time, a 120-second server timeout and a slightly longer client timeout. A missing engine/model or empty transcript produces an actionable error and retains the existing edited transcript. No transcript or conversation is persisted. Old browser recognition language preferences remain harmless and unused.
 
-System speech synthesis exposes no waveform to the Canvas meter. The separate speech-activity ref drives a modest visual pulse; the meter is hidden and amplitude is labelled unavailable during speech. Still view respects reduced motion, retaining the label and captions. This visual pulse is never called measured loudness.
+## Setup
 
-## Ownership and cancellation
+Run `npm run speech:setup`, then `npm run speech:check`. Setup uses the installed compiler and Python, pinned private CMake, official whisper.cpp source, SHA-256-checked base.en and a real reference transcription. The engine, model and setup manifest live outside Git under June's application-support speech folder. It adds no always-on process, global tool installation or paid provider.
 
-Start recognition -> cancel previous speech and Phase 2 audio. Start sample/file audio -> cancel recognition and the current speech queue. New chat -> cancel all activities, clear transcript/chat and restore automatic orb mode. Mute -> stop speech immediately; re-enabling applies to the next request or manual replay. Navigation/hidden tab -> cancel active voice/media, with no automatic microphone restart.
-
-Voice changes stop current speech rather than mixing voices mid-reply. Refreshing voices updates available options. The browser's selected local voice is assigned explicitly to every utterance; pitch remains 1 and the rate defaults to 0.98.
-
-## Limitations and later options
-
-Browser recognition support does not guarantee its online service works in an embedded browser. A network error occurred in this run, so a genuine dictated transcript could not be verified. A normal browser with a working speech service can be used at the same local URL. No paid-provider fallback is silently selected.
-
-Whisper and other local recognition engines are later alternatives that require their own runtime/model setup. Hosted recognition/synthesis providers are optional and may charge fees. Python migration follows Phase 4; always-listening conversation and interruption follow Phase 5.
+Browser recognition is now a learning comparison, not June's production input. Optional hosted providers may charge fees and are not configured. Python foundation remains Phase 4; wake words/continuous conversation remain Phase 5.
 
 ## Resources
 
-- [MDN Web Speech API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API)
-- [Recognition and browser service behaviour](https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition)
-- [Voice list and local service metadata](https://developer.mozilla.org/en-US/docs/Web/API/SpeechSynthesisVoice)
-- [Voice-list loading event](https://developer.mozilla.org/en-US/docs/Web/API/SpeechSynthesis/voiceschanged_event)
-- [Whisper](https://github.com/openai/whisper)
+- [Web Speech](https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API)
+- [Microphone access](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia)
+- [AudioWorklet](https://developer.mozilla.org/en-US/docs/Web/API/AudioWorklet)
+- [Local whisper.cpp](https://github.com/ggml-org/whisper.cpp)
+- [Voice loading](https://developer.mozilla.org/en-US/docs/Web/API/SpeechSynthesis/voiceschanged_event)

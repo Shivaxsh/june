@@ -206,3 +206,10 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #0c1712; borde
   .recognition-language { margin-left: 0; flex-basis: 100%; }
   .talk-controls > button { min-height: 42px; }
 }
+
+/* Local recording status remains readable and wraps on small screens. */
+.speech-engine { display:flex; align-items:center; flex-wrap:wrap; gap: .75rem; margin-bottom: 1rem; }
+.speech-engine p { margin:0; color:var(--muted); font-size:.8rem; }
+.recording-meter { display:flex; align-items:center; gap:.75rem; font-size:.8rem; margin:.75rem 0; }
+.recording-meter meter { accent-color: #8cd4bc; max-width:40%; }
+.talk-button { touch-action:none; user-select:none; }

@@ -1,6 +1,6 @@
-# June v0.3
+# June v0.3.1
 
-A personal assistant, built one phase at a time. June combines local streamed text chat with a Canvas particle orb, audio visualisation, browser speech recognition, a local female speaking voice and learning studios.
+A personal assistant, built one phase at a time. June combines local streamed text chat with a Canvas particle orb, audio visualisation, local Whisper speech recognition, a local female speaking voice and learning studios.
 
 **Open locally:** <http://127.0.0.1:3001>
 
@@ -39,6 +39,7 @@ Start `npm run model:start`. While it runs, use a second terminal:
 
 ```sh
 npm run model:pull
+npm run speech:setup
 npm run build
 npm start
 ```
@@ -59,12 +60,12 @@ Messages are limited to 2,000 characters; a request may contain up to 20 message
 
 ## Phase 3 — talk and hear June
 
-June uses the browser's Web Speech recognition service and local female English synthesis voices. The Qwen model still runs locally. Browser recognition can send microphone audio to its online service; this is stated beside the listening button. This edition does not add a paid speech provider or API key.
+June records the microphone directly, then uses local Whisper **base.en** to turn the recording into English text. Qwen writes the reply and a local female system voice reads it aloud. No external recognition service, paid provider or API key is used. Your recording reaches only June's server on this Mac and its temporary file is deleted after processing.
 
 1. Choose and preview June's voice. Known female local English identities are offered; Indian English is preferred when available. This Mac/browser currently offers Samantha (American English) and other female English voices, but no recognised female Indian English voice.
-2. Hold **Hold to talk** with mouse/touch, or hold Space/Enter while it is focused. Release ends listening. **Start listening / Finish listening** is a toggle alternative for accessibility.
+2. Hold **Hold to talk** with mouse/touch, or hold Space/Enter while it is focused. Release ends recording and starts transcription. Limit: 30 seconds; review appears after processing, not live while you speak. **Start listening / Stop listening** is a toggle alternative for accessibility.
 3. Review and edit the transcript. **Use transcript** appends it to any existing draft; **Send** is deliberately separate. If the combined text exceeds the message limit, shorten it before using it.
-4. Every reply is spoken by default. **Speak replies** saves your mute preference. Voice and recognition-language choices also survive reload; transcripts and chats do not.
+4. Every reply is spoken by default. **Speak replies** saves your mute preference. Voice selection also survives reload; input is English for every accent, and old browser-recognition language settings are no longer used; transcripts and chats do not.
 5. **Stop** cancels the model, recognition and speech. **Stop voice** clears current and queued speech while allowing text generation to continue. **Hear reply** replays a completed answer even when automatic speech is muted.
 
 Streaming text becomes speech one sentence at a time. Fenced code blocks are excluded; formatting markers are removed, while the full written reply stays visible. Sentence ordering and request identifiers keep cancelled or superseded speech from returning later.
@@ -75,7 +76,14 @@ Voice activities and the Phase 2 audio sources operate exclusively. Starting rec
 
 Open the [Phase 3 studio](http://127.0.0.1:3001/learn/phase-3) for the six workbook topics, preview controls and an explicitly labelled sentence-streaming demonstration. It never sends demonstration text to the model. The detailed walkthrough is `docs/phase-3.md`.
 
-**Verification limit:** synthesis preview, automatic real-model replies, captions, replay and Stop/mute work in the embedded browser. Its recognition service reached a listening state but returned a network error without producing a transcript. Therefore the real spoken-input conversation is not verified and Phase 3's build checkbox remains unchanged. Try a browser with a functioning recognition service to finish that check; typing and spoken typed replies remain usable.
+### Speech setup and recovery
+
+Run `npm run speech:setup` once. It installs pinned whisper.cpp v1.9.5, a private CMake 3.31.6 environment and base.en (about 142 MiB), compiles a CPU-only engine, verifies the model SHA-256 and runs a genuine speech smoke test. Existing Apple command-line compiler tools and Python 3 are required; this Mac already has both. Files stay under `~/Library/Application Support/June/speech`, outside Git. Internet is needed only for setup downloads.
+
+Use `npm run speech:check` to verify the installation. June's **Refresh speech** checks server readiness. There is no third server to start: the Next.js server launches the speech engine when you finish a recording. Two CPU threads and a two-minute timeout keep jobs bounded. Stop aborts the job and removes temporary recordings. Quiet or very short recordings show a retry message. Whisper can mishear speech and background noise; always review the words.
+
+The 11-second official reference clip took about 2.5 seconds to transcribe on this Intel Mac during initial verification. This is an observed example, not a latency guarantee. See `docs/verification-v0.3.1.md` for the physical conversation acceptance result.
+
 
 ## Phase 2 — explore her face
 
@@ -148,6 +156,9 @@ flowchart LR
 - Successful requests stream `application/x-ndjson`: `{ type: "delta", text }`, `{ type: "done", model }` or `{ type: "error", message }`.
 - Invalid input returns HTTP 400; an unavailable model returns 503. Failures during streaming use error events. Cross-origin browser requests are rejected.
 
+- `GET /api/speech/status` reports `ready`, `runtime-missing`, `model-missing` or `error` with `{ state, engine, model, message }`.
+- `POST /api/speech/transcribe` accepts only canonical mono 16 kHz PCM16 WAV (`audio/wav`, up to 1 MiB / 30 seconds). Returns `{ text, engine, model, durationMs }`; failures return `{ error: { code, message } }`. Cross-origin requests are rejected; one transcription runs at a time.
+
 Both servers bind to loopback. Remote hosting and authentication are later work.
 
 ## Troubleshooting
@@ -170,13 +181,13 @@ npm test
 npm run build
 git diff
 git add app components lib scripts public tests package.json package-lock.json tsconfig.json next.config.ts .env.example .gitignore README.md docs
-git commit -m "Build June v0.3 browser voice conversation"
+git commit -m "Fix June voice input with local Whisper"
 ```
 
-Manual checks: empty input, Enter/Shift+Enter, wrapping, safe `<script>` text, genuine streaming, follow-up context, cancellation, context clearing, and recovery from a stopped model server. See `docs/verification-v0.3.md` for current voice results and limits, `docs/verification-v0.2.md` for Phase 2 results and limits, and `docs/verification.md` for the earlier Phase 1 checks. The detailed graphics/audio walkthrough is in `docs/phase-2.md`.
+Manual checks: empty input, Enter/Shift+Enter, wrapping, safe `<script>` text, genuine streaming, follow-up context, cancellation, context clearing, and recovery from a stopped model server. See `docs/verification-v0.3.1.md` for current voice results and limits, `docs/verification-v0.2.md` for Phase 2 results and limits, and `docs/verification.md` for the earlier Phase 1 checks. The detailed graphics/audio walkthrough is in `docs/phase-2.md`.
 
 ## Phase 0 and the public site
 
-The existing `index.html` and `styles.css` are preserved. [GitHub Pages](https://shivaxsh.github.io/june/) still publishes v0.0 from **main / root**. June v0.3 is on **codex/june-v0.3**, runs locally and is not the Pages publishing branch. [Source repository](https://github.com/Shivaxsh/june).
+The existing `index.html` and `styles.css` are preserved. [GitHub Pages](https://shivaxsh.github.io/june/) still publishes v0.0 from **main / root**. June v0.3.1 is on **codex/june-v0.3-voice-fix**, runs locally and is not the Pages publishing branch. [Source repository](https://github.com/Shivaxsh/june).
 
 Keep `.env.local`, models, screenshots, progress backups and private personality notes out of public Git commits.

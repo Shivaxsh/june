@@ -1,6 +1,6 @@
 {
   "name": "june",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1 --port 3001",
@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "model:start": "node scripts/model.mjs serve",
     "model:pull": "node scripts/model.mjs pull",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "speech:setup": "node scripts/speech.mjs setup",
+    "speech:check": "node scripts/speech.mjs check"
   },
   "dependencies": {
     "next": "16.4.0",

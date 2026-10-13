@@ -83,7 +83,7 @@ export default function Chat() {
 
   async function send() {
     const content = draft.trim();
-    if (!content || busyRef.current || content.length > MAX_MESSAGE_LENGTH) return;
+    if (!content || busyRef.current || voice.recognition.phase !== "idle" || content.length > MAX_MESSAGE_LENGTH) return;
     setPreview("auto");
     busyRef.current = true;
     setBusy(true);
@@ -189,17 +189,17 @@ export default function Chat() {
     <div className="chat-page">
       <header className="masthead">
         <a className="wordmark" href="/" aria-label="June home"><span className="brand-dot" />june</a>
-        <div className="header-actions"><span className="version">June v0.3</span><button className="quiet-button" onClick={() => newChat()}>New chat</button></div>
+        <div className="header-actions"><span className="version">June v0.3.1</span><button className="quiet-button" onClick={() => newChat()}>New chat</button></div>
       </header>
 
       <main className="chat-shell">
         <section className="face-section" aria-labelledby="june-title">
           <div className="face-copy"><p className="eyebrow">Phase 3 · June gets a voice</p><h1 id="june-title">A little voice.<br />A little more <em>June.</em></h1><p className="subtitle">A little voice, ready for your next conversation.</p><a className="learn-link" href="/learn/phase-3">Explore how her voice works <span aria-hidden="true">↗</span></a><OrbControls preview={preview} onPreview={setPreview} still={still} onStill={setStill} disabled={busy} /></div>
-          <Orb mood={orb.mood} label={orb.label} level={audio.level} still={still} activity={voice.activity} speechActive={voice.speech.phase === "speaking"} />
+          <Orb mood={orb.mood} label={orb.label} level={voice.recognition.phase === "listening" ? voice.level : audio.level} still={still} activity={voice.activity} speechActive={voice.speech.phase === "speaking"} />
         </section>
         <VoicePanel voice={voice} busy={busy} onUse={useTranscript} onActivate={() => setPreview("auto")} />
         {(voice.recognition.phase !== "idle" || voice.speech.phase !== "idle") && !busy && <button className="quiet-button all-stop" onClick={stopAll}>Stop all voice activity</button>}
-        <details className="sound-workshop"><summary>Sound &amp; microphone <span>{audio.phase === "listening" ? "Microphone active" : audio.phase === "playing" ? "Audio playing" : audio.phase === "requesting" ? "Permission pending" : audio.phase === "paused" ? "Paused" : "Explore audio reactivity"}</span></summary><AudioPanel audio={audio} disableCapture={busy} onActivate={() => { voice.cancel(); setPreview("auto"); }} /></details>
+        <details className="sound-workshop"><summary>Sound &amp; microphone <span>{audio.phase === "listening" ? "Microphone active" : audio.phase === "playing" ? "Audio playing" : audio.phase === "requesting" ? "Permission pending" : audio.phase === "paused" ? "Paused" : "Explore audio reactivity"}</span></summary><AudioPanel audio={audio} disableCapture={busy || voice.recognition.phase !== "idle"} onActivate={() => { voice.cancel(); setPreview("auto"); }} /></details>
 
         <div className="connection-bar">
           <div className="connection-copy"><span className={`status-dot ${mode === "demo" ? "demo" : status?.state === "ready" ? "ready" : "offline"}`} /><span><strong>{mode === "demo" ? "Simulated demo" : status?.model || "Local AI"}</strong><span className="connection-description">{connection}</span></span></div>
@@ -222,13 +222,13 @@ export default function Chat() {
             <textarea ref={composer} id="message" value={draft} maxLength={MAX_MESSAGE_LENGTH} rows={2} placeholder="What’s on your mind?" disabled={busy} onChange={event => setDraft(event.target.value)} onKeyDown={event => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
             }} />
-            {busy ? <button className="send-button stop-button" type="button" onClick={stopAll}><span aria-hidden="true">■</span> Stop</button> : <button className="send-button" type="submit" disabled={!draft.trim()}><span>Send</span><span aria-hidden="true">↑</span></button>}
+            {busy ? <button className="send-button stop-button" type="button" onClick={stopAll}><span aria-hidden="true">■</span> Stop</button> : <button className="send-button" type="submit" disabled={!draft.trim() || voice.recognition.phase !== "idle"}><span>Send</span><span aria-hidden="true">↑</span></button>}
           </form>
           <div className="composer-notes"><span>Enter to send · Shift + Enter for a new line</span><span>{timing || `${draft.length}/${MAX_MESSAGE_LENGTH}`}</span></div>
         </div>
       </main>
 
-      <footer className="footer"><p>Local model · browser speech services.</p><p>No saved memory yet. June can make mistakes.</p></footer>
+      <footer className="footer"><p>Local model · local Whisper input · local system voice.</p><p>No saved memory yet. June can make mistakes.</p></footer>
       <span className="sr-only" role="status" aria-live="polite">{announcement}</span>
     </div>
   );

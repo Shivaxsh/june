@@ -119,7 +119,7 @@ test('unsupported recognition and permission denial produce actionable errors', 
 test('actual speech and listening take priority over generating text, with honest labels', () => {
   assert.equal(resolveOrb(true, false, 'auto', 'idle', { listening: false, speaking: true }).mood, 'speaking');
   assert.match(resolveOrb(true, false, 'auto', 'idle', { listening: false, speaking: true }).label, /approximation/);
-  assert.equal(resolveOrb(false, false, 'speaking', 'idle', { listening: true, speaking: false }).label, 'Listening · speech recognition');
+  assert.equal(resolveOrb(false, false, 'speaking', 'idle', { listening: true, speaking: false }).label, 'Listening · local recording');
 });
 test('a complete sentence with trailing space starts without waiting for the next word', () => {
   const buffer = new SentenceBuffer(); assert.deepEqual(buffer.push('Hello. '), ['Hello.']);
