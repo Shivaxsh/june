@@ -245,10 +245,19 @@ class SpeechJobs(unittest.IsolatedAsyncioTestCase):
     async def test_timeout_cleanup(self):
         self.engine(10)
         self.service.timeout = 1
-        with self.assertRaises(JuneError) as result:
+        # Observe the real spawned process even if this busy Mac times it out
+        # before the Python fixture reaches its first PID-file write.
+        spawn = asyncio.create_subprocess_exec
+        spawned = []
+        async def observe(*args, **kwargs):
+            process = await spawn(*args, **kwargs)
+            spawned.append(process.pid)
+            return process
+        with patch('june.speech.asyncio.create_subprocess_exec', side_effect=observe), self.assertRaises(JuneError) as result:
             await self.service.transcribe(wav())
         self.assertEqual(result.exception.status, 504)
-        self.released(int((self.root / 'pid').read_text()))
+        self.assertEqual(len(spawned), 1)
+        self.released(spawned[0])
 
     async def test_repeated_jobs(self):
         self.engine(0)

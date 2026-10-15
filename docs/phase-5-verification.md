@@ -54,3 +54,5 @@ Still required: enable hands-free; say a wake phrase plus question; hear June’
 - Browser console inspection returned no warnings/errors for the final chat. Browser viewport override reset; microphone left disabled; backend reports `busy: false`. Original user chats and roadmap data were not reset.
 - Independent final re-review reported no findings in the pending-question capture and ownership fixes. Redundant inherited Python tests were consolidated: final suite has 42 distinct tests, all passing.
 - Full human spoken conversation and physical mobile-device verification remain pending. No build checkbox or completed progress backup was altered.
+
+The final regression sweep exposed a timing-dependent existing timeout test: its child could be terminated before writing a PID file. The test now observes the actual spawned subprocess directly and still verifies process exit, slot release and temporary-directory deletion. No speech-service behavior was changed for this test correction.
