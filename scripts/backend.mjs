@@ -7,7 +7,7 @@ import { resolve, join } from 'node:path';
 export const root = fileURLToPath(new URL('../', import.meta.url));
 if (existsSync(join(root, '.env.local'))) process.loadEnvFile(join(root, '.env.local'));
 export const python = join(root, 'backend/.venv/bin/python');
-export const version = '0.3.5';
+export const version = '0.4.0';
 
 export function address() {
   const url = new URL(process.env.JUNE_BACKEND_URL || 'http://127.0.0.1:8001');
@@ -31,7 +31,7 @@ export function startBackend() {
   const url = address();
   return spawn(python, ['-m', 'uvicorn', 'june.app:app', '--app-dir', 'backend', '--host', url.hostname.replace(/[\[\]]/g, ''),
     '--port', url.port || '80', '--workers', '1', '--ws-max-size', '32768', '--timeout-graceful-shutdown', '5', '--no-access-log'],
-  { cwd: root, stdio: 'inherit', env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONDONTWRITEBYTECODE: '1' } });
+  { cwd: root, stdio: 'inherit', env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONDONTWRITEBYTECODE: '1', LOGURU_LEVEL: 'WARNING' } });
 }
 
 export async function health() {
@@ -64,7 +64,7 @@ async function main() {
   } else if (action === 'check') {
     const status = await health();
     if (!status.valid) throw Error('June’s Python backend is unavailable or incompatible. Restart June with npm start.');
-    const results = await Promise.all(['/api/status', '/api/speech/status'].map(async path => {
+    const results = await Promise.all(['/api/status', '/api/speech/status', '/api/voice/status'].map(async path => {
       const response = await fetch(address().origin + path, { signal: AbortSignal.timeout(10000), redirect: 'error' });
       return { path, ...await response.json() };
     }));

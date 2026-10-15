@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "June v0.3.5 · Your local assistant",
-  description: "A local assistant with a Python backend, Whisper voice input and a female system voice.",
+  title: "June v0.4 · Your local assistant",
+  description: "Your local assistant with hands-free wake phrases, Whisper voice input and a female system voice.",
 };
 
 export default function Layout({ children }: { children: React.ReactNode }) {

@@ -13,12 +13,16 @@ from .chat import model_status, stream_chat, validate_chat
 from .config import Settings, VERSION
 from .errors import JuneError
 from .speech import SpeechService, MAX_AUDIO_BYTES
+from .realtime_assets import RealtimeAssets
+from .realtime_socket import VoiceSlots, voice_socket
 
 
 @asynccontextmanager
 async def lifespan(app):
     app.state.settings = Settings.from_env()
     app.state.speech = SpeechService(app.state.settings)
+    app.state.voice_assets = RealtimeAssets(app.state.settings)
+    app.state.voice_slots = VoiceSlots()
     async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=5), trust_env=False,
                                  limits=httpx.Limits(max_connections=6, max_keepalive_connections=3)) as client:
         app.state.client = client
@@ -131,6 +135,26 @@ async def chat(request: Request):
 @app.get('/api/speech/status')
 async def speech_status(request: Request):
     return await request.app.state.speech.status()
+
+
+@app.get('/api/voice/status')
+async def realtime_status(request: Request):
+    result = await request.app.state.voice_assets.status()
+    if result['state'] == 'ready':
+        speech = await request.app.state.speech.status()
+        if speech['state'] != 'ready':
+            result = {'state': 'setup-required', 'message': speech['message']}
+    return {**result, 'busy': request.app.state.voice_slots.owner is not None,
+            'wakePhrase': 'Hey June', 'transport': 'local-websocket', 'model': 'Whisper base.en'}
+
+
+@app.websocket('/ws/voice')
+async def realtime(socket: WebSocket):
+    settings = socket.app.state.settings
+    if not local_host(socket.headers.get('host', ''), settings) or socket.headers.get('origin') not in settings.web_origins:
+        await socket.close(code=1008)
+        return
+    await voice_socket(socket, socket.app.state.voice_assets, socket.app.state.voice_slots, socket.app.state.speech)
 
 
 async def until_disconnect(request, operation):

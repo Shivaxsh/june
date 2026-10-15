@@ -13,13 +13,16 @@ import { resolveOrb, type Preview } from "@/lib/orb/state";
 
 import { useVoice } from "./voice/useVoice";
 import VoicePanel from "./voice/VoicePanel";
+import { useHandsFree } from "./voice/useHandsFree";
+import HandsFreePanel, { handsFreeLabels } from "./voice/HandsFreePanel";
 import { mergeTranscript } from "@/lib/voice/sentences";
 
 type DisplayMessage = ChatMessage & { id: string; state?: "pending" | "complete" | "stopped" | "failed" };
 
 export default function Chat() {
   const audio = useAudio();
-  const voice = useVoice(audio.stop);
+  const manualTakeover = useRef<() => void>(() => {});
+  const voice = useVoice(audio.stop, () => manualTakeover.current());
   const [preview, setPreview] = useState<Preview>("auto");
   const [still, setStill] = useState(false);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -37,6 +40,32 @@ export default function Chat() {
   const composer = useRef<HTMLTextAreaElement>(null);
   const conversation = useRef<HTMLDivElement>(null);
   const nearBottom = useRef(true);
+  const spokenTurn = useRef<{ turn: number; request: number; complete: boolean } | null>(null);
+
+  // A wake word invalidates the old request before aborting it. Late network,
+  // transcription and synthesis callbacks cannot resume an interrupted turn.
+  function interrupt() {
+    spokenTurn.current = null;
+    requestId.current++;
+    active.current?.abort(); active.current = null;
+    busyRef.current = false; setBusy(false);
+    voice.stopVoice();
+    setMessages(previous => previous.map(message => message.state === "pending" ? { ...message, state: "stopped" } : message));
+  }
+  const handsFree = useHandsFree({
+    wake: () => { interrupt(); setPreview("auto"); },
+    transcript: (content, turn) => { void send({ content, voiceTurn: turn }); },
+    cancel: interrupt,
+  });
+  manualTakeover.current = () => handsFree.stop();
+  useEffect(() => {
+    const turn = spokenTurn.current;
+    if (!handsFree.active || !turn || turn.turn !== handsFree.state.turn || turn.request !== requestId.current) return;
+    if (voice.speech.error) { handsFree.stop(voice.speech.error); return; }
+    if (voice.speech.phase === "speaking") handsFree.activity("speaking");
+    else if (busy) handsFree.activity("generating");
+    else if (turn.complete && voice.speech.phase === "idle") handsFree.activity("complete");
+  }, [handsFree.active, handsFree.state.turn, busy, voice.speech.phase, voice.speech.error]);
 
   async function reconnect() {
     try {
@@ -64,6 +93,7 @@ export default function Chat() {
   }, [messages]);
 
   function newChat(nextMode = mode) {
+    handsFree.stop(); spokenTurn.current = null;
     audio.stop(); voice.cancel(true); setPreview("auto");
     requestId.current += 1;
     active.current?.abort();
@@ -81,17 +111,19 @@ export default function Chat() {
     composer.current?.focus();
   }
 
-  async function send() {
-    const content = draft.trim();
+  async function send(input?: { content: string; voiceTurn: number }) {
+    if (!input) handsFree.stop();
+    const content = (input?.content ?? draft).trim();
     if (!content || busyRef.current || voice.recognition.phase !== "idle" || content.length > MAX_MESSAGE_LENGTH) return;
     setPreview("auto");
     busyRef.current = true;
     setBusy(true);
     setError("");
     setTiming("");
-    setDraft("");
+    if (!input) setDraft("");
     const id = ++requestId.current;
-    voice.begin(id);
+    spokenTurn.current = input ? { turn: input.voiceTurn, request: id, complete: false } : null;
+    voice.begin(id, !!input);
     const controller = new AbortController();
     active.current = controller;
     const user: ChatMessage = { role: "user", content };
@@ -146,6 +178,7 @@ export default function Chat() {
       controller.signal.throwIfAborted();
       if (id !== requestId.current) return;
       if (!complete || !reply.trim()) throw new Error("The reply ended unexpectedly. Please try again.");
+      if (spokenTurn.current?.request === id) spokenTurn.current.complete = true;
       voice.finish(id);
       history.current = [...context, { role: "assistant", content: reply }];
       update("complete");
@@ -162,23 +195,28 @@ export default function Chat() {
       } else {
         update("failed");
         setError(failure instanceof Error ? failure.message : "June could not finish this reply.");
-        setDraft(content);
-        setAnnouncement("Reply failed. Your message is back in the input so you can retry.");
+        if (!input) setDraft(content);
+        setAnnouncement(input ? "Voice reply failed. Your typed draft is unchanged." : "Reply failed. Your message is back in the input so you can retry.");
         if (mode === "local") void reconnect();
       }
+      if (input) handsFree.stop(controller.signal.aborted ? "" : "The local reply failed. Check June’s connection, then enable hands-free again.");
     } finally {
       if (id === requestId.current) {
         active.current = null;
         busyRef.current = false;
         setBusy(false);
-        composer.current?.focus();
+        if (!input) composer.current?.focus();
       }
     }
   }
 
   const voiceActivity = { listening: voice.recognition.phase === "listening", speaking: voice.speech.phase === "speaking", requesting: voice.recognition.phase === "requesting", finishing: voice.recognition.phase === "finishing" };
-  const orb = resolveOrb(busy, mode === "demo", preview, audio.phase, voiceActivity);
-  const stopAll = () => { active.current?.abort(); voice.cancel(); audio.stop(); };
+  const automatic = handsFree.state.phase;
+  const orb = handsFree.active ? {
+    mood: voiceActivity.speaking ? "speaking" as const : ["listening", "followup"].includes(automatic) ? "listening" as const : ["generating", "transcribing", "connecting"].includes(automatic) ? "thinking" as const : "idle" as const,
+    label: voiceActivity.speaking ? "June is speaking · movement is a visual approximation" : handsFreeLabels[automatic],
+  } : resolveOrb(busy, mode === "demo", preview, audio.phase, voiceActivity);
+  const stopAll = () => { handsFree.stop(); interrupt(); voice.cancel(); audio.stop(); };
   function useTranscript(text: string) {
     const merged = mergeTranscript(draft, text);
     if (merged.length > MAX_MESSAGE_LENGTH) { setError("The combined message is too long. Shorten your draft or transcript before adding it."); return; }
@@ -189,17 +227,19 @@ export default function Chat() {
     <div className="chat-page">
       <header className="masthead">
         <a className="wordmark" href="/" aria-label="June home"><span className="brand-dot" />june</a>
-        <div className="header-actions"><span className="version">June v0.3.5</span><button className="quiet-button" onClick={() => newChat()}>New chat</button></div>
+        <div className="header-actions"><span className="version">June v0.4</span><button className="quiet-button" onClick={() => newChat()}>New chat</button></div>
       </header>
 
       <main className="chat-shell">
         <section className="face-section" aria-labelledby="june-title">
-          <div className="face-copy"><p className="eyebrow">Phase 4 · Python, the language of AI</p><h1 id="june-title">A familiar voice.<br />A stronger <em>foundation.</em></h1><p className="subtitle">Local conversations, now powered by a Python backend.</p><a className="learn-link" href="/learn/phase-4">Explore June’s new foundation <span aria-hidden="true">↗</span></a><OrbControls preview={preview} onPreview={setPreview} still={still} onStill={setStill} disabled={busy} /></div>
-          <Orb mood={orb.mood} label={orb.label} level={voice.recognition.phase === "listening" ? voice.level : audio.level} still={still} activity={voice.activity} speechActive={voice.speech.phase === "speaking"} />
+          <div className="face-copy"><p className="eyebrow">Phase 5 · Real-time conversation</p><h1 id="june-title">A little more<br /><em>in the moment.</em></h1><p className="subtitle">Say “Hey June.” A question, a reply, and room to keep talking.</p><a className="learn-link" href="/learn/phase-5">Inside a real-time conversation <span aria-hidden="true">↗</span></a><OrbControls preview={preview} onPreview={setPreview} still={still} onStill={setStill} disabled={busy || handsFree.active} /></div>
+          <Orb mood={orb.mood} label={orb.label} level={handsFree.active ? handsFree.level : voice.recognition.phase === "listening" ? voice.level : audio.level} still={still} activity={voice.activity} speechActive={voice.speech.phase === "speaking"} />
         </section>
+        <HandsFreePanel controls={handsFree} enabled={!busy && mode === "local" && status?.state === "ready" && voice.speakReplies && !!voice.choices.selected && voice.support.recognition} onStart={() => { audio.stop(); voice.cancel(); setPreview("auto"); handsFree.start(); }} />
+        {handsFree.active && <button className="quiet-button all-stop" onClick={stopAll}>Stop conversation &amp; microphone</button>}
         <VoicePanel voice={voice} busy={busy} onUse={useTranscript} onActivate={() => setPreview("auto")} />
         {(voice.recognition.phase !== "idle" || voice.speech.phase !== "idle") && !busy && <button className="quiet-button all-stop" onClick={stopAll}>Stop all voice activity</button>}
-        <details className="sound-workshop"><summary>Sound &amp; microphone <span>{audio.phase === "listening" ? "Microphone active" : audio.phase === "playing" ? "Audio playing" : audio.phase === "requesting" ? "Permission pending" : audio.phase === "paused" ? "Paused" : "Explore audio reactivity"}</span></summary><AudioPanel audio={audio} disableCapture={busy || voice.recognition.phase !== "idle"} onActivate={() => { voice.cancel(); setPreview("auto"); }} /></details>
+        <details className="sound-workshop"><summary>Sound &amp; microphone <span>{audio.phase === "listening" ? "Microphone active" : audio.phase === "playing" ? "Audio playing" : audio.phase === "requesting" ? "Permission pending" : audio.phase === "paused" ? "Paused" : "Explore audio reactivity"}</span></summary><AudioPanel audio={audio} disableCapture={busy || voice.recognition.phase !== "idle"} onActivate={() => { handsFree.stop(); voice.cancel(); setPreview("auto"); }} /></details>
 
         <div className="connection-bar">
           <div className="connection-copy"><span className={`status-dot ${mode === "demo" ? "demo" : status?.state === "ready" ? "ready" : "offline"}`} /><span><strong>{mode === "demo" ? "Simulated demo" : status?.model || "Local AI"}</strong><span className="connection-description">{connection}</span></span></div>
@@ -212,7 +252,7 @@ export default function Chat() {
           if (panel) nearBottom.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 100;
         }}>
           {!messages.length && <div className="empty-state"><span className="empty-label">A BEGINNING, WITH ROOM TO GROW</span><h2>Hello, I’m <em>June.</em></h2><p>Ask a question, explore an idea, or just say hello.</p><div className="suggestions">{["Introduce yourself, June.", "Explain async/await simply."].map(text => <button key={text} onClick={() => { setDraft(text); composer.current?.focus(); }}>{text}<span aria-hidden="true">↗</span></button>)}</div></div>}
-          {messages.map(message => <article key={message.id} className={`message ${message.role}`} aria-label={message.role === "user" ? "Your message" : "June’s message"}><span className="message-label">{message.role === "user" ? "YOU" : "JUNE"}</span><div className="message-text">{message.content || (message.state === "pending" ? <span className="waiting">Thinking<span aria-hidden="true">…</span></span> : message.state === "stopped" ? "Reply stopped." : "No reply yet.")}</div>{message.state === "stopped" && message.content && <span className="message-note">Stopped · partial reply</span>}{message.state === "failed" && <span className="message-note">Not completed · message restored below</span>}{message.role === "assistant" && message.state === "complete" && <button className="quiet-button hear-reply" disabled={busy || !voice.choices.selected} onClick={() => { setPreview("auto"); voice.replay(message.content); }}>Hear reply</button>}</article>)}
+          {messages.map(message => <article key={message.id} className={`message ${message.role}`} aria-label={message.role === "user" ? "Your message" : "June’s message"}><span className="message-label">{message.role === "user" ? "YOU" : "JUNE"}</span><div className="message-text">{message.content || (message.state === "pending" ? <span className="waiting">Thinking<span aria-hidden="true">…</span></span> : message.state === "stopped" ? "Reply stopped." : "No reply yet.")}</div>{message.state === "stopped" && message.content && <span className="message-note">Stopped · partial reply</span>}{message.state === "failed" && <span className="message-note">Not completed · your typed draft is preserved</span>}{message.role === "assistant" && message.state === "complete" && <button className="quiet-button hear-reply" disabled={busy || !voice.choices.selected} onClick={() => { setPreview("auto"); voice.replay(message.content); }}>Hear reply</button>}</article>)}
         </div>
 
         <div className="composer-area">
@@ -228,7 +268,7 @@ export default function Chat() {
         </div>
       </main>
 
-      <footer className="footer"><p>Python backend · local Qwen &amp; Whisper · local system voice.</p><p>No saved memory yet. June can make mistakes.</p></footer>
+      <footer className="footer"><p>Local wake phrase · Whisper &amp; Qwen · your selected system voice.</p><p>No saved memory yet. June can make mistakes.</p></footer>
       <span className="sr-only" role="status" aria-live="polite">{announcement}</span>
     </div>
   );

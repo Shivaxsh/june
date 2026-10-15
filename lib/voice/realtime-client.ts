@@ -1,0 +1,109 @@
+export type HandsFreePhase = 'off' | 'requesting' | 'connecting' | 'waiting' | 'listening' | 'transcribing' | 'generating' | 'speaking' | 'followup';
+export type HandsFreeState = { phase: HandsFreePhase; error: string; turn: number; vad: number; transcriptionMs: number };
+type Input = { start(signal: AbortSignal, packet: (data: ArrayBuffer) => void, fail: (message: string) => void): Promise<void>; stop(): void };
+type Config = { state: string; websocketUrl?: string; message?: string };
+type Callbacks = { wake(turn: number): void; transcript(text: string, turn: number): void; cancel(): void };
+const phases = ['waiting', 'listening', 'transcribing', 'generating', 'speaking', 'followup'];
+
+export class HandsFreeController {
+  private token = 0;
+  private input: Input | null = null;
+  private socket: WebSocket | null = null;
+  private abort: AbortController | null = null;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private heartbeat: ReturnType<typeof setInterval> | undefined;
+  private session = '';
+  private accepted = 0;
+  private lastActivity = '';
+  private incoming = 0;
+  private state: HandsFreeState = { phase: 'off', error: '', turn: 0, vad: 0, transcriptionMs: 0 };
+  constructor(private factory: () => Input, private connect: (url: string) => WebSocket,
+    private config: (signal: AbortSignal) => Promise<Config>, private notify: (state: HandsFreeState) => void, private callbacks: Callbacks) {}
+  private emit(change: Partial<HandsFreeState>) { this.state = { ...this.state, ...change }; this.notify(this.state); }
+  get active() { return this.state.phase !== 'off'; }
+  stop(message = '') {
+    const wasActive = this.active;
+    this.token++; clearTimeout(this.timer); clearInterval(this.heartbeat);
+    this.abort?.abort(); this.abort = null;
+    this.input?.stop(); this.input = null;
+    if (this.socket) { this.socket.onopen = this.socket.onmessage = this.socket.onerror = this.socket.onclose = null; this.socket.close(); this.socket = null; }
+    this.session = ''; this.accepted = 0; this.lastActivity = '';
+    this.emit({ phase: 'off', error: message, turn: 0, vad: 0 });
+    if (wasActive) this.callbacks.cancel();
+  }
+  async start(pause: string) {
+    if (this.active) return;
+    const token = ++this.token;
+    this.emit({ phase: 'requesting', error: '', turn: 0, transcriptionMs: 0 });
+    const abort = new AbortController(); this.abort = abort;
+    this.timer = setTimeout(() => this.stop('Microphone or voice setup is still pending. Answer the permission prompt, then try again.'), 45000);
+    try {
+      const input = this.factory(); this.input = input;
+      const [config] = await Promise.all([this.config(abort.signal), input.start(abort.signal, data => this.packet(data), message => this.stop(message))]);
+      if (token !== this.token) { input.stop(); return; }
+      if (config.state !== 'ready' || !config.websocketUrl) throw new Error(config.message || 'Local hands-free is not ready. Run its setup, then refresh.');
+      const url = new URL(config.websocketUrl);
+      if (url.protocol !== 'ws:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || url.pathname !== '/ws/voice' || url.username || url.password || url.search || url.hash) throw new Error('Hands-free must connect to June’s local server.');
+      const socket = this.connect(url.href); this.socket = socket;
+      this.emit({ phase: 'connecting' });
+      socket.onopen = () => { if (token === this.token) socket.send(JSON.stringify({ type: 'start', pause })); };
+      socket.onmessage = event => {
+        if (token !== this.token) return;
+        this.incoming = Date.now();
+        try { this.receive(JSON.parse(event.data)); } catch { this.stop('The voice connection sent an invalid update. Enable hands-free again.'); }
+      };
+      socket.onerror = () => { if (token === this.token) this.stop('The local voice connection failed. Restart June and enable hands-free again.'); };
+      socket.onclose = () => { if (token === this.token) this.stop('The local voice connection closed. Enable hands-free again when June is ready.'); };
+    } catch (error) {
+      if (token !== this.token) return;
+      const message = error instanceof DOMException && error.name === 'NotAllowedError'
+        ? 'Microphone permission was denied. Allow access in browser settings, then try again.'
+        : error instanceof Error ? error.message : 'Could not start the microphone. Check your device and try again.';
+      this.stop(message);
+    }
+  }
+  private packet(data: ArrayBuffer) {
+    if (!this.session || this.socket?.readyState !== 1) return;
+    if (this.socket.bufferedAmount > 64000) { this.stop('The microphone connection fell behind. Close busy apps and try again.'); return; }
+    this.socket.send(data);
+  }
+  private receive(value: unknown) {
+    if (!value || typeof value !== 'object') throw Error();
+    const event = value as { type?: string; session?: string; turn?: number; phase?: HandsFreePhase; text?: string; durationMs?: number; message?: string; fatal?: boolean; vad?: number };
+    if (event.type === 'error' && event.fatal && !this.session) { this.stop(event.message || 'Hands-free is unavailable.'); return; }
+    if (event.type === 'ready' && typeof event.session === 'string' && !this.session) {
+      this.session = event.session; clearTimeout(this.timer); this.incoming = Date.now();
+      this.heartbeat = setInterval(() => {
+        if (Date.now() - this.incoming > 15000) { this.stop('The local voice server stopped responding. Restart June and enable hands-free again.'); return; }
+        this.send({ type: 'ping' });
+      }, 5000);
+      this.emit({ phase: 'waiting' }); return;
+    }
+    if (!this.session || event.session !== this.session) return;
+    if (event.type === 'pong') return;
+    if (event.type === 'metrics' && typeof event.vad === 'number' && Number.isFinite(event.vad)) { this.emit({ vad: Math.min(1, Math.max(0, event.vad)) }); return; }
+    if (event.type === 'error') {
+      if (event.fatal) this.stop(event.message || 'The voice session failed.');
+      else this.emit({ error: event.message || 'That question could not be transcribed. Try again.' });
+      return;
+    }
+    if (!Number.isSafeInteger(event.turn) || event.turn! < this.state.turn || event.turn! < 0) return;
+    if (event.type === 'wake' && event.turn! > this.state.turn) {
+      this.emit({ turn: event.turn, phase: 'listening', error: '' }); this.callbacks.wake(event.turn!);
+    } else if (event.type === 'state' && event.phase && phases.includes(event.phase)) {
+      this.emit({ turn: event.turn, phase: event.phase });
+    } else if (event.type === 'transcript' && event.turn === this.state.turn && event.turn! > this.accepted && typeof event.text === 'string' && event.text.trim()) {
+      this.accepted = event.turn!;
+      this.emit({ transcriptionMs: event.durationMs || 0, error: '' });
+      this.callbacks.transcript(event.text.trim(), event.turn!);
+    }
+  }
+  private send(value: Record<string, unknown>) {
+    if (this.session && this.socket?.readyState === 1) this.socket.send(JSON.stringify({ ...value, session: this.session }));
+  }
+  activity(phase: 'generating' | 'speaking' | 'complete' | 'failed') {
+    const key = `${this.state.turn}:${phase}`;
+    if (!this.session || this.state.turn === 0 || this.lastActivity === key) return;
+    this.lastActivity = key; this.send({ type: 'activity', turn: this.state.turn, phase });
+  }
+}

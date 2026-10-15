@@ -85,6 +85,16 @@ test('mute and missing voices prevent playback; replacement rejects old request 
     utterances[0].onstart(); utterances[0].onboundary({ charIndex: 0, charLength: 3 }); assert.equal(states.at(-1).approximate, false);
   } finally { controller.dispose(); }
 });
+test('hands-free speech masks its wake phrase without modifying ordinary replay', () => {
+  const { controller, utterances } = speechEnvironment();
+  try {
+    controller.begin(1, samantha, true, true);
+    controller.push(1, 'Say Hey June to interrupt. '); controller.finish(1);
+    assert.equal(utterances[0].text, 'Say my wake phrase to interrupt.');
+    controller.replay('Say Hey June.', samantha);
+    assert.equal(utterances[1].text, 'Say Hey June.');
+  } finally { controller.dispose(); }
+});
 function recognitionEnvironment() {
   const states = [], instances = [];
   const factory = () => { const instance = { start() {}, stop() { this.stops = (this.stops || 0) + 1; }, abort() { this.aborts = (this.aborts || 0) + 1; } }; instances.push(instance); return instance; };

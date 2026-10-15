@@ -4,7 +4,7 @@ from pathlib import Path
 import os
 from urllib.parse import urlsplit
 
-VERSION = '0.3.5'
+VERSION = '0.4.0'
 
 
 def local_url(value: str) -> str:

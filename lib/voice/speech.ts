@@ -15,19 +15,21 @@ export class SpeechController {
   private timers: ReturnType<typeof setTimeout>[] = [];
   private pulse: ReturnType<typeof setInterval> | undefined;
   private disposed = false;
+  private handsFree = false;
   constructor(synth: SpeechSynthesis, Utterance: typeof SpeechSynthesisUtterance, notify: (state: SpeechState) => void, activity = { current: 0 }) { this.synth = synth; this.Utterance = Utterance; this.notify = notify; this.activity = activity; }
   private emit(state: SpeechState) { if (!this.disposed) this.notify(state); }
   private clear() { this.timers.forEach(clearTimeout); this.timers = []; clearInterval(this.pulse); this.activity.current = 0; }
   stop() {
-    this.token++; this.streamId = null; this.queue = []; this.buffer = new SentenceBuffer(); this.clear();
+    this.token++; this.streamId = null; this.queue = []; this.buffer = new SentenceBuffer(); this.handsFree = false; this.clear();
     if (this.utterance) this.utterance.onstart = this.utterance.onend = this.utterance.onerror = this.utterance.onboundary = null;
     this.utterance = null;
     try { this.synth.cancel(); } catch {}
     this.emit({ ...EMPTY_SPEECH });
   }
-  begin(id: number, voice: SpeechSynthesisVoice | undefined, enabled: boolean) {
+  begin(id: number, voice: SpeechSynthesisVoice | undefined, enabled: boolean, handsFree = false) {
     this.stop(); if (!enabled) return;
     if (!voice) { this.emit({ ...EMPTY_SPEECH, error: "No local female voice is ready. Refresh voices or install one; your written reply will still appear." }); return; }
+    this.handsFree = handsFree;
     this.streamId = id; this.voice = voice; this.emit({ ...EMPTY_SPEECH, phase: "waiting" });
   }
   push(id: number, delta: string) { if (id !== this.streamId) return; this.queue.push(...this.buffer.push(delta)); this.pump(); }
@@ -45,7 +47,8 @@ export class SpeechController {
   private fail(message: string) { this.stop(); this.emit({ ...EMPTY_SPEECH, error: message }); }
   private pump() {
     if (this.disposed || this.utterance) return;
-    const text = this.queue.shift();
+    const queued = this.queue.shift();
+    const text = this.handsFree ? queued?.replace(/\bhey[\s,!.?—-]+june\b/gi, 'my wake phrase') : queued;
     if (!text) { if (this.streamId === null) this.emit({ ...EMPTY_SPEECH }); return; }
     const token = ++this.token;
     try {
