@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { HandsFreeController, type HandsFreeState } from '@/lib/voice/realtime-client';
 import { RealtimeCapture } from '@/lib/voice/realtime-capture';
 
-export function useHandsFree(callbacks: { wake(turn: number): void; transcript(text: string, turn: number): void; cancel(): void }) {
+export function useHandsFree(callbacks: { wake(turn: number): void; transcript(text: string, turn: number): void; cancel(): void; pause(): boolean | Promise<boolean | null>; resume(): void }) {
   const latest = useRef(callbacks); latest.current = callbacks;
   const controller = useRef<HandsFreeController | null>(null);
   const [state, setState] = useState<HandsFreeState>({ phase: 'off', error: '', turn: 0, vad: 0, transcriptionMs: 0 });
@@ -28,6 +28,7 @@ export function useHandsFree(callbacks: { wake(turn: number): void; transcript(t
     controller.current = new HandsFreeController(() => new RealtimeCapture(level), url => new WebSocket(url), config,
       value => { if (mounted.current) setState(value); }, {
         wake: turn => latest.current.wake(turn), transcript: (text, turn) => latest.current.transcript(text, turn), cancel: () => latest.current.cancel(),
+        pause: () => latest.current.pause(), resume: () => latest.current.resume(),
       });
     void refresh();
     const stop = () => controller.current?.stop();
@@ -40,7 +41,7 @@ export function useHandsFree(callbacks: { wake(turn: number): void; transcript(t
   }, []);
   return { state, status, pause, setPause, level, refresh, active: state.phase !== 'off',
     start: () => { void controller.current?.start(pause); }, stop: (message = '') => controller.current?.stop(message),
-    activity: (phase: 'generating' | 'speaking' | 'complete' | 'failed') => controller.current?.activity(phase),
+    activity: (phase: 'generating' | 'speaking' | 'complete' | 'failed', text = '') => controller.current?.activity(phase, text),
   };
 }
 export type HandsFreeControls = ReturnType<typeof useHandsFree>;

@@ -156,7 +156,14 @@ async def voice_socket(socket, assets, slots, speech):
                     if kind == 'ping':
                         await emit({'type': 'pong'})
                     elif kind == 'activity' and type(control.get('turn')) is int and control.get('phase') in ('generating', 'speaking', 'complete', 'failed', 'cancel'):
-                        await turn.activity(control['turn'], control['phase'])
+                        spoken = control.get('text', '')
+                        if not isinstance(spoken, str) or len(spoken) > 4000:
+                            raise ValueError('Invalid playback reference')
+                        await turn.activity(control['turn'], control['phase'], spoken)
+                    elif kind == 'probe-paused' and type(control.get('turn')) is int and type(control.get('probe')) is int:
+                        await turn.probe_paused(control['turn'], control['probe'])
+                    elif kind == 'probe-cancelled' and type(control.get('turn')) is int and type(control.get('probe')) is int:
+                        await turn.probe_cancelled(control['turn'], control['probe'])
                     else:
                         raise ValueError('Invalid voice control')
         finally:

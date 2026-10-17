@@ -5,8 +5,20 @@ from pathlib import Path
 import httpx
 
 from .errors import JuneError
+from .speech_text import ReplyIdentityGuard, model_label
+import re
 
 PROMPT = Path(__file__).with_name('prompt.txt').read_text().strip()
+
+
+def prompt_for_turn(messages, identity):
+    latest = messages[-1]['content'] if messages else ''
+    if len(identity.focus) == 1 and re.search(r'\b(?:repeat|exact (?:model )?number|(?:number|model) (?:I|you) (?:said|named))\b', latest, re.I):
+        # The identifier comes from the user's own words, not product knowledge.
+        # This still runs the real model; no simulated answer is substituted.
+        target = model_label(next(iter(identity.focus)))
+        return PROMPT + f'\nThe latest corrected identifier is {target}, taken from the user’s words. This turn only asks to repeat that identifier. Say: You said {target}. No product specifications are needed.'
+    return PROMPT
 
 
 def validate_chat(value):
@@ -70,9 +82,10 @@ async def stream_chat(client, settings, mode, messages):
         yield {'type': 'done', 'model': 'Simulated demo'}
         return
     try:
+        identity = ReplyIdentityGuard(messages)
         async with asyncio.timeout(180):
             async with client.stream('POST', settings.ollama + '/api/chat', json={
-                'model': settings.model, 'messages': [{'role': 'system', 'content': PROMPT}, *messages],
+                'model': settings.model, 'messages': [{'role': 'system', 'content': prompt_for_turn(messages, identity)}, *messages],
                 'stream': True, 'think': False, 'keep_alive': '5m',
                 'options': {'num_ctx': 4096, 'num_predict': 256, 'temperature': .1},
             }) as response:
@@ -87,8 +100,14 @@ async def stream_chat(client, settings, mode, messages):
                         raise ValueError('Invalid model text')
                     if message.get('content'):
                         message['content'].encode('utf-8')
-                        yield {'type': 'delta', 'text': message['content']}
+                        for text in identity.push(message['content']):
+                            yield {'type': 'delta', 'text': text}
+                        if identity.rejected:
+                            yield {'type': 'done', 'model': settings.model}
+                            return
                     if chunk.get('done') is True:
+                        for text in identity.finish():
+                            yield {'type': 'delta', 'text': text}
                         yield {'type': 'done', 'model': settings.model}
                         return
                 raise JuneError('incomplete', 'The model connection ended before the reply finished. Please try again.')

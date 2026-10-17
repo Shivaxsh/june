@@ -12,6 +12,7 @@ import tempfile
 import time
 
 from .errors import JuneError
+from .speech_text import clean_transcript
 
 MAX_AUDIO_BYTES = 1048576
 
@@ -109,6 +110,7 @@ class SpeechService:
             if not isinstance(parts, list):
                 raise ValueError('Invalid transcript')
             text = ' '.join(' '.join(x.get('text', '') for x in parts if isinstance(x, dict) and isinstance(x.get('text'), str)).split())
+            text = clean_transcript(text)
             if not text or re.fullmatch(r'\s*[\[(].*[\])]\s*', text):
                 raise JuneError('no-speech', 'No words were recognised. Try a clear, short sentence.', 422)
             return {'text': text, 'engine': 'whisper.cpp', 'model': 'base.en', 'durationMs': round((time.perf_counter() - started) * 1000)}

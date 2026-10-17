@@ -12,7 +12,7 @@ Keep Ollama running with `npm run model:start`. In another terminal run `npm sta
 4. Say **“Hey June, what is the capital of Japan?”** in one utterance. June retains recent audio so the beginning is not discarded when the wake detector finishes.
 5. Pause. At least 0.5 s of voiced question audio is required. After the chosen silence interval, June transcribes locally and automatically sends the question once. Your typed draft stays untouched.
 6. After her voice finishes, ask another question within 30 seconds without the wake phrase. After expiry say “Hey June” again.
-7. Say **“Hey June” while she speaks or thinks** to replace the old turn. Then ask the next question. The old speech queue, model request and transcription cannot resume.
+7. **Start speaking while she speaks or thinks**, for example “Wait, I meant five zero six zero.” No wake phrase is needed during a reply. During playback June briefly pauses to check for continuing speech; keep talking through that pause. “Hey June” remains an explicit alternative. A confirmed interruption invalidates the old speech queue and model request. Short interjections and speaker echo need testing in your room.
 8. **Stop conversation & microphone**, New chat, navigation or a hidden tab disarms hands-free. Enabling it again always needs a deliberate click. Reload never reactivates it.
 
 Manual Hold to talk and Start listening still produce an editable transcript for review. Taking over with manual recording, voice preview/replay, voice changes, muting or sample playback disables hands-free. Stop voice cancels spoken playback while text can continue.
@@ -41,7 +41,7 @@ Microphone → AudioWorklet → continuous low-pass resampling → PCM16 mono 16
 
 The browser owns conversation history. The voice socket has no second chat store. If a separate wake utterance is being transcribed, a bounded pending question is retained so speaking during that delay does not lose it. The first-question deadline applies to speech onset, not transcription completion. Each session has a random identifier and monotonically increasing turns; the client rejects duplicate or obsolete transcripts. Chat requests and synthesis retain their own cancellation identifiers. Only successful message/reply pairs enter model context.
 
-The detector continues running during transcription, model generation and playback to hear interruptions. Other room speech during these stages does not become a question. Written answers remain intact; spoken occurrences of “Hey June” are replaced with “my wake phrase” during hands-free replies to reduce self-activation. Echo cancellation is requested, but speakers, headphones, accents and room noise still need real testing.
+The detector continues during transcription, generation and playback. A wake phrase can interrupt all three. During generation, 240 ms of continuous detected speech starts a replacement turn without a wake phrase. During playback, 120 ms initiates a pause probe; after the browser acknowledges pause, a 250 ms settling period and 180 ms of continuing detected speech confirm the interruption. Without continuing speech, an 800 ms pause starts a bounded local Whisper check. A short new utterance such as “wait” is accepted; speech matching the current spoken sentence is treated as echo and resumed. This check adds transcription latency and times out after eight seconds; it is cancelled by a newer turn or disable action. A missing acknowledgement disarms hands-free after two seconds. Ordinary speech during transcription still follows the existing pending-question rules; it does not automatically cancel an undecoded question. This is a pragmatic echo check, not reference-audio acoustic echo cancellation. Browser echo cancellation is requested separately. Written answers remain intact; spoken occurrences of “Hey June” are replaced with “my wake phrase” during hands-free replies to reduce self-activation. Echo cancellation is requested, but speakers, headphones, accents and room noise still need real testing.
 
 ## Files to inspect
 
@@ -84,3 +84,13 @@ For accidental wake-ups use headphones, reduce speaker volume, or disable hands-
 Automated tests and synthetic speech fixtures are useful evidence but cannot establish a human hands-free conversation. See `docs/phase-5-verification.md` for observed results and remaining checks. The roadmap’s Phase 5 build checkbox must stay unchecked until a real microphone conversation includes a spoken reply, follow-up and interruption. Preserve all learning boxes and personality answers. Only then export a fresh progress backup.
 
 Official references: [Pipecat pipelines](https://docs.pipecat.ai/pipecat/learn/pipeline), [Vosk](https://alphacephei.com/vosk/install), [Silero VAD](https://github.com/snakers4/silero-vad), [MDN WebRTC](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection).
+
+## Number and non-speech safeguards
+
+Whisper stays on the existing base.en decoder. Twenty clean synthetic fixtures correctly distinguished 5060, 3060, 4060 and an unrelated code, including Indian English synthesis; this does not prove human accuracy. The reported conversation also showed a correct 5070 Ti transcript being changed to 3070 Ti by Qwen.
+
+- Recognised noise annotations such as `*cough*` are removed. Ordinary text mentioning a cough stays intact.
+- Three or more consecutive spoken digit words are joined (`five zero six zero` → `5060`); valid numbers are never remapped to another number. Ambiguous repetitions such as `506060` remain unchanged.
+- The prompt prioritises corrections and admits missing current product knowledge.
+- In a GPU discussion, when the latest question identifies a card, sentences are buffered and checked before speech. An obvious substitution of another named GPU becomes an honest clarification. Comparisons in the same sentence as the requested model remain allowed. Model suffixes such as Ti are part of the checked identity. This narrow identity check does not verify specifications, prices or every possible wording.
+- Manual Hold to talk still provides editable review. No new model, paid service, recording storage or external lookup was added.

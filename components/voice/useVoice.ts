@@ -57,6 +57,8 @@ export function useVoice(stopMedia: () => void, onManual: () => void = () => {})
   return {
     choices, speech: speechState, recognition: recognitionState, support, speakReplies, engineStatus, refreshSpeech, activity, level,
     cancel, stopVoice: () => speech.current?.stop(), finishTalk: () => recognition.current?.finish(),
+    pauseForInput: () => speech.current?.pauseForInput() ?? false,
+    resumeAfterInput: () => speech.current?.resumeAfterInput(),
     startTalk: () => { manual.current(); speech.current?.stop(); stopMedia(); recognition.current?.start(); },
     setTranscript: (transcript: string) => recognition.current?.edit(transcript),
     clearTranscript: () => { recognition.current?.cancel(true); },

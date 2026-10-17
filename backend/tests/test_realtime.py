@@ -328,3 +328,160 @@ class SpeechDuringDecode(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class NaturalInterruption(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.events = []
+        self.now = 0.
+        async def emit(event): self.events.append(event)
+        async def transcribe(_): return {'text': 'Wait, I meant five zero six zero.', 'durationMs': 10}
+        self.turn = VoiceTurn(emit, transcribe, clock=lambda: self.now)
+        self.turn.number = 1
+        self.turn.phase = 'generating'
+
+    async def asyncTearDown(self): await self.turn.close()
+
+    async def audio(self, voiced, seconds=.02):
+        self.now += seconds
+        await self.turn.audio(b'\x00\x10' * int(16000 * seconds), voiced)
+
+    async def test_sustained_speech_interrupts_generation_without_wake(self):
+        for _ in range(15): await self.audio(True)
+        self.assertEqual(self.turn.number, 2)
+        self.assertEqual(self.turn.phase, 'listening')
+        self.assertEqual(len([e for e in self.events if e['type']=='interrupt']), 1)
+        await self.turn.activity(1, 'speaking')
+        self.assertEqual(self.turn.phase, 'listening')
+        for _ in range(80): await self.audio(False)
+        await self.turn.flush()
+        self.assertEqual([e['turn'] for e in self.events if e['type']=='transcript'], [2])
+
+    async def test_short_noise_does_not_interrupt(self):
+        for _ in range(4): await self.audio(True)
+        for _ in range(20): await self.audio(False)
+        self.assertEqual(self.turn.number, 1)
+        self.assertFalse(any(e['type']=='interrupt' for e in self.events))
+
+    async def probe(self):
+        self.turn.phase = 'speaking'
+        for _ in range(8): await self.audio(True)
+        event = next(e for e in self.events if e['type']=='probe')
+        await self.turn.probe_paused(1, event['probe'])
+        return event['probe']
+
+    async def test_speaker_echo_stops_with_pause_and_resumes_without_new_turn(self):
+        async def no_words(_): return {'text': '[silence]', 'durationMs': 1}
+        self.turn.transcribe = no_words
+        probe = await self.probe()
+        for _ in range(50): await self.audio(False)
+        await self.turn.flush()
+        self.assertEqual(self.turn.number, 1)
+        self.assertFalse(any(e['type']=='interrupt' for e in self.events))
+        self.assertTrue(any(e['type']=='resume' and e['probe']==probe for e in self.events))
+
+    async def test_real_speech_after_playback_pause_owns_a_new_turn(self):
+        await self.probe()
+        for _ in range(30): await self.audio(True)
+        self.assertEqual(self.turn.phase, 'listening')
+        self.assertEqual(self.turn.number, 2)
+        for _ in range(80): await self.audio(False)
+        await self.turn.flush()
+        self.assertEqual(len([e for e in self.events if e['type']=='transcript']), 1)
+        self.assertFalse(any(e['type']=='resume' for e in self.events))
+
+    async def test_stale_pause_ack_and_timeout_cannot_leave_playback_paused(self):
+        self.turn.phase = 'speaking'
+        for _ in range(8): await self.audio(True)
+        probe = next(e for e in self.events if e['type']=='probe')['probe']
+        await self.turn.probe_paused(0, probe)
+        self.now += 3
+        await self.turn.tick()
+        self.assertTrue(any(e['type']=='error' and e['fatal'] for e in self.events))
+
+class InterruptionReview(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.events=[];self.now=0.
+        async def emit(e): self.events.append(e)
+        async def transcribe(_): return {'text':'Wait.', 'durationMs':15}
+        self.turn=VoiceTurn(emit,transcribe,clock=lambda:self.now)
+        self.turn.number=1;self.turn.phase='speaking'
+
+    async def asyncTearDown(self): await self.turn.close()
+
+    async def packet(self,voiced):
+        self.now+=.020017
+        await self.turn.audio(b'\x00\x10'*320,voiced)
+
+    async def start_probe(self):
+        for _ in range(8): await self.packet(True)
+        probe=next(e for e in self.events if e['type']=='probe')
+        await self.turn.probe_paused(1,probe['probe'])
+        return probe
+
+    async def test_interruption_retains_whole_pcm_samples_under_clock_jitter(self):
+        await self.start_probe()
+        for _ in range(25): await self.packet(True)
+        self.assertEqual(len(self.turn.buffer)%2,0)
+        import struct
+        self.assertTrue(all(sample[0]==4096 for sample in struct.iter_unpack('<h',self.turn.buffer)))
+
+    async def test_sentence_end_generating_feedback_cannot_release_probe(self):
+        await self.start_probe()
+        await self.turn.activity(1,'generating')
+        self.assertIsNotNone(self.turn.probe)
+        self.assertFalse(any(e['type']=='resume' for e in self.events))
+
+    async def test_short_wait_is_validated_and_sent_without_another_wake(self):
+        await self.start_probe()
+        for _ in range(7): await self.packet(True)
+        for _ in range(50): await self.packet(False)
+        await self.turn.flush()
+        self.assertTrue(any(e['type']=='interrupt' for e in self.events))
+        self.assertEqual([e['text'] for e in self.events if e['type']=='transcript'],['Wait.'])
+
+    async def test_short_spoken_echo_is_not_sent_as_a_question(self):
+        async def echo(_): return {'text':'A graphics card.', 'durationMs':15}
+        self.turn.transcribe=echo
+        await self.turn.activity(1,'speaking','A graphics card helps render pictures.')
+        await self.start_probe()
+        for _ in range(50): await self.packet(False)
+        await self.turn.flush()
+        self.assertFalse(any(e['type']=='interrupt' for e in self.events))
+        self.assertTrue(any(e['type']=='resume' for e in self.events))
+
+class ShortProbeRaces(unittest.IsolatedAsyncioTestCase):
+    async def test_new_wake_cancels_accepted_probe_before_transcript_delivery(self):
+        events=[];now=0.;blocked=asyncio.Event();release=asyncio.Event()
+        async def emit(e):
+            events.append(e)
+            if e['type']=='state' and e.get('phase')=='generating' and e['turn']==2:
+                blocked.set();await release.wait()
+        async def transcribe(_):return {'text':'Wait.', 'durationMs':1}
+        turn=VoiceTurn(emit,transcribe,clock=lambda:now);turn.number=1;turn.phase='speaking'
+        for i in range(60):
+            now+=.02;await turn.audio(b'\x00\x10'*320,i<15)
+            if turn.probe and turn.probe['paused'] is None:await turn.probe_paused(1,turn.probe['id'])
+        await blocked.wait()
+        await turn.wake();release.set();await asyncio.sleep(0)
+        self.assertEqual(turn.number,3)
+        self.assertFalse(any(e['type']=='transcript' for e in events))
+        await turn.close()
+
+    async def test_spoken_digit_echo_uses_same_normalization_as_transcript(self):
+        async def ignore(_):pass
+        turn=VoiceTurn(ignore,ignore)
+        self.assertFalse(turn.is_new_short_speech('5060','five zero six zero'))
+        self.assertFalse(turn.is_new_short_speech('The code is 7294.','The code is seven two nine four.'))
+        self.assertTrue(turn.is_new_short_speech('5060','three zero six zero'))
+        await turn.close()
+
+class FeedbackOwnership(unittest.IsolatedAsyncioTestCase):
+    async def test_old_completion_cannot_overwrite_a_wake_during_probe_cleanup(self):
+        async def ignore(_):pass
+        turn=VoiceTurn(ignore,ignore);turn.number=1;turn.phase='speaking'
+        async def superseded(*args,**kwargs):
+            turn.number=2;turn.phase='listening'
+        turn.clear_probe=superseded
+        await turn.activity(1,'complete')
+        self.assertEqual(turn.phase,'listening')
+        await turn.close()

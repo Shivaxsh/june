@@ -2,7 +2,7 @@
 
 A personal assistant, built one phase at a time. June combines a Python backend, local streamed text chat, a Canvas particle orb, local Whisper speech recognition and a local female speaking voice.
 
-**Phase 5:** [Hands-free walkthrough](docs/phase-5.md) · [learning studio](http://127.0.0.1:3001/learn/phase-5). Explicit microphone enablement, local “Hey June” wake/interruption, automatic question sending and 30-second follow-ups. Run `npm run realtime:setup` once; microphone conversation verification remains a separate completion gate.
+**Phase 5:** [Hands-free walkthrough](docs/phase-5.md) · [learning studio](http://127.0.0.1:3001/learn/phase-5). Explicit microphone enablement, local “Hey June” activation, natural speech interruption, automatic question sending and 30-second follow-ups. [Voice repair notes](docs/voice-interruption-repair.md). Run `npm run realtime:setup` once; microphone conversation verification remains a separate completion gate.
 
 **Phase 4:** [Python walkthrough and source map](docs/phase-4.md) · [learning studio](http://127.0.0.1:3001/learn/phase-4). The backend migration preserves the existing chat and local voice flow.
 

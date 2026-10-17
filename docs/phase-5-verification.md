@@ -56,3 +56,17 @@ Still required: enable hands-free; say a wake phrase plus question; hear June’
 - Full human spoken conversation and physical mobile-device verification remain pending. No build checkbox or completed progress backup was altered.
 
 The final regression sweep exposed a timing-dependent existing timeout test: its child could be terminated before writing a PID file. The test now observes the actual spawned subprocess directly and still verifies process exit, slot release and temporary-directory deletion. No speech-service behavior was changed for this test correction.
+
+## Interruption repair — 17 October 2026
+
+- Final repair regressions: **59 JavaScript tests and 64 Python tests passed**. TypeScript and the production build succeeded. Independent review findings were reproduced and addressed, including PCM sample alignment, short utterances, task ownership, sentence-end races and GPU suffix identity.
+- The actual local pipeline reproduced the odd-byte WAV failure before the fix, then accepted an ordinary-speech interruption without a wake phrase. Whisper correctly produced 5060 in 1.797 s; a local Qwen confirmation retained it. Playback feedback in this transport test was simulated.
+- Actual browser microphone retry: synthetic speech through the Mac speakers triggered wake detection, produced the question, and began Nicky playback. The native pause acknowledgement initially failed because it was checked synchronously; bounded asynchronous acknowledgement fixed that test failure.
+- The updated browser then paused actual playback and accepted “5060, not 3060” without a wake phrase. Microphone transcripts are not retained in application logs. This was an acoustic test with synthetic speech, not a controlled human accuracy benchmark. Other audible conversation in the room was also captured while hands-free remained enabled.
+- A model refusal to repeat an already-supplied number was reproduced. The per-turn prompt now distinguishes repeating the user's identifier from knowing current product facts. Real API checks returned “You said 5060.” (3.69 s) and “You said 5070 Ti.” (2.87 s). The browser returned “You said 5060.” in 2.6 s.
+- Disable hands-free and the global Stop control both returned the actual UI to microphone-off. Backend status subsequently reported `busy: false`. A typed draft remained unchanged through the acoustic interruption. New chat cleared the separate test conversation. Enter submitted once.
+- Desktop 1280/1280 px and narrow 390/390 px client/scroll widths matched. Still view remained accessible and displayed its reduced-movement label. Screenshots: ignored `.june-work/voice-fix-desktop.png` and `voice-fix-mobile.png`. Viewport override reset.
+- June remains local on port 3001. No public static-page changes, purchases, new commercial requests or model training were introduced.
+- Human microphone follow-up/interruption verification is still pending. Phase 5 completion and the completed progress backup remain unchanged.
+
+An additional hour of visible, audible conversation testing was requested after this repair. Its run starts at 08:53:22 UTC on 17 October and is tracked separately; it must not be reported as a completed hour before 09:53:22 UTC.

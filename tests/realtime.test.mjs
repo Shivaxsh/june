@@ -129,3 +129,32 @@ test('worklet bounds packets when the main thread stops acknowledging audio', as
   assert.equal(worklet.process([], [output]), false);
   assert.equal(output[0].every(value => value === 0), true);
 });
+
+test('natural interruption and pause probes are scoped; stale resume cannot revive cancelled playback', async () => {
+  const f = fixture(); let held = false, pauses = 0, resumes = 0;
+  f.controller.callbacks.pause = () => { held = true; pauses++; return true; };
+  f.controller.callbacks.resume = () => { held = false; resumes++; };
+  await f.controller.start('normal'); f.ws.readyState = 1; f.ws.onopen(); f.event({ type:'ready' }); f.event({ type:'wake', turn:1 });
+  f.event({ type:'probe', turn:1, probe:1 }); f.event({ type:'probe', turn:1, probe:1 });
+  assert.equal(pauses, 1); assert.equal(held, true); assert.equal(f.states.at(-1).probing, true);
+  assert.ok(f.ws.sent.some(x => typeof x==='string' && JSON.parse(x).type==='probe-paused'));
+  f.event({ type:'resume', turn:1, probe:1 }); assert.equal(resumes, 1); assert.equal(held, false);
+  f.event({ type:'probe', turn:1, probe:2 }); f.event({ type:'interrupt', turn:2 });
+  f.event({ type:'resume', turn:1, probe:2 }); f.event({ type:'interrupt', turn:2 });
+  assert.equal(resumes, 1); assert.deepEqual(f.wakes, [1,2]);
+  f.event({ type:'transcript', turn:2, text:'Wait, a different question.' });
+  f.event({ type:'transcript', turn:1, text:'old' }); assert.equal(f.transcripts.length, 1);
+  f.controller.stop();
+});
+
+test('deliberately cancelled native pause leaves text generation running; late acknowledgements are ignored', async () => {
+  const f = fixture(); let finish;
+  f.controller.callbacks.pause = () => new Promise(resolve => { finish=resolve; });
+  await f.controller.start('normal'); f.ws.readyState=1; f.ws.onopen(); f.event({type:'ready'}); f.event({type:'wake',turn:1});
+  f.event({type:'probe',turn:1,probe:1}); finish(null); await Promise.resolve();
+  assert.equal(f.controller.active,true); assert.equal(f.cancels.length,0);
+  assert.ok(f.ws.sent.some(x=>typeof x==='string' && JSON.parse(x).type==='probe-cancelled'));
+  f.event({type:'probe',turn:1,probe:2}); f.event({type:'interrupt',turn:2}); finish(true); await Promise.resolve();
+  assert.equal(f.ws.sent.filter(x=>typeof x==='string' && JSON.parse(x).type==='probe-paused').length,0);
+  f.controller.stop();
+});

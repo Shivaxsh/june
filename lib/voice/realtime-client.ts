@@ -1,8 +1,8 @@
 export type HandsFreePhase = 'off' | 'requesting' | 'connecting' | 'waiting' | 'listening' | 'transcribing' | 'generating' | 'speaking' | 'followup';
-export type HandsFreeState = { phase: HandsFreePhase; error: string; turn: number; vad: number; transcriptionMs: number };
+export type HandsFreeState = { phase: HandsFreePhase; error: string; turn: number; vad: number; transcriptionMs: number; probing?: boolean };
 type Input = { start(signal: AbortSignal, packet: (data: ArrayBuffer) => void, fail: (message: string) => void): Promise<void>; stop(): void };
 type Config = { state: string; websocketUrl?: string; message?: string };
-type Callbacks = { wake(turn: number): void; transcript(text: string, turn: number): void; cancel(): void };
+type Callbacks = { wake(turn: number): void; transcript(text: string, turn: number): void; cancel(): void; pause?(): boolean | Promise<boolean | null>; resume?(): void };
 const phases = ['waiting', 'listening', 'transcribing', 'generating', 'speaking', 'followup'];
 
 export class HandsFreeController {
@@ -16,6 +16,8 @@ export class HandsFreeController {
   private accepted = 0;
   private lastActivity = '';
   private incoming = 0;
+  private probe = 0;
+  private lastProbe = 0;
   private state: HandsFreeState = { phase: 'off', error: '', turn: 0, vad: 0, transcriptionMs: 0 };
   constructor(private factory: () => Input, private connect: (url: string) => WebSocket,
     private config: (signal: AbortSignal) => Promise<Config>, private notify: (state: HandsFreeState) => void, private callbacks: Callbacks) {}
@@ -27,8 +29,8 @@ export class HandsFreeController {
     this.abort?.abort(); this.abort = null;
     this.input?.stop(); this.input = null;
     if (this.socket) { this.socket.onopen = this.socket.onmessage = this.socket.onerror = this.socket.onclose = null; this.socket.close(); this.socket = null; }
-    this.session = ''; this.accepted = 0; this.lastActivity = '';
-    this.emit({ phase: 'off', error: message, turn: 0, vad: 0 });
+    this.session = ''; this.accepted = 0; this.lastActivity = ''; this.probe = this.lastProbe = 0;
+    this.emit({ phase: 'off', error: message, turn: 0, vad: 0, probing: false });
     if (wasActive) this.callbacks.cancel();
   }
   async start(pause: string) {
@@ -69,7 +71,7 @@ export class HandsFreeController {
   }
   private receive(value: unknown) {
     if (!value || typeof value !== 'object') throw Error();
-    const event = value as { type?: string; session?: string; turn?: number; phase?: HandsFreePhase; text?: string; durationMs?: number; message?: string; fatal?: boolean; vad?: number };
+    const event = value as { type?: string; session?: string; turn?: number; phase?: HandsFreePhase; text?: string; durationMs?: number; message?: string; fatal?: boolean; vad?: number; probe?: number };
     if (event.type === 'error' && event.fatal && !this.session) { this.stop(event.message || 'Hands-free is unavailable.'); return; }
     if (event.type === 'ready' && typeof event.session === 'string' && !this.session) {
       this.session = event.session; clearTimeout(this.timer); this.incoming = Date.now();
@@ -88,8 +90,27 @@ export class HandsFreeController {
       return;
     }
     if (!Number.isSafeInteger(event.turn) || event.turn! < this.state.turn || event.turn! < 0) return;
-    if (event.type === 'wake' && event.turn! > this.state.turn) {
-      this.emit({ turn: event.turn, phase: 'listening', error: '' }); this.callbacks.wake(event.turn!);
+    if (event.type === 'probe' && event.turn === this.state.turn && Number.isSafeInteger(event.probe) && event.probe! > this.lastProbe) {
+      this.probe = this.lastProbe = event.probe!;
+      const token = this.token, session = this.session;
+      const acknowledge = (paused: boolean | null) => {
+        if (token !== this.token || session !== this.session || event.turn !== this.state.turn || event.probe !== this.probe) return;
+        if (paused === null) {
+          this.probe = 0; this.emit({ probing: false });
+          this.send({ type: 'probe-cancelled', turn: event.turn, probe: event.probe }); return;
+        }
+        if (!paused) { this.stop('Voice could not pause for your interruption. Try another browser or press Stop.'); return; }
+        this.emit({ probing: true });
+        this.send({ type: 'probe-paused', turn: event.turn, probe: event.probe });
+      };
+      const result = this.callbacks.pause?.() ?? false;
+      if (typeof result === 'boolean') acknowledge(result);
+      else void result.then(acknowledge, () => acknowledge(false));
+    } else if (event.type === 'resume' && event.turn === this.state.turn && this.probe > 0 && event.probe === this.probe) {
+      this.probe = 0; this.emit({ probing: false }); this.callbacks.resume?.();
+    } else if ((event.type === 'wake' || event.type === 'interrupt') && event.turn! > this.state.turn) {
+      this.probe = 0;
+      this.emit({ turn: event.turn, phase: 'listening', error: '', probing: false }); this.callbacks.wake(event.turn!);
     } else if (event.type === 'state' && event.phase && phases.includes(event.phase)) {
       this.emit({ turn: event.turn, phase: event.phase });
     } else if (event.type === 'transcript' && event.turn === this.state.turn && event.turn! > this.accepted && typeof event.text === 'string' && event.text.trim()) {
@@ -101,9 +122,10 @@ export class HandsFreeController {
   private send(value: Record<string, unknown>) {
     if (this.session && this.socket?.readyState === 1) this.socket.send(JSON.stringify({ ...value, session: this.session }));
   }
-  activity(phase: 'generating' | 'speaking' | 'complete' | 'failed') {
-    const key = `${this.state.turn}:${phase}`;
+  activity(phase: 'generating' | 'speaking' | 'complete' | 'failed', text = '') {
+    const reference = phase === 'speaking' ? text.slice(0, 4000) : '';
+    const key = `${this.state.turn}:${phase}:${reference}`;
     if (!this.session || this.state.turn === 0 || this.lastActivity === key) return;
-    this.lastActivity = key; this.send({ type: 'activity', turn: this.state.turn, phase });
+    this.lastActivity = key; this.send({ type: 'activity', turn: this.state.turn, phase, text: reference });
   }
 }

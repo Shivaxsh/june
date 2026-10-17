@@ -42,7 +42,7 @@ export default function Chat() {
   const nearBottom = useRef(true);
   const spokenTurn = useRef<{ turn: number; request: number; complete: boolean } | null>(null);
 
-  // A wake word invalidates the old request before aborting it. Late network,
+  // A wake phrase or natural interruption invalidates the old request. Late network,
   // transcription and synthesis callbacks cannot resume an interrupted turn.
   function interrupt() {
     spokenTurn.current = null;
@@ -56,16 +56,18 @@ export default function Chat() {
     wake: () => { interrupt(); setPreview("auto"); },
     transcript: (content, turn) => { void send({ content, voiceTurn: turn }); },
     cancel: interrupt,
+    pause: voice.pauseForInput,
+    resume: voice.resumeAfterInput,
   });
   manualTakeover.current = () => handsFree.stop();
   useEffect(() => {
     const turn = spokenTurn.current;
     if (!handsFree.active || !turn || turn.turn !== handsFree.state.turn || turn.request !== requestId.current) return;
     if (voice.speech.error) { handsFree.stop(voice.speech.error); return; }
-    if (voice.speech.phase === "speaking") handsFree.activity("speaking");
+    if (voice.speech.phase === "speaking") handsFree.activity("speaking", voice.speech.caption);
     else if (busy) handsFree.activity("generating");
     else if (turn.complete && voice.speech.phase === "idle") handsFree.activity("complete");
-  }, [handsFree.active, handsFree.state.turn, busy, voice.speech.phase, voice.speech.error]);
+  }, [handsFree.active, handsFree.state.turn, busy, voice.speech.phase, voice.speech.error, voice.speech.caption]);
 
   async function reconnect() {
     try {
@@ -213,8 +215,8 @@ export default function Chat() {
   const voiceActivity = { listening: voice.recognition.phase === "listening", speaking: voice.speech.phase === "speaking", requesting: voice.recognition.phase === "requesting", finishing: voice.recognition.phase === "finishing" };
   const automatic = handsFree.state.phase;
   const orb = handsFree.active ? {
-    mood: voiceActivity.speaking ? "speaking" as const : ["listening", "followup"].includes(automatic) ? "listening" as const : ["generating", "transcribing", "connecting"].includes(automatic) ? "thinking" as const : "idle" as const,
-    label: voiceActivity.speaking ? "June is speaking · movement is a visual approximation" : handsFreeLabels[automatic],
+    mood: handsFree.state.probing ? "listening" as const : voiceActivity.speaking ? "speaking" as const : ["listening", "followup"].includes(automatic) ? "listening" as const : ["generating", "transcribing", "connecting"].includes(automatic) ? "thinking" as const : "idle" as const,
+    label: handsFree.state.probing ? "Checking your interruption · voice paused" : voiceActivity.speaking ? "June is speaking · speak to interrupt" : handsFreeLabels[automatic],
   } : resolveOrb(busy, mode === "demo", preview, audio.phase, voiceActivity);
   const stopAll = () => { handsFree.stop(); interrupt(); voice.cancel(); audio.stop(); };
   function useTranscript(text: string) {
@@ -233,7 +235,7 @@ export default function Chat() {
       <main className="chat-shell">
         <section className="face-section" aria-labelledby="june-title">
           <div className="face-copy"><p className="eyebrow">Phase 5 · Real-time conversation</p><h1 id="june-title">A little more<br /><em>in the moment.</em></h1><p className="subtitle">Say “Hey June.” A question, a reply, and room to keep talking.</p><a className="learn-link" href="/learn/phase-5">Inside a real-time conversation <span aria-hidden="true">↗</span></a><OrbControls preview={preview} onPreview={setPreview} still={still} onStill={setStill} disabled={busy || handsFree.active} /></div>
-          <Orb mood={orb.mood} label={orb.label} level={handsFree.active ? handsFree.level : voice.recognition.phase === "listening" ? voice.level : audio.level} still={still} activity={voice.activity} speechActive={voice.speech.phase === "speaking"} />
+          <Orb mood={orb.mood} label={orb.label} level={handsFree.active ? handsFree.level : voice.recognition.phase === "listening" ? voice.level : audio.level} still={still} activity={voice.activity} speechActive={voice.speech.phase === "speaking" && !handsFree.state.probing} />
         </section>
         <HandsFreePanel controls={handsFree} enabled={!busy && mode === "local" && status?.state === "ready" && voice.speakReplies && !!voice.choices.selected && voice.support.recognition} onStart={() => { audio.stop(); voice.cancel(); setPreview("auto"); handsFree.start(); }} />
         {handsFree.active && <button className="quiet-button all-stop" onClick={stopAll}>Stop conversation &amp; microphone</button>}

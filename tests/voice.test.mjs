@@ -154,3 +154,38 @@ test('blocked speech startup ends with a readable recovery message', () => {
     assert.equal(states.at(-1).phase, 'idle'); assert.match(states.at(-1).error, /Preview voice or Hear reply/);
   } finally { controller.dispose(); globalThis.setTimeout = originalSet; globalThis.clearTimeout = originalClear; }
 });
+
+test('barge-in probe holds speech and queued sentences, resumes echo, and cancellation never resumes old speech', async () => {
+  const { controller, utterances, states } = speechEnvironment();
+  let paused = false;
+  controller.synth.pause = () => { paused = true; };
+  controller.synth.resume = () => { paused = false; };
+  Object.defineProperty(controller.synth, 'paused', { get: () => paused });
+  try {
+    controller.begin(1, samantha, true, true); controller.push(1, 'First sentence. Second sentence. ');
+    utterances[0].onstart();
+    assert.equal(await controller.pauseForInput(), true); assert.equal(paused, true);
+    utterances[0].onend();
+    assert.equal(utterances.length, 1); assert.notEqual(states.at(-1).phase, 'idle');
+    controller.resumeAfterInput(); assert.equal(paused, false); assert.equal(utterances.length, 2);
+    utterances[1].onstart(); await controller.pauseForInput(); controller.stop();
+    controller.resumeAfterInput(); controller.push(1, 'Old answer. ');
+    assert.equal(paused, false); assert.equal(utterances.length, 2);
+  } finally { controller.dispose(); }
+});
+
+test('native pause may acknowledge asynchronously; cancelling it cannot revive the old turn', async () => {
+  const { controller, utterances } = speechEnvironment();
+  let paused = false;
+  Object.defineProperty(controller.synth, 'paused', { get: () => paused });
+  controller.synth.pause = () => { setTimeout(() => { paused = true; utterances.at(-1)?.onpause?.(); }, 30); };
+  controller.synth.resume = () => { paused = false; };
+  try {
+    controller.begin(1, samantha, true, true); controller.push(1, 'A sentence. '); utterances[0].onstart();
+    assert.equal(await controller.pauseForInput(), true);
+    controller.stop(); paused=false;
+    controller.begin(2, samantha, true, true); controller.push(2, 'New sentence. '); utterances[1].onstart();
+    const attempt=controller.pauseForInput(); controller.stop();
+    assert.equal(await attempt, null);
+  } finally { controller.dispose(); }
+});
