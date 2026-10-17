@@ -158,3 +158,21 @@ test('deliberately cancelled native pause leaves text generation running; late a
   assert.equal(f.ws.sent.filter(x=>typeof x==='string' && JSON.parse(x).type==='probe-paused').length,0);
   f.controller.stop();
 });
+test('resampling is independent of chunk sizes at six device sample rates',()=>{
+  for(const rate of [16000,22050,24000,44100,48000,96000]) {
+    const input=Float32Array.from({length:rate},(_,i)=>.4*Math.sin(2*Math.PI*440*i/rate));
+    let reference;
+    for(const chunk of [7,128,511]) {
+      const packets=[],resampler=new StreamingResampler(rate,pcm=>packets.push(new Uint8Array(pcm)));
+      for(let offset=0;offset<input.length;offset+=chunk)resampler.push(input.subarray(offset,offset+chunk));
+      assert.equal(packets.length,50,`${rate} Hz, chunk ${chunk}`);
+      const bytes=Buffer.concat(packets);
+      if(reference)assert.deepEqual(bytes,reference);else reference=bytes;
+    }
+  }
+});
+test('nonfinite input becomes silence and clipping remains bounded',()=>{
+  const packets=[],resampler=new StreamingResampler(48000,pcm=>packets.push(new Int16Array(pcm)));
+  resampler.push(Float32Array.from({length:48000},(_,i)=>i%2?NaN:Infinity));
+  assert.ok(packets.length>0);assert.ok(packets.every(p=>p.every(x=>x===0)));
+});

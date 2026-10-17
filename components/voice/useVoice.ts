@@ -69,7 +69,7 @@ export function useVoice(stopMedia: () => void, onManual: () => void = () => {})
     replay: (text: string) => { manual.current(); recognition.current?.cancel(); stopMedia(); speech.current?.replay(text, getVoice()); },
     begin: (id: number, handsFree = false) => { recognition.current?.cancel(); stopMedia(); speech.current?.begin(id, getVoice(), enabled.current, handsFree); },
     push: (id: number, text: string) => speech.current?.push(id, text),
-    finish: (id: number) => speech.current?.finish(id),
+    finish: (id: number, flushTail = true) => speech.current?.finish(id, flushTail),
   };
 }
 export type VoiceControls = ReturnType<typeof useVoice>;

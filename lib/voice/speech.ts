@@ -77,9 +77,10 @@ export class SpeechController {
     this.streamId = id; this.voice = voice; this.emit({ ...EMPTY_SPEECH, phase: "waiting" });
   }
   push(id: number, delta: string) { if (id !== this.streamId) return; this.queue.push(...this.buffer.push(delta)); this.pump(); }
-  finish(id: number) {
+  finish(id: number, flushTail = true) {
     if (id !== this.streamId) return;
-    this.queue.push(...this.buffer.finish()); this.streamId = null; this.pump();
+    this.queue.push(...this.buffer.finish(!flushTail));
+    this.streamId = null; this.pump();
   }
   replay(text: string, voice: SpeechSynthesisVoice | undefined) {
     this.stop();

@@ -61,7 +61,7 @@ The model download is about 986 MB. June's helper stores models in `~/Library/Ap
 
 Only completed message/reply pairs become follow-up context. Failed and interrupted turns stay visible but are excluded; on failure your input is restored for retry. Switching reply source starts a new chat. Refreshing clears messages. There is no database, local-storage chat history or cross-session memory.
 
-Messages are limited to 2,000 characters; a request may contain up to 20 messages and 6,000 characters of conversation text. June asks you to start a new chat when the limit is reached rather than quietly forgetting text. Generation uses a 4,096-token context, a 256-token reply cap, temperature 0.1 and thinking disabled. A small model can answer incorrectly; long answers can hit the reply cap.
+Messages are limited to 2,000 characters; a request may contain up to 20 messages and 6,000 characters of conversation text. The app keeps recent whole turns within that request budget and shows a notice when older context is shortened. Older messages stay visible; this is not saved memory. Oversized historical replies are shortened only in the model context, with Unicode characters kept intact. Generation uses a 4,096-token context, a 256-token reply cap, temperature 0.1 and thinking disabled. A small model can answer incorrectly or repeat earlier errors even after a correction; this is not fixed by lowering temperature alone. Long answers can hit the reply cap; these are labelled, and only complete sentences are automatically spoken. See [the reliability audit](docs/reliability-audit.md).
 
 ## Phase 3 — talk and hear June
 
@@ -85,7 +85,7 @@ Open the [Phase 3 studio](http://127.0.0.1:3001/learn/phase-3) for the six workb
 
 Run `npm run speech:setup` once. It installs pinned whisper.cpp v1.9.5, a private CMake 3.31.6 environment and base.en (about 142 MiB), compiles a CPU-only engine, verifies the model SHA-256 and runs a genuine speech smoke test. Existing Apple command-line compiler tools and Python 3 are required; this Mac already has both. Files stay under `~/Library/Application Support/June/speech`, outside Git. Internet is needed only for setup downloads.
 
-Use `npm run speech:check` to verify the installation. June's **Refresh speech** checks server readiness. There is no third server to start: the Next.js server launches the speech engine when you finish a recording. Two CPU threads and a two-minute timeout keep jobs bounded. Stop aborts the job and removes temporary recordings. Quiet or very short recordings show a retry message. Whisper can mishear speech and background noise; always review the words.
+Use `npm run speech:check` to verify the installation. June's **Refresh speech** checks server readiness. There is no third server to start: June’s Python backend launches the speech engine when you finish a recording. Two CPU threads and a two-minute timeout keep jobs bounded. Stop aborts the job and removes temporary recordings. Quiet or very short recordings show a retry message. Whisper can mishear speech and background noise; always review the words.
 
 The 11-second official reference clip took about 2.5 seconds to transcribe on this Intel Mac during initial verification. This is an observed example, not a latency guarantee. See `docs/verification-v0.3.1.md` for the physical conversation acceptance result.
 

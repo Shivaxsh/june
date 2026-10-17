@@ -282,6 +282,8 @@ class VoiceTurn:
             await self.finish_capture()
 
     async def finish_capture(self):
+        if self.closed:
+            return
         number, clip = self.number, pcm_wav(bytes(self.buffer[:960000]))
         self.buffer.clear()
         self.preroll.clear()
@@ -290,6 +292,10 @@ class VoiceTurn:
         self.interrupt_voiced = 0.
         self.deadline = None
         await self.state('transcribing')
+        # Socket sends yield to disconnects and newer wake turns. Never create
+        # a new engine task after those owners have already cleaned up.
+        if self.closed or number != self.number:
+            return
 
         async def decode():
             try:

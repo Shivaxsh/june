@@ -189,3 +189,22 @@ test('native pause may acknowledge asynchronously; cancelling it cannot revive t
     assert.equal(await attempt, null);
   } finally { controller.dispose(); }
 });
+
+test('a model length limit keeps completed sentences but does not speak a cut-off final fragment',()=>{
+  const {controller,utterances}=speechEnvironment();
+  try {
+    controller.begin(1,samantha,true);controller.push(1,'A complete sentence. An unfinished frag');controller.finish(1,false);
+    assert.equal(utterances.length,1);utterances[0].onstart();utterances[0].onend();assert.equal(utterances.length,1);
+  } finally {controller.dispose();}
+});
+test('length-limited speech keeps a complete terminal sentence but discards its incomplete tail',()=>{
+  for (const text of ['First sentence. Final complete sentence.', 'First sentence. Final complete sentence. Unfinished']) {
+    const {controller,utterances}=speechEnvironment();
+    try {
+      controller.begin(1,samantha,true); controller.push(1,text); controller.finish(1,false);
+      utterances[0].onend();
+      assert.equal(utterances[1]?.text,'Final complete sentence.');
+      utterances[1].onend(); assert.equal(utterances.length,2);
+    } finally {controller.dispose();}
+  }
+});

@@ -303,5 +303,21 @@ class Disconnects(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(slow.closed)
 
 
+class ReplyLimits(unittest.IsolatedAsyncioTestCase):
+    async def test_model_length_limit_is_reported_without_throwing_away_partial_text(self):
+        body='{"message":{"content":"An unfinished answer"},"done":true,"done_reason":"length"}\n'
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _:httpx.Response(200,text=body))) as client:
+            events=[event async for event in stream_chat(client,Settings.from_env(),'local',[{'role':'user','content':'Explain something.'}])]
+        self.assertEqual(events[0]['text'],'An unfinished answer')
+        self.assertEqual(events[-1].get('limited'),True)
+
+    async def test_complete_identity_clarification_is_not_marked_as_truncated(self):
+        body='{"message":{"content":"RTX 3060"},"done":true,"done_reason":"length"}\n'
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _:httpx.Response(200,text=body))) as client:
+            events=[event async for event in stream_chat(client,Settings.from_env(),'local',[{'role':'user','content':'Tell me about the RTX 5060.'}])]
+        self.assertIn('You asked about 5060',events[0]['text'])
+        self.assertNotIn('limited',events[-1])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -3,7 +3,7 @@ export type ChatMessage = { role: "user" | "assistant"; content: string };
 export type ChatMode = "local" | "demo";
 export type ChatEvent =
   | { type: "delta"; text: string }
-  | { type: "done"; model: string }
+  | { type: "done"; model: string; limited?: boolean }
   | { type: "error"; message: string };
 
 export type ModelStatus = {

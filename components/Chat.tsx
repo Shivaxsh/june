@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatEvent, ChatMessage, ChatMode, ModelStatus } from "@/lib/chat-types";
 import { MAX_MESSAGE_LENGTH } from "@/lib/chat-types";
 import { readJsonLines } from "@/lib/ndjson";
+import { prepareContext } from "@/lib/context";
 
 import Orb from "./orb/Orb";
 import AudioPanel from "./orb/AudioPanel";
@@ -17,7 +18,7 @@ import { useHandsFree } from "./voice/useHandsFree";
 import HandsFreePanel, { handsFreeLabels } from "./voice/HandsFreePanel";
 import { mergeTranscript } from "@/lib/voice/sentences";
 
-type DisplayMessage = ChatMessage & { id: string; state?: "pending" | "complete" | "stopped" | "failed" };
+type DisplayMessage = ChatMessage & { id: string; state?: "pending" | "complete" | "stopped" | "failed"; limited?: boolean };
 
 export default function Chat() {
   const audio = useAudio();
@@ -33,6 +34,7 @@ export default function Chat() {
   const [error, setError] = useState("");
   const [timing, setTiming] = useState("");
   const [announcement, setAnnouncement] = useState("");
+  const [contextLimited, setContextLimited] = useState(false);
   const history = useRef<ChatMessage[]>([]);
   const active = useRef<AbortController | null>(null);
   const requestId = useRef(0);
@@ -101,6 +103,7 @@ export default function Chat() {
     active.current?.abort();
     active.current = null;
     history.current = [];
+    setContextLimited(false);
     busyRef.current = false;
     setBusy(false);
     setMessages([]);
@@ -130,11 +133,14 @@ export default function Chat() {
     active.current = controller;
     const user: ChatMessage = { role: "user", content };
     const assistantId = `assistant-${id}`;
-    const context = [...history.current, user];
+    const prepared = prepareContext(history.current, user);
+    const context = prepared.messages;
+    if (prepared.limited) setContextLimited(true);
     const started = performance.now();
     let firstToken = 0;
     let reply = "";
     let complete = false;
+    let replyLimited = false;
     nearBottom.current = true;
     setMessages(previous => [...previous,
       { ...user, id: `user-${id}` },
@@ -147,7 +153,7 @@ export default function Chat() {
     const update = (state: DisplayMessage["state"]) => {
       if (id !== requestId.current) return;
       setMessages(previous => previous.map(message => message.id === assistantId
-        ? { ...message, content: reply, state } : message));
+        ? { ...message, content: reply, state, limited: replyLimited } : message));
     };
     try {
       const response = await fetch("/api/chat", {
@@ -172,6 +178,7 @@ export default function Chat() {
           update("pending");
         } else if (event.type === "done" && typeof event.model === "string") {
           complete = true;
+          replyLimited = event.limited === true;
           break;
         } else if (event.type === "error" && typeof event.message === "string") {
           throw new Error(event.message);
@@ -181,13 +188,13 @@ export default function Chat() {
       if (id !== requestId.current) return;
       if (!complete || !reply.trim()) throw new Error("The reply ended unexpectedly. Please try again.");
       if (spokenTurn.current?.request === id) spokenTurn.current.complete = true;
-      voice.finish(id);
+      voice.finish(id, !replyLimited);
       history.current = [...context, { role: "assistant", content: reply }];
       update("complete");
       const elapsed = ((performance.now() - started) / 1000).toFixed(1);
       const first = ((firstToken - started) / 1000).toFixed(1);
       setTiming(`${elapsed}s total · first text in ${first}s`);
-      setAnnouncement("June’s reply is complete.");
+      setAnnouncement(replyLimited ? "June reached the reply length limit. Ask her to continue." : "June’s reply is complete.");
     } catch (failure) {
       if (id !== requestId.current) return;
       voice.stopVoice();
@@ -218,7 +225,7 @@ export default function Chat() {
     mood: handsFree.state.probing ? "listening" as const : voiceActivity.speaking ? "speaking" as const : ["listening", "followup"].includes(automatic) ? "listening" as const : ["generating", "transcribing", "connecting"].includes(automatic) ? "thinking" as const : "idle" as const,
     label: handsFree.state.probing ? "Checking your interruption · voice paused" : voiceActivity.speaking ? "June is speaking · speak to interrupt" : handsFreeLabels[automatic],
   } : resolveOrb(busy, mode === "demo", preview, audio.phase, voiceActivity);
-  const stopAll = () => { handsFree.stop(); interrupt(); voice.cancel(); audio.stop(); };
+  const stopAll = () => { handsFree.stop(); interrupt(); voice.cancel(); audio.stop(); setAnnouncement("Stopped. Microphone off; ready for another message."); };
   function useTranscript(text: string) {
     const merged = mergeTranscript(draft, text);
     if (merged.length > MAX_MESSAGE_LENGTH) { setError("The combined message is too long. Shorten your draft or transcript before adding it."); return; }
@@ -254,10 +261,11 @@ export default function Chat() {
           if (panel) nearBottom.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 100;
         }}>
           {!messages.length && <div className="empty-state"><span className="empty-label">A BEGINNING, WITH ROOM TO GROW</span><h2>Hello, I’m <em>June.</em></h2><p>Ask a question, explore an idea, or just say hello.</p><div className="suggestions">{["Introduce yourself, June.", "Explain async/await simply."].map(text => <button key={text} onClick={() => { setDraft(text); composer.current?.focus(); }}>{text}<span aria-hidden="true">↗</span></button>)}</div></div>}
-          {messages.map(message => <article key={message.id} className={`message ${message.role}`} aria-label={message.role === "user" ? "Your message" : "June’s message"}><span className="message-label">{message.role === "user" ? "YOU" : "JUNE"}</span><div className="message-text">{message.content || (message.state === "pending" ? <span className="waiting">Thinking<span aria-hidden="true">…</span></span> : message.state === "stopped" ? "Reply stopped." : "No reply yet.")}</div>{message.state === "stopped" && message.content && <span className="message-note">Stopped · partial reply</span>}{message.state === "failed" && <span className="message-note">Not completed · your typed draft is preserved</span>}{message.role === "assistant" && message.state === "complete" && <button className="quiet-button hear-reply" disabled={busy || !voice.choices.selected} onClick={() => { setPreview("auto"); voice.replay(message.content); }}>Hear reply</button>}</article>)}
+          {messages.map(message => <article key={message.id} className={`message ${message.role}`} aria-label={message.role === "user" ? "Your message" : "June’s message"}><span className="message-label">{message.role === "user" ? "YOU" : "JUNE"}</span><div className="message-text">{message.content || (message.state === "pending" ? <span className="waiting">Thinking<span aria-hidden="true">…</span></span> : message.state === "stopped" ? "Reply stopped." : "No reply yet.")}</div>{message.state === "stopped" && message.content && <span className="message-note">Stopped · partial reply</span>}{message.limited && <span className="message-note">Reply length limit reached · ask June to continue</span>}{message.state === "failed" && <span className="message-note">Not completed · your typed draft is preserved</span>}{message.role === "assistant" && message.state === "complete" && <button className="quiet-button hear-reply" disabled={busy || !voice.choices.selected} onClick={() => { setPreview("auto"); voice.replay(message.content); }}>Hear reply</button>}</article>)}
         </div>
 
         <div className="composer-area">
+          {contextLimited && <p className="demo-notice" role="status">Long conversation · June uses recent messages to fit her local model. Older messages remain visible but may be outside her current context. This is not saved memory.</p>}
           {error && <div className="error-notice" role="alert">{error}</div>}
           <form className="composer" onSubmit={event => { event.preventDefault(); void send(); }}>
             <label htmlFor="message" className="sr-only">Message June</label>

@@ -485,3 +485,86 @@ class FeedbackOwnership(unittest.IsolatedAsyncioTestCase):
         await turn.activity(1,'complete')
         self.assertEqual(turn.phase,'listening')
         await turn.close()
+
+class CaptureOwnership(unittest.IsolatedAsyncioTestCase):
+    async def test_capture_does_not_spawn_transcription_after_close_during_state_send(self):
+        entered, release = asyncio.Event(), asyncio.Event()
+        calls = []
+        async def emit(event):
+            if event.get('phase') == 'transcribing':
+                entered.set()
+                await release.wait()
+        async def transcribe(data):
+            calls.append(True)
+            return {'text': 'stale words', 'durationMs': 1}
+        turn = VoiceTurn(emit, transcribe)
+        turn.number = 1
+        turn.buffer = bytearray(b'\x00\x10' * 16000)
+        finishing = asyncio.create_task(turn.finish_capture())
+        try:
+            await asyncio.wait_for(entered.wait(), 1)
+            await turn.close()
+            release.set()
+            await finishing
+            await asyncio.sleep(0)
+            self.assertEqual(calls, [])
+            self.assertIsNone(turn.job)
+        finally:
+            release.set()
+            await finishing
+            await turn.close()
+
+    async def test_capture_does_not_replace_new_turn_after_state_send_resumes(self):
+        entered, release = asyncio.Event(), asyncio.Event()
+        calls = []
+        async def emit(event):
+            if event.get('phase') == 'transcribing':
+                entered.set()
+                await release.wait()
+        async def transcribe(data):
+            calls.append(True)
+            return {'text': 'stale words', 'durationMs': 1}
+        turn = VoiceTurn(emit, transcribe)
+        turn.number = 1
+        turn.buffer = bytearray(b'\x00\x10' * 16000)
+        finishing = asyncio.create_task(turn.finish_capture())
+        try:
+            await asyncio.wait_for(entered.wait(), 1)
+            await turn.wake()
+            release.set()
+            await finishing
+            await asyncio.sleep(0)
+            self.assertEqual(calls, [])
+            self.assertEqual(turn.phase, 'listening')
+            self.assertIsNone(turn.job)
+        finally:
+            release.set()
+            await finishing
+            await turn.close()
+
+class PauseMatrix(unittest.IsolatedAsyncioTestCase):
+    async def test_each_pause_setting_sends_once_after_its_silence_boundary(self):
+        for pause, seconds in [('short', .8), ('normal', 1.5), ('patient', 2.5)]:
+            with self.subTest(pause=pause):
+                events, clips = [], []
+                async def emit(event):
+                    events.append(event)
+                async def transcribe(data):
+                    clips.append(data)
+                    return {'text': 'What is Python?', 'durationMs': 1}
+                turn = VoiceTurn(emit, transcribe, pause=pause)
+                turn.number, turn.phase = 1, 'followup'
+                try:
+                    for _ in range(6):
+                        await turn.audio(b'\x00\x10' * 1600, True)
+                    for _ in range(round(seconds * 10) - 1):
+                        await turn.audio(bytes(3200), False)
+                    self.assertEqual(turn.phase, 'listening')
+                    self.assertEqual(len(clips), 0)
+                    await turn.audio(bytes(3200), False)
+                    await turn.flush()
+                    self.assertEqual(len(clips), 1)
+                    self.assertEqual(len([e for e in events if e['type'] == 'transcript']), 1)
+                    self.assertEqual(turn.phase, 'generating')
+                finally:
+                    await turn.close()

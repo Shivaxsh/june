@@ -108,7 +108,10 @@ async def stream_chat(client, settings, mode, messages):
                     if chunk.get('done') is True:
                         for text in identity.finish():
                             yield {'type': 'delta', 'text': text}
-                        yield {'type': 'done', 'model': settings.model}
+                        ending = {'type': 'done', 'model': settings.model}
+                        if chunk.get('done_reason') == 'length' and not identity.rejected:
+                            ending['limited'] = True
+                        yield ending
                         return
                 raise JuneError('incomplete', 'The model connection ended before the reply finished. Please try again.')
     except (TimeoutError, httpx.TimeoutException):
