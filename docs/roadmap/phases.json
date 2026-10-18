@@ -1,0 +1,812 @@
+[
+  {
+    "n": 0,
+    "id": "p0",
+    "title": "Set up your toolkit",
+    "weeks": "1 week",
+    "why": "The tools every developer uses every day. Once these are set up, everything else plugs into them.",
+    "learn": [
+      [
+        "The terminal",
+        "typing commands instead of clicking"
+      ],
+      [
+        "Git and GitHub",
+        "saving every version of your code, online"
+      ],
+      [
+        "VS Code",
+        "the code editor, plus its extensions"
+      ],
+      [
+        "Node.js and npm",
+        "running JavaScript outside the browser and installing libraries"
+      ]
+    ],
+    "build": [
+      "June v0.0",
+      "Put a “Hello, I'm June” page online with GitHub Pages."
+    ],
+    "res": [
+      [
+        "The Odin Project: Foundations",
+        "https://www.theodinproject.com/paths/foundations/courses/foundations"
+      ],
+      [
+        "GitHub Skills",
+        "https://skills.github.com/"
+      ]
+    ]
+  },
+  {
+    "n": 1,
+    "id": "p1",
+    "title": "Modern JavaScript and your first June",
+    "weeks": "4–6 weeks",
+    "why": "You already know JavaScript. Now learn the parts used to talk to servers and build real apps, and connect June to a brain for the first time.",
+    "learn": [
+      [
+        "async/await and fetch",
+        "how your page asks a server for something and waits for the answer"
+      ],
+      [
+        "JSON",
+        "the text format apps and AIs use to exchange data"
+      ],
+      [
+        "TypeScript",
+        "JavaScript with safety checks that catch mistakes early"
+      ],
+      [
+        "React and Next.js",
+        "the standard way to build web apps today"
+      ],
+      [
+        "Environment variables",
+        "keeping secret API keys out of your code"
+      ],
+      [
+        "AI basics",
+        "API, tokens, context window, temperature, streaming, system prompt"
+      ],
+      [
+        "Free first prototype",
+        "build a model adapter with simulated responses before connecting a local model or optional paid API"
+      ]
+    ],
+    "build": [
+      "June v0.1",
+      "A text chat app with a model adapter and a June system prompt. Begin with simulated replies; connect a small local model or an optional paid API, and stream real responses."
+    ],
+    "res": [
+      [
+        "javascript.info",
+        "https://javascript.info/"
+      ],
+      [
+        "React: Learn",
+        "https://react.dev/learn"
+      ],
+      [
+        "Next.js: Learn course",
+        "https://nextjs.org/learn"
+      ],
+      [
+        "Claude API docs",
+        "https://docs.claude.com/"
+      ]
+    ]
+  },
+  {
+    "n": 2,
+    "id": "p2",
+    "title": "June gets a face",
+    "weeks": "3–4 weeks",
+    "jarvis": true,
+    "why": "The glowing network brain from the videos. This is pure front-end work, so it's the most fun place to use the skills you already have.",
+    "learn": [
+      [
+        "Canvas 2D",
+        "drawing and animating hundreds of connected dots and lines with JavaScript"
+      ],
+      [
+        "Three.js",
+        "3D in the browser: particles, lines, glow, orbit rings and camera"
+      ],
+      [
+        "Web Audio API",
+        "measuring how loud a sound is, many times a second, so the orb can react to it"
+      ],
+      [
+        "Shaders (GLSL) basics",
+        "tiny programs that run on the graphics chip for glowing, flowing effects"
+      ],
+      [
+        "Mood states",
+        "designing how the orb looks when idle, listening, thinking and speaking"
+      ],
+      [
+        "React Three Fiber (optional)",
+        "Three.js written as React components"
+      ]
+    ],
+    "build": [
+      "June v0.2",
+      "June's living brain: coloured clusters of connected dots around a glowing core, with signals firing between them. It reacts to music or your microphone and has four moods."
+    ],
+    "extra": "moods",
+    "res": [
+      [
+        "MDN: Canvas tutorial",
+        "https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API/Tutorial"
+      ],
+      [
+        "Three.js manual",
+        "https://threejs.org/manual/"
+      ],
+      [
+        "MDN: Web Audio API",
+        "https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API"
+      ],
+      [
+        "The Book of Shaders",
+        "https://thebookofshaders.com/"
+      ],
+      [
+        "React Three Fiber docs",
+        "https://r3f.docs.pmnd.rs/"
+      ],
+      [
+        "Three.js Journey",
+        "https://threejs-journey.com/",
+        1
+      ]
+    ]
+  },
+  {
+    "n": 3,
+    "id": "p3",
+    "title": "June gets a voice",
+    "weeks": "3–4 weeks",
+    "jarvis": true,
+    "why": "Use free local Whisper for English voice input and an available local female English voice for replies. Prefer Indian English when available, label the actual accent, and review the transcript before sending.",
+    "learn": [
+      [
+        "Web Speech API",
+        "recognition versus synthesis; June uses local system synthesis because browser recognition services can fail"
+      ],
+      [
+        "Speech to text",
+        "capture a short microphone recording, transcribe it locally with Whisper base.en after release, then review and edit the words"
+      ],
+      [
+        "Text to speech",
+        "read replies with a selected local female system voice; hosted voices are optional later alternatives"
+      ],
+      [
+        "Streaming audio",
+        "queue complete sentences while model text arrives, flush on completion and cancel stale speech"
+      ],
+      [
+        "Wiring the orb to her voice",
+        "measure recording audio; use speech lifecycle events and label synthesis movement as a visual approximation"
+      ],
+      [
+        "Female voice selection",
+        "wait for available voices, prefer female Indian English when present, label the actual accent and save your choice"
+      ]
+    ],
+    "build": [
+      "June v0.3.1",
+      "Record a request, transcribe it on your Mac, review the words, send them to local June and hear her reply in the selected female voice. Stop releases recording, transcription and speech."
+    ],
+    "res": [
+      [
+        "MDN: Web Speech API",
+        "https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API"
+      ],
+      [
+        "whisper.cpp: local speech",
+        "https://github.com/ggml-org/whisper.cpp"
+      ],
+      [
+        "MDN: microphone access",
+        "https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia"
+      ],
+      [
+        "MDN: AudioWorklet",
+        "https://developer.mozilla.org/en-US/docs/Web/API/AudioWorklet"
+      ],
+      [
+        "MDN: voice loading",
+        "https://developer.mozilla.org/en-US/docs/Web/API/SpeechSynthesis/voiceschanged_event"
+      ]
+    ]
+  },
+  {
+    "n": 4,
+    "id": "p4",
+    "title": "Python, the language of AI",
+    "weeks": "6–8 weeks",
+    "why": "The real-time voice tools, AI libraries and training tools you'll use from Phase 5 onwards are mostly written in Python.",
+    "learn": [
+      [
+        "Python basics",
+        "variables, lists, loops, functions, classes"
+      ],
+      [
+        "pip and virtual environments",
+        "installing libraries without breaking other projects"
+      ],
+      [
+        "Jupyter notebooks",
+        "running code in small pieces and seeing results straight away"
+      ],
+      [
+        "async in Python",
+        "doing several things at once, which live voice needs"
+      ],
+      [
+        "FastAPI and WebSockets",
+        "a Python server that streams audio and text back and forth with your app"
+      ]
+    ],
+    "build": [
+      "June v0.3.5",
+      "Move June's brain and voice calls into a Python backend that your web app talks to."
+    ],
+    "res": [
+      [
+        "CS50's Introduction to Programming with Python",
+        "https://cs50.harvard.edu/python/"
+      ],
+      [
+        "Automate the Boring Stuff with Python",
+        "https://automatetheboringstuff.com/"
+      ],
+      [
+        "FastAPI tutorial",
+        "https://fastapi.tiangolo.com/tutorial/"
+      ]
+    ]
+  },
+  {
+    "n": 5,
+    "id": "p5",
+    "title": "Real-time conversation",
+    "weeks": "5–6 weeks",
+    "jarvis": true,
+    "why": "The step that makes people say “wait, that's real?”. No buttons: you speak from across the room, she answers with a measured response delay, and you can cut her off mid-sentence.",
+    "learn": [
+      [
+        "Voice frameworks",
+        "Pipecat or LiveKit Agents, which connect ears, brain and voice with very little delay"
+      ],
+      [
+        "Wake word",
+        "“Hey June” detected on your own computer with Porcupine or openWakeWord"
+      ],
+      [
+        "Voice activity detection",
+        "knowing when you've started and stopped talking (Silero VAD)"
+      ],
+      [
+        "Barge-in",
+        "June stops talking the moment you interrupt her"
+      ],
+      [
+        "Turn-taking",
+        "not cutting you off when you pause to think"
+      ],
+      [
+        "WebRTC",
+        "the technology video calls use to send live audio quickly"
+      ],
+      [
+        "Two ways to build voice",
+        "separate pieces vs one speech-to-speech model (see below)"
+      ]
+    ],
+    "build": [
+      "June v0.4",
+      "Say “Hey June”, have a conversation and interrupt her. Measure response time and work toward a one-second first-audio target with suitable hardware."
+    ],
+    "extra": "twoways",
+    "res": [
+      [
+        "Pipecat quickstart",
+        "https://docs.pipecat.ai/getting-started/quickstart"
+      ],
+      [
+        "LiveKit Agents",
+        "https://docs.livekit.io/agents/"
+      ],
+      [
+        "Picovoice Porcupine (wake word)",
+        "https://picovoice.ai/docs/porcupine/"
+      ],
+      [
+        "openWakeWord",
+        "https://github.com/dscripka/openWakeWord"
+      ],
+      [
+        "Silero VAD",
+        "https://github.com/snakers4/silero-vad"
+      ],
+      [
+        "OpenAI Realtime API",
+        "https://platform.openai.com/docs/guides/realtime"
+      ],
+      [
+        "Gemini Live API",
+        "https://ai.google.dev/gemini-api/docs/live"
+      ]
+    ]
+  },
+  {
+    "n": 6,
+    "id": "p6",
+    "title": "Memory and personality",
+    "weeks": "4 weeks",
+    "jarvis": true,
+    "why": "This is where June becomes someone instead of something. Use the personality workshop on this page as your starting point.",
+    "learn": [
+      [
+        "Prompt engineering",
+        "writing instructions that get reliable, in-character answers"
+      ],
+      [
+        "The character bible",
+        "turning your workshop answers into June's system prompt"
+      ],
+      [
+        "Writing for speech",
+        "short spoken sentences, natural fillers like “hmm”, no lists or emoji"
+      ],
+      [
+        "Conversation memory",
+        "saving chats in a database (Postgres on Supabase)"
+      ],
+      [
+        "Long-term memory",
+        "June picks out facts worth remembering about you and brings them up later"
+      ],
+      [
+        "Emotion in voice",
+        "adjusting her voice's speed, warmth and emphasis to match her mood"
+      ],
+      [
+        "Memory controls",
+        "ask before saving a fact; let the user review, correct, export and delete it"
+      ]
+    ],
+    "build": [
+      "June v0.5",
+      "June remembers you between conversations, stays in character every time, and her orb and voice change with her mood."
+    ],
+    "extra": "workshoplink",
+    "res": [
+      [
+        "Anthropic: interactive prompt engineering tutorial",
+        "https://github.com/anthropics/prompt-eng-interactive-tutorial"
+      ],
+      [
+        "Claude API docs",
+        "https://docs.claude.com/"
+      ],
+      [
+        "Supabase docs",
+        "https://supabase.com/docs"
+      ],
+      [
+        "DeepLearning.AI short courses",
+        "https://www.deeplearning.ai/short-courses/"
+      ]
+    ]
+  },
+  {
+    "n": 7,
+    "id": "p7",
+    "title": "RAG: giving June knowledge",
+    "weeks": "4 weeks",
+    "why": "RAG means “look it up, then answer”. June searches your notes and documents first, then answers from what she found. You add knowledge without retraining anything.",
+    "learn": [
+      [
+        "Embeddings",
+        "turning text into lists of numbers that capture its meaning"
+      ],
+      [
+        "Vector databases",
+        "storing embeddings and finding the closest matches (pgvector on Supabase, or Chroma)"
+      ],
+      [
+        "Chunking",
+        "splitting long documents into small pieces"
+      ],
+      [
+        "Retrieval and reranking",
+        "finding candidate pieces, then keeping only the best ones"
+      ],
+      [
+        "Citations",
+        "June says where she found the answer"
+      ]
+    ],
+    "build": [
+      "June v0.6",
+      "Ask June out loud about your own notes or PDFs and she answers from them, telling you where the answer came from."
+    ],
+    "res": [
+      [
+        "Anthropic: Contextual Retrieval",
+        "https://www.anthropic.com/news/contextual-retrieval"
+      ],
+      [
+        "Supabase: AI and vectors",
+        "https://supabase.com/docs/guides/ai"
+      ],
+      [
+        "DeepLearning.AI short courses (search “RAG”)",
+        "https://www.deeplearning.ai/short-courses/"
+      ]
+    ]
+  },
+  {
+    "n": 8,
+    "id": "p8",
+    "title": "June's hands: agents, MCP and your world",
+    "weeks": "6–8 weeks",
+    "jarvis": true,
+    "why": "Connect tools one capability at a time: your Mac, home, email, job applications, editable websites/designs, PDF/PPTX files and transaction preparation. Permissions, review, cancellation and result verification belong in each project before live actions. A desktop wrapper is optional for tools available through the local server.",
+    "learn": [
+      [
+        "Desktop app",
+        "Electron or Tauri, which wrap your web app into a real Mac app with a menu-bar icon and a global shortcut"
+      ],
+      [
+        "The agent loop",
+        "June plans, uses a tool, checks the result, and repeats until the job is done"
+      ],
+      [
+        "MCP (Model Context Protocol)",
+        "a standard plug that connects June to apps like Calendar, GitHub, Spotify and Notion"
+      ],
+      [
+        "Controlling your Mac",
+        "opening apps and running Apple Shortcuts when you ask"
+      ],
+      [
+        "Smart home",
+        "lights, fans and plugs through Home Assistant, which has its own MCP server"
+      ],
+      [
+        "Seeing your screen",
+        "sending a screenshot to the brain so June can see what you're looking at"
+      ],
+      [
+        "Routines",
+        "a spoken morning briefing, reminders and check-ins at times you set"
+      ],
+      [
+        "OAuth and permissions",
+        "authorise each account separately, restrict scopes and support revoking access"
+      ],
+      [
+        "Orders and bookings",
+        "prepare an exact transaction for review; confirm changed prices and prevent duplicate purchases"
+      ],
+      [
+        "Tool boundaries",
+        "allowlist Mac actions and home devices; check the result before saying done"
+      ]
+    ],
+    "build": [
+      "June v0.7",
+      "Say “June, open VS Code and play my focus playlist” and it happens. Every morning she greets you with your weather, calendar and goals."
+    ],
+    "extra": "mcp",
+    "res": [
+      [
+        "Model Context Protocol: official docs",
+        "https://modelcontextprotocol.io/"
+      ],
+      [
+        "MCP servers you can plug in",
+        "https://github.com/modelcontextprotocol/servers"
+      ],
+      [
+        "Anthropic: Building effective agents",
+        "https://www.anthropic.com/engineering/building-effective-agents"
+      ],
+      [
+        "Electron docs",
+        "https://www.electronjs.org/docs/latest/"
+      ],
+      [
+        "Tauri",
+        "https://tauri.app/"
+      ],
+      [
+        "Home Assistant",
+        "https://www.home-assistant.io/"
+      ],
+      [
+        "Home Assistant MCP server",
+        "https://www.home-assistant.io/integrations/mcp_server/"
+      ],
+      [
+        "Apple Shortcuts for Mac",
+        "https://support.apple.com/guide/shortcuts-mac/welcome/mac"
+      ]
+    ]
+  },
+  {
+    "n": 9,
+    "id": "p9",
+    "title": "How AI brains actually work",
+    "weeks": "8–12 weeks",
+    "hard": true,
+    "why": "Optional model-learning track. Understand model internals and build a deliberately tiny model as an exercise. You can continue from Phase 8 to Phase 11 and deployment without this track; training from scratch is not required for fine-tuning or a useful assistant.",
+    "learn": [
+      [
+        "Just enough maths",
+        "vectors, matrices, probability and gradients, all taught with pictures"
+      ],
+      [
+        "Neural networks",
+        "how a model learns by adjusting millions of numbers"
+      ],
+      [
+        "PyTorch",
+        "the main library for building and training models"
+      ],
+      [
+        "Transformers and attention",
+        "the design behind Claude, GPT and every modern language model"
+      ],
+      [
+        "Tokenization",
+        "how text is chopped into pieces and turned into numbers"
+      ]
+    ],
+    "build": [
+      "June-nano",
+      "Train a tiny GPT on text you may use, to understand next-token learning. This is a learning model, not a capable personal assistant."
+    ],
+    "res": [
+      [
+        "3Blue1Brown: Neural networks (videos)",
+        "https://www.3blue1brown.com/topics/neural-networks"
+      ],
+      [
+        "Andrej Karpathy: Neural Networks, Zero to Hero",
+        "https://karpathy.ai/zero-to-hero.html"
+      ],
+      [
+        "nanoGPT on GitHub",
+        "https://github.com/karpathy/nanoGPT"
+      ],
+      [
+        "PyTorch: Learn the basics",
+        "https://pytorch.org/tutorials/beginner/basics/intro.html"
+      ],
+      [
+        "Hugging Face LLM course",
+        "https://huggingface.co/learn/llm-course"
+      ]
+    ],
+    "optional": true
+  },
+  {
+    "n": 10,
+    "id": "p10",
+    "title": "June's own brain and voice",
+    "weeks": "8–10 weeks",
+    "jarvis": true,
+    "why": "Optional adaptation track. Start only when a measured behaviour gap remains after model selection, prompts, RAG and tools. Compare an adapter with the baseline and choose a voice separately. A GPU may support larger models and experiments; it does not guarantee Claude/Codex-level reliability.",
+    "learn": [
+      [
+        "Her constitution",
+        "your workshop answers grown into a full document of values, tone and rules"
+      ],
+      [
+        "Training data",
+        "reviewed June conversations, cleaned and deduplicated, with separate validation and test sets; see the training guide"
+      ],
+      [
+        "LoRA fine-tuning",
+        "training a small add-on to a free model (Qwen or Llama) with Unsloth or Hugging Face TRL"
+      ],
+      [
+        "DPO",
+        "teaching June to prefer replies that sound like her"
+      ],
+      [
+        "Her own voice",
+        "an original voice designed in ElevenLabs, or an open voice model like Kokoro or Piper that you run yourself"
+      ],
+      [
+        "Offline June",
+        "evaluate a small local brain, speech recognition and a licensed female voice on suitable hardware; offline performance must be measured"
+      ],
+      [
+        "QLoRA and dataset splits",
+        "quantize the base model, train adapters, and hold out entire conversations for evaluation"
+      ],
+      [
+        "Hardware budget",
+        "prepare data on your Mac and use a GPU notebook first; see the hardware guide"
+      ]
+    ],
+    "build": [
+      "June v1.0",
+      "June uses an evaluated adapter and a separately chosen voice. Test offline conversation on suitable hardware; online services still need internet."
+    ],
+    "extra": "stages",
+    "res": [
+      [
+        "Unsloth docs and free Colab notebooks",
+        "https://docs.unsloth.ai/"
+      ],
+      [
+        "Hugging Face TRL",
+        "https://huggingface.co/docs/trl"
+      ],
+      [
+        "Ollama",
+        "https://ollama.com/"
+      ],
+      [
+        "Kokoro voice model",
+        "https://huggingface.co/hexgrad/Kokoro-82M"
+      ],
+      [
+        "Piper voice",
+        "https://github.com/OHF-Voice/piper1-gpl"
+      ],
+      [
+        "faster-whisper",
+        "https://github.com/SYSTRAN/faster-whisper"
+      ],
+      [
+        "Paper: Constitutional AI (Anthropic)",
+        "https://arxiv.org/abs/2212.08073"
+      ],
+      [
+        "Paper: LoRA",
+        "https://arxiv.org/abs/2106.09685"
+      ],
+      [
+        "Paper: DPO",
+        "https://arxiv.org/abs/2305.18290"
+      ]
+    ],
+    "optional": true
+  },
+  {
+    "n": 11,
+    "id": "p11",
+    "title": "Testing and safety",
+    "weeks": "3–4 weeks",
+    "why": "An assistant that can control your computer and hears everything has to be trustworthy. Consolidate checks already introduced alongside every feature. Do not wait until this phase to protect accounts, files or transactions.",
+    "learn": [
+      [
+        "Evals",
+        "a fixed set of test questions you run after every change, so you notice if June gets worse"
+      ],
+      [
+        "In-character tests",
+        "checking that June sounds like June, using a strong model as the judge"
+      ],
+      [
+        "Confirm before acting",
+        "June asks before sending messages, spending money or deleting anything"
+      ],
+      [
+        "Prompt injection",
+        "ignoring instructions hidden in web pages, emails or screenshots she reads"
+      ],
+      [
+        "Privacy",
+        "the wake word runs on your device, a visible “listening” light, and recordings you can delete"
+      ],
+      [
+        "Observability",
+        "logging every conversation, delay and cost with Langfuse"
+      ],
+      [
+        "Action regression checks",
+        "test disconnected devices, revoked accounts, duplicate requests and price changes before enabling real actions"
+      ]
+    ],
+    "build": [
+      "June v1.1",
+      "A 100-question test suite covering personality, accuracy, speed and safety, with a page showing her scores over time."
+    ],
+    "res": [
+      [
+        "OWASP Top 10 for LLM apps",
+        "https://genai.owasp.org/llm-top-10/"
+      ],
+      [
+        "Langfuse docs",
+        "https://langfuse.com/docs"
+      ],
+      [
+        "Claude docs: testing and evaluation",
+        "https://docs.claude.com/"
+      ]
+    ]
+  },
+  {
+    "n": 12,
+    "id": "p12",
+    "title": "Going live and onto devices",
+    "weeks": "Ongoing",
+    "why": "June leaves your desk: a polished Mac app, a phone app, and a small speaker that sits in your room.",
+    "learn": [
+      [
+        "Packaging the desktop app",
+        "installers, auto-updates and starting June when your Mac starts"
+      ],
+      [
+        "Phone app",
+        "React Native with Expo, using the JavaScript you already know"
+      ],
+      [
+        "A June speaker",
+        "a Raspberry Pi with a microphone and speaker running the wake word and voice"
+      ],
+      [
+        "Accounts and hosting",
+        "Supabase Auth, Vercel for the website, a suitable model host using serving software such as vLLM"
+      ],
+      [
+        "Voice costs",
+        "voice services charge by the minute, so cache what you can and use cheaper models for easy questions"
+      ],
+      [
+        "Docker and CI/CD",
+        "packaging and automatic deployment with GitHub Actions"
+      ],
+      [
+        "Always-on home hub",
+        "keep the home controller and voice endpoint separate from occasional model-training compute"
+      ]
+    ],
+    "build": [
+      "June v2",
+      "Talk to June from your Mac, your phone, or a speaker in your room. She's the same June, with the same memory, everywhere."
+    ],
+    "res": [
+      [
+        "Expo docs",
+        "https://docs.expo.dev/"
+      ],
+      [
+        "Raspberry Pi documentation",
+        "https://www.raspberrypi.com/documentation/"
+      ],
+      [
+        "Supabase Auth",
+        "https://supabase.com/docs/guides/auth"
+      ],
+      [
+        "Vercel docs",
+        "https://vercel.com/docs"
+      ],
+      [
+        "vLLM docs",
+        "https://docs.vllm.ai/"
+      ],
+      [
+        "Docker: Get started",
+        "https://docs.docker.com/get-started/"
+      ],
+      [
+        "GitHub Actions",
+        "https://docs.github.com/en/actions"
+      ]
+    ]
+  }
+]

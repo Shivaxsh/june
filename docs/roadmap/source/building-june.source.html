@@ -1,0 +1,1344 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Building June</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --bg:#F5F7F4;
+  --surface:#FFFFFF;
+  --sunk:#EAEFEA;
+  --ink:#16201C;
+  --muted:#56645E;
+  --line:#D5DDD7;
+  --accent:#1D6B57;
+  --accent-soft:#DCEDE6;
+  --sun:#C98A12;
+  --sun-soft:#FBEFD2;
+  --c3:#3F6E9E;
+  --c4:#9A5B78;
+  --focus:#1D6B57;
+  --display:"Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --body:"Atkinson Hyperlegible", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0F1513; --surface:#161E1B; --sunk:#1D2723; --ink:#E4ECE7; --muted:#9AAAA3; --line:#2B3833;
+    --accent:#62C4A5; --accent-soft:#193A31; --sun:#F0BA4C; --sun-soft:#3A2E14; --c3:#7FA8D6; --c4:#D08FAE; --focus:#62C4A5;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0F1513; --surface:#161E1B; --sunk:#1D2723; --ink:#E4ECE7; --muted:#9AAAA3; --line:#2B3833;
+  --accent:#62C4A5; --accent-soft:#193A31; --sun:#F0BA4C; --sun-soft:#3A2E14; --c3:#7FA8D6; --c4:#D08FAE; --focus:#62C4A5;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.6;padding-inline:20px;padding-block:0 64px}
+a{color:var(--accent);text-underline-offset:3px}
+a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,label:focus-within{outline:2px solid var(--focus);outline-offset:3px;border-radius:4px}
+h1,h2,h3,h4{font-family:var(--display);line-height:1.1;text-wrap:balance;margin:0}
+p{margin:0}
+.wrap{max-width:1180px;margin-inline:auto}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.label{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+
+/* ---------- Hero ---------- */
+.hero{padding-block:48px 40px;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:48px;align-items:center;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(44px,7.5vw,92px);font-weight:800;letter-spacing:-.03em;margin-top:14px}
+.hero h1 .name{color:var(--accent)}
+.hero .lede{font-size:20px;color:var(--muted);max-width:36ch;margin-top:18px}
+.hero .facts{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.hero .facts span{font-family:var(--mono);font-size:12px;padding:5px 10px;border:1px solid var(--line);border-radius:99px;color:var(--muted)}
+
+/* The orb stage is always dark, like a screen */
+.stage{background:radial-gradient(120% 90% at 50% 40%,#0B1020 0%,#05070D 70%);border-radius:18px;padding:16px;display:grid;gap:12px;color:#CFD8E6;box-shadow:0 1px 0 rgba(0,0,0,.04),0 24px 60px -30px rgba(5,7,13,.7)}
+.orbbox{position:relative;width:100%;max-width:100%;aspect-ratio:1/1;max-height:480px;margin-inline:auto}
+.orbbox canvas{width:100%;height:100%;display:block}
+.orbstate{position:absolute;top:8px;left:10px;font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#8A97B0}
+.caption{min-height:3.2em;font-size:15px;line-height:1.5;color:#EEF2F8;padding-inline:4px}
+.caption .dim{color:#7A869C}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.moods{display:flex;gap:4px;padding:3px;border-radius:10px;background:#0F1526;flex-wrap:wrap}
+.moods button{font:inherit;font-size:13px;color:#AEB8CC;background:none;border:0;padding:6px 10px;border-radius:8px;cursor:pointer}
+.moods button[aria-pressed="true"]{background:#24304E;color:#F4F7FC}
+.speak{font:inherit;font-size:14px;font-weight:700;background:#F0BA4C;color:#1F1806;border:0;border-radius:10px;padding:8px 14px;cursor:pointer;margin-left:auto}
+.speak:hover{background:#F6C866}
+
+/* ---------- Layout ---------- */
+.layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:48px;padding-top:40px}
+.rail{position:sticky;top:calc(env(safe-area-inset-top,0px) + 20px);align-self:start;display:grid;gap:18px;max-height:calc(100vh - 40px);overflow:auto}
+.meter{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
+.meter .pct{font-family:var(--display);font-size:40px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.meter .sub{font-size:13px;color:var(--muted);margin-top:4px}
+.bar{height:8px;background:var(--sunk);border-radius:99px;overflow:hidden;margin-top:12px}
+.bar i{display:block;height:100%;width:0;background:var(--sun);border-radius:99px;transition:width .4s ease}
+.toc{list-style:none;margin:0;padding:0;display:grid;gap:1px;font-size:14px}
+.toc a{display:grid;grid-template-columns:28px 1fr auto;gap:6px;align-items:baseline;padding:4px 8px;border-radius:6px;color:var(--ink);text-decoration:none}
+.toc a:hover{background:var(--sunk)}
+.toc .n{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.toc .c{font-family:var(--mono);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.toc a.done .c{color:var(--accent);font-weight:600}
+.reset{font:inherit;font-size:13px;background:none;border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:6px 10px;cursor:pointer;justify-self:start}
+.reset:hover{color:var(--ink);border-color:var(--muted)}
+.reset.armed{color:var(--sun);border-color:var(--sun)}
+.mobilebar{display:none}
+
+main{display:grid;gap:80px;min-width:0}
+section > h2{font-size:clamp(28px,4vw,40px);font-weight:700;letter-spacing:-.02em;margin-top:8px}
+.intro{color:var(--muted);max-width:64ch;margin-top:12px}
+
+/* ---------- Jarvis loop ---------- */
+.loop{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:26px;list-style:none;padding:0}
+.loop li{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:grid;gap:4px;align-content:start}
+.loop .step{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.loop h3{font-size:19px}
+.loop p{font-size:15px;color:var(--muted)}
+.loop .ph{font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:6px}
+.loop li.face{border-color:var(--accent);background:var(--accent-soft)}
+.loop li.face .ph::after{content:" · uses your HTML, CSS & JS"}
+
+.latency{margin-top:28px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px}
+.latency h3{font-size:20px}
+.latency .sub{color:var(--muted);font-size:15px;margin-top:4px}
+.lbar{display:flex;height:34px;border-radius:8px;overflow:hidden;margin-top:18px}
+.lbar span{display:block;height:100%}
+.axis{position:relative;height:22px;font-family:var(--mono);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.axis span{position:absolute;top:4px;transform:translateX(-50%)}
+.axis span:first-child{transform:none}
+.axis span:last-child{transform:translateX(-100%)}
+.human{position:relative;height:10px;margin-top:10px;border-radius:99px;background:var(--sunk)}
+.human i{position:absolute;left:20%;width:10%;top:0;bottom:0;background:var(--ink);opacity:.55;border-radius:99px}
+.humanlabel{font-size:13px;color:var(--muted);margin-top:6px}
+.legend{list-style:none;padding:0;margin:16px 0 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 20px;font-size:14px}
+.legend li{display:grid;grid-template-columns:12px 1fr auto;gap:10px;align-items:center}
+.legend i{width:12px;height:12px;border-radius:3px}
+.legend b{font-family:var(--mono);font-weight:600;font-size:13px;font-variant-numeric:tabular-nums}
+
+.truth{margin-top:20px;padding:20px;border-radius:12px;background:var(--sun-soft)}
+.truth h3{font-size:19px;margin-bottom:10px}
+.truth ul{margin:0;padding-left:20px;display:grid;gap:6px;font-size:16px}
+
+/* ---------- Reality check ---------- */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px}
+.split > div{padding:20px;border-radius:12px;border:1px solid var(--line);background:var(--surface)}
+.split h3{font-size:20px;margin-bottom:6px}
+.tag{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:99px;display:inline-block;margin-bottom:10px}
+.tag.no{background:var(--sun-soft);color:var(--sun)}
+.tag.yes{background:var(--accent-soft);color:var(--accent)}
+.split p{color:var(--muted);font-size:16px}
+.tablebox{overflow-x:auto;margin-top:20px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:620px;font-size:15px}
+th,td{text-align:left;padding:14px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:400}
+td b{font-family:var(--display);font-size:17px}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.pace{margin-top:18px;padding:14px 18px;background:var(--sun-soft);border-radius:10px;font-size:16px}
+
+/* ---------- Phases ---------- */
+.phases{display:grid;gap:22px;margin-top:28px}
+.phase{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:26px;display:grid;gap:18px;scroll-margin-top:24px}
+.phase.complete{border-color:var(--accent)}
+.phase.jarvis .pnum{color:var(--sun)}
+.phead{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:18px;align-items:start}
+.pnum{font-family:var(--display);font-weight:800;font-size:44px;line-height:.9;color:var(--accent);font-variant-numeric:tabular-nums;min-width:52px}
+.phead h3{font-size:26px;letter-spacing:-.01em}
+.phead .why{color:var(--muted);font-size:16px;margin-top:6px;max-width:64ch}
+.chips{display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.weeks{font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap;padding:4px 10px;border:1px solid var(--line);border-radius:99px}
+.weeks.hard{color:var(--sun);border-color:var(--sun)}
+.weeks.jv{color:var(--sun);border-color:transparent;background:var(--sun-soft)}
+.cols{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:26px}
+.checks{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.checks label{display:grid;grid-template-columns:22px minmax(0,1fr);gap:10px;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:16px}
+.checks label:hover{background:var(--sunk)}
+.tick{appearance:none;width:20px;height:20px;border:2px solid var(--line);border-radius:6px;margin:2px 0 0;display:grid;place-items:center;cursor:pointer;background:var(--surface)}
+.tick:checked{background:var(--accent);border-color:var(--accent)}
+.tick:checked::after{content:"";width:6px;height:11px;border:solid var(--surface);border-width:0 2.5px 2.5px 0;transform:rotate(45deg) translate(-1px,-1px)}
+.tick:checked + span b{text-decoration:line-through;text-decoration-color:var(--muted)}
+.checks b{font-weight:700}
+.checks em{font-style:normal;color:var(--muted)}
+.build{border-radius:10px;padding:16px;background:var(--sun-soft)}
+.build .ver{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--sun);letter-spacing:.06em}
+.build label{display:grid;grid-template-columns:22px minmax(0,1fr);gap:10px;cursor:pointer;margin-top:6px;font-size:16px}
+.res{list-style:none;padding:0;margin:0;display:grid;gap:6px;font-size:15px}
+.res .paid{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-left:6px}
+.side{display:grid;gap:22px;align-content:start}
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.mini{border:1px solid var(--line);border-radius:10px;padding:14px;background:var(--bg)}
+.mini .sn{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.mini h4{font-size:17px;margin:4px 0 6px}
+.mini p{font-size:14px;color:var(--muted)}
+.mini.you{border-color:var(--accent)}
+.mini .who{display:inline-block;margin-top:8px;font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--sun)}
+.mini.you .who{color:var(--accent)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.two .mini ul{margin:8px 0 0;padding-left:18px;font-size:14px;color:var(--muted);display:grid;gap:3px}
+.two .mini.you ul li::marker{color:var(--accent)}
+.pick{margin-top:10px;font-size:15px}
+.mcp{display:grid;grid-template-columns:1fr auto 1fr auto 1.3fr;gap:8px;align-items:center;text-align:center;font-size:14px}
+.mcp .box{border:1px solid var(--line);border-radius:10px;padding:12px 8px;background:var(--bg)}
+.mcp .box b{display:block;font-family:var(--display);font-size:15px}
+.mcp .box span{color:var(--muted);font-size:12px}
+.mcp .arrow{font-family:var(--mono);color:var(--accent)}
+.callout{padding:14px 16px;border-radius:10px;border:1px dashed var(--accent);font-size:15px}
+
+/* ---------- Workshop ---------- */
+.workshop{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:24px;margin-top:26px;align-items:start}
+.fields{display:grid;gap:14px}
+.field{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:grid;gap:6px}
+.field label{font-family:var(--display);font-weight:700;font-size:17px}
+.field .hint{font-size:14px;color:var(--muted)}
+.field textarea{font:inherit;font-size:15px;line-height:1.5;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;resize:vertical;min-height:72px;width:100%}
+.field textarea::placeholder{color:var(--muted);opacity:.75}
+.preview{position:sticky;top:calc(env(safe-area-inset-top,0px) + 20px);display:grid;gap:12px}
+.preview pre{margin:0;padding:16px;border-radius:12px;background:#07100E;color:#D7E8E1;font-family:var(--mono);font-size:12.5px;line-height:1.6;white-space:pre-wrap;max-height:520px;overflow:auto}
+.preview .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.btn{font:inherit;font-size:14px;font-weight:700;border-radius:10px;padding:9px 14px;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:var(--surface)}
+.btn.ghost{background:none;color:var(--muted);border-color:var(--line);font-weight:400}
+.btn.ghost.armed{color:var(--sun);border-color:var(--sun)}
+.status{font-size:13px;color:var(--muted)}
+.rules{margin-top:26px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;list-style:none;padding:0}
+.rules li{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
+.rules h4{font-size:17px;margin-bottom:4px}
+.rules p{font-size:15px;color:var(--muted)}
+.grow{margin-top:18px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:15px}
+.grow span{padding:6px 12px;border-radius:99px;background:var(--accent-soft);color:var(--ink)}
+.grow i{font-style:normal;color:var(--accent);font-family:var(--mono)}
+
+/* ---------- Glossary ---------- */
+.gtools{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:22px}
+.gtools input{font:inherit;font-size:16px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);width:min(100%,360px)}
+.gtools .count{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.gloss{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:16px 0 0}
+.term{background:var(--surface);padding:16px}
+.term dt{font-family:var(--mono);font-weight:600;font-size:14px;color:var(--accent)}
+.term dd{margin:4px 0 0;font-size:15px}
+.empty{padding:20px;background:var(--surface);color:var(--muted)}
+
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);color:var(--muted);font-size:14px;display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between}
+
+/* ---------- Responsive ---------- */
+@media (max-width:980px){
+  .hero{grid-template-columns:1fr;padding-block:36px 32px;gap:28px}
+  .layout{grid-template-columns:1fr;gap:0}
+  .rail{display:none}
+  .mobilebar{display:flex;position:sticky;top:env(safe-area-inset-top,0px);z-index:5;margin-inline:-20px;padding:10px 20px;background:var(--bg);border-bottom:1px solid var(--line);gap:12px;align-items:center;font-size:14px}
+  .mobilebar .bar{flex:1;margin:0}
+  .mobilebar b{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:13px}
+  main{padding-top:32px}
+  .cols,.workshop{grid-template-columns:1fr}
+  .preview{position:static}
+  .grid4{grid-template-columns:1fr 1fr}
+  .loop,.rules{grid-template-columns:1fr 1fr}
+}
+@media (max-width:600px){
+  body{font-size:16px;padding-inline:16px}
+  .mobilebar{margin-inline:-16px;padding-inline:16px}
+  .split,.two,.loop,.rules,.legend,.grid4{grid-template-columns:1fr}
+  .phase{padding:18px}
+  .phead{grid-template-columns:auto minmax(0,1fr)}
+  .phead .chips{grid-column:2;flex-direction:row;flex-wrap:wrap;align-items:flex-start}
+  .pnum{font-size:34px;min-width:40px}
+  .phead h3{font-size:22px}
+  .mcp{grid-template-columns:1fr;gap:4px}
+  .mcp .arrow{transform:rotate(90deg)}
+  .speak{margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+html{scroll-behavior:smooth}
+
+main{grid-template-columns:minmax(0,1fr)}main>section{min-width:0}.tablebox{max-width:100%}.hero>div{min-width:0}
+.voice-settings{display:grid;gap:9px;border-top:1px solid #24304E;padding-top:14px;min-width:0}
+.voice-settings label{font-size:13px;font-weight:700;color:#CFD8E6}
+.voice-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.voice-row select{flex:1 1 190px;min-width:0;max-width:100%;font:inherit;font-size:13px;padding:10px;border-radius:8px;border:1px solid #42516D;background:#0F1526;color:#EEF2F8}
+.voice-row button{font:inherit;font-size:13px;padding:9px 11px;border:1px solid #42516D;border-radius:8px;background:#172239;color:#EEF2F8;cursor:pointer}
+.voice-note{font-size:12px;line-height:1.5;color:#B3BFD2;overflow-wrap:anywhere}
+button:disabled,select:disabled{opacity:.55;cursor:not-allowed}
+.guide-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:22px}
+.guide-card{padding:22px;background:var(--surface);border:1px solid var(--line);border-radius:12px;min-width:0}
+.guide-card h3{font-size:23px;margin:7px 0 10px}
+.guide-card p,.guide-card li{font-size:16px;color:var(--muted)}
+.guide-card ul{padding-left:20px;margin:12px 0 0;display:grid;gap:8px}
+.guide-card.featured{border-color:var(--accent);background:var(--accent-soft)}
+.milestones{counter-reset:milestone;display:grid;gap:14px;list-style:none;padding:0;margin:24px 0 0}
+.milestones li{display:grid;grid-template-columns:42px minmax(0,1fr);gap:16px;border-top:1px solid var(--line);padding-top:18px}
+.milestones li::before{counter-increment:milestone;content:counter(milestone,decimal-leading-zero);font-family:var(--mono);font-size:20px;color:var(--accent)}
+.milestones h3{font-size:22px;margin-bottom:7px}.milestones p{color:var(--muted);font-size:16px}.milestones .proof{margin-top:8px;color:var(--ink)}
+.backup-controls{display:grid;gap:8px}.backup-controls button{justify-self:start}.backup-status{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.section-links{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;font-size:14px}.goal-banner{padding:22px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:12px;margin-top:24px}
+.goal-banner h3{font-size:23px;margin-bottom:8px}.goal-banner p{font-size:16px}.goal-banner .label{color:var(--accent)}
+.training-flow{display:grid;gap:16px;margin:24px 0 0;padding-left:24px}.training-flow li{padding-left:7px;color:var(--muted)}.training-flow strong{color:var(--ink)}
+@media(max-width:980px){.rail{display:block;position:static;max-height:none;overflow:visible}.rail>.meter,.rail>.toc,.rail>#reset{display:none}.backup-controls{display:flex;flex-wrap:wrap;gap:8px}.backup-status{flex-basis:100%}}
+@media(max-width:620px){.guide-grid{grid-template-columns:1fr}.guide-card{padding:18px}.milestones li{grid-template-columns:32px minmax(0,1fr);gap:10px}.voice-row button{flex:1}.voice-row select{flex-basis:100%}}
+</style>
+
+<div class="wrap">
+  <header class="hero" id="top">
+    <div>
+      <div class="eyebrow">A learning roadmap · HTML, CSS &amp; JS → your own Jarvis</div>
+      <h1>Building <span class="name">June</span></h1>
+      <p class="lede">Your own Jarvis: a voice you talk to, a living brain that listens and thinks, and a personality that is hers alone.</p>
+      <div class="facts"><span>13 phases</span><span>Optional model-study tracks</span><span>10–15 hrs / week</span><span>Free resources first</span></div>
+    </div>
+    <div class="stage" aria-label="Demo of June's brain">
+      <div class="orbbox">
+        <canvas id="orb" aria-hidden="true"></canvas>
+        <div class="orbstate" id="orbstate">Idle</div>
+      </div>
+      <p class="caption" id="caption"><span class="dim">Each coloured cluster is one part of June: memory, voice, personality, knowledge, hands and ears. It's about 300 lines of plain JavaScript, and you'll build your own in Phase 2. Try the moods, or press Hear June.</span></p>
+      <div class="controls">
+        <div class="moods" role="group" aria-label="Orb mood">
+          <button type="button" data-mood="idle" aria-pressed="true">Idle</button>
+          <button type="button" data-mood="listening" aria-pressed="false">Listening</button>
+          <button type="button" data-mood="thinking" aria-pressed="false">Thinking</button>
+          <button type="button" data-mood="speaking" aria-pressed="false">Speaking</button>
+        </div>
+        <button type="button" class="speak" id="speak">▶ Hear June</button>
+      </div>
+      <div class="voice-settings">
+        <label for="june-voice">June's female voice</label>
+        <div class="voice-row"><select id="june-voice" aria-describedby="voice-status"><option>Loading voices…</option></select><button type="button" id="voice-preview">Preview voice</button><button type="button" id="voice-refresh">Refresh voices</button></div>
+        <p class="voice-note" id="voice-status" role="status" aria-live="polite">Prefer warm Indian English. Loading the female voices available in this browser…</p>
+        <p class="voice-note">This is a voice sample, not a connected assistant. Voice availability and accent depend on your device. The orb is an animation.</p>
+      </div>
+    </div>
+  </header>
+
+  <div class="mobilebar" aria-hidden="true"><span>Progress</span><div class="bar"><i id="mbar"></i></div><b id="mpct">0%</b></div>
+
+  <div class="layout">
+    <aside class="rail" aria-label="Progress and contents">
+      <div class="meter">
+        <div class="pct" id="pct">0%</div>
+        <div class="sub" id="psub">0 of 0 steps done</div>
+        <div class="bar"><i id="bar"></i></div>
+      </div>
+      <ol class="toc" id="toc"></ol>
+      <button class="reset" id="reset" type="button">Clear my progress</button>
+      <div class="backup-controls"><button class="reset" type="button" id="export-progress">Export my progress</button><button class="reset" type="button" id="import-progress">Import my progress</button><input type="file" id="progress-file" accept="application/json,.json" hidden><p class="backup-status" id="backup-status" role="status" aria-live="polite">Saved in this browser. Export to move your progress and personality answers to another copy.</p></div>
+    </aside>
+
+    <main>
+      <!-- Jarvis loop -->
+      <section id="jarvis">
+        <div class="eyebrow">Start here</div>
+        <h2>What those Jarvis videos are really made of</h2>
+        <p class="intro">A practical Jarvis-style assistant can be built as six connected parts. Start with an existing language model and speech tools. The glowing orb is a JavaScript interface, so your current web skills already cover part of June.</p>
+        <ol class="loop">
+          <li><span class="step">Step 1</span><h3>Wake word</h3><p>A tiny model on your computer listens only for "Hey June", like "Hey Siri".</p><span class="ph">Phase 5</span></li>
+          <li><span class="step">Step 2</span><h3>Ears</h3><p>Speech to text turns what you say into words, live, while you're still talking.</p><span class="ph">Phases 3, 5</span></li>
+          <li><span class="step">Step 3</span><h3>Brain</h3><p>An AI model writes June's reply, using her personality, her memory of you and your documents.</p><span class="ph">Phases 1, 6, 7, 10</span></li>
+          <li><span class="step">Step 4</span><h3>Hands</h3><p>Tools let her act: open apps, play music, check your calendar, switch off the lights.</p><span class="ph">Phase 8</span></li>
+          <li><span class="step">Step 5</span><h3>Voice</h3><p>Text to speech speaks the reply in a natural voice, starting before the whole reply is written.</p><span class="ph">Phases 3, 10</span></li>
+          <li class="face"><span class="step">Running throughout</span><h3>Face</h3><p>The animated brain shows what June is doing: idle, listening, thinking or speaking.</p><span class="ph">Phase 2</span></li>
+        </ol>
+
+        <div class="latency">
+          <h3>The one-second rule</h3>
+          <p class="sub">Speed is what makes June feel human. In normal conversation people reply within about a quarter of a second. Under one second feels natural. Around three seconds feels like talking to a robot. These are rough targets for each step.</p>
+          <div class="lbar" role="img" aria-label="Stacked bar: noticing you stopped 250 ms, speech to text 150 ms, brain first words 400 ms, voice first sound 200 ms, total 1000 ms">
+            <span style="width:25%;background:var(--c3)"></span>
+            <span style="width:15%;background:var(--c4)"></span>
+            <span style="width:40%;background:var(--accent)"></span>
+            <span style="width:20%;background:var(--sun)"></span>
+          </div>
+          <div class="axis"><span style="left:0">0 ms</span><span style="left:25%">250</span><span style="left:50%">500</span><span style="left:75%">750</span><span style="left:100%">1,000 ms</span></div>
+          <div class="human" aria-hidden="true"><i></i></div>
+          <p class="humanlabel">Shaded band: the 200–300 ms gap people leave when they talk to each other.</p>
+          <ul class="legend">
+            <li><i style="background:var(--c3)"></i><span>Noticing you stopped talking</span><b>250 ms</b></li>
+            <li><i style="background:var(--c4)"></i><span>Ears: final words from speech to text</span><b>150 ms</b></li>
+            <li><i style="background:var(--accent)"></i><span>Brain: first words of the reply</span><b>400 ms</b></li>
+            <li><i style="background:var(--sun)"></i><span>Voice: first sound out of the speaker</span><b>200 ms</b></li>
+          </ul>
+        </div>
+
+        <div class="truth">
+          <h3>The truth about the videos</h3>
+          <ul>
+            <li>Existing models and speech tools let you build the product first. Cloud APIs are optional paid services; small local models are another route.</li>
+            <li>Treat one second as a latency target, not a promise. Measure delays on your hardware and network, including tool calls.</li>
+            <li>Ultron deciding things on his own is movie fiction. Real assistants act only when asked, and should check with you before anything risky.</li>
+            <li>What makes an assistant feel alive is five things: speed, a natural voice, letting you interrupt, remembering you, and a personality. All five are in this roadmap.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- Reality check -->
+      <section id="start">
+        <div class="eyebrow">Read this before you start</div>
+        <h2>What you can build, and what you can't</h2>
+        <p class="intro">An assistant like Claude or Jarvis is two things stacked together. Knowing which half you can build decides the whole plan.</p>
+        <div class="split">
+          <div>
+            <span class="tag no">Big labs only</span>
+            <h3>A frontier brain from zero</h3>
+            <p>Training at the scale of frontier models requires large research teams, extensive data and substantial computing infrastructure. Exact private training costs vary. This roadmap builds a useful assistant around existing models and teaches small training experiments.</p>
+          </div>
+          <div>
+            <span class="tag yes">You can build this</span>
+            <h3>Everything that makes June, June</h3>
+            <p>Her name, personality, voice, face, memory, knowledge, tools and safety rules. An existing model can power a useful June. Fine-tuning is optional and must demonstrate an improvement; it is not required to connect your work, accounts or home.</p>
+          </div>
+        </div>
+        <div class="tablebox">
+          <table>
+            <thead><tr><th>Level</th><th>What June is</th><th>When</th><th>Cost</th></tr></thead>
+            <tbody>
+              <tr><td><b>1 · June the voice assistant</b></td><td>Your own app, face, voice and personality. Prototype with free browser speech and simulated replies; connect a small local model or an optional paid API for real conversations.</td><td class="num">Phases 1–8</td><td class="num">Free prototypes; API costs vary</td></tr>
+              <tr><td><b>2 · Optional model adaptation</b></td><td>Optionally adapt an open model after evaluating the original. Select a licensed voice independently; run on hardware suitable for the model.</td><td class="num">Phase 10</td><td class="num">Notebook access or GPU rental; costs vary</td></tr>
+              <tr><td><b>3 · Optional training from scratch</b></td><td>A tiny next-token model trained as an educational experiment; this is not the model that needs to power June.</td><td class="num">Phase 9</td><td class="num">Free experiments; GPU availability varies</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="pace"><strong>Pace:</strong> the 14–20 month estimate covers the full learning curriculum, including optional model study, and is not a delivery promise. Ship and verify one useful capability at a time. Main assistant route: Phases 0–8 → Phase 11 → Phase 12. Phases 9–10 are optional model-learning tracks; they do not gate useful automation. Testing, privacy and action approvals begin with each feature, before real account or device actions.</p>
+      </section>
+
+
+      <!-- GENERATED_LEARNING_OVERVIEW -->
+      <section id="build-goal">
+        <div class="eyebrow">Your build goal · free resources first</div>
+        <h2>A practical June, one capability at a time</h2>
+        <p class="intro">Build your personal assistant for work and home: email, job applications, websites, designs, PDFs, presentations, lights, groceries and movie tickets. Develop on your current Mac and move model inference or optional fine-tuning to stronger hardware later. Add each authorised connection only after you can verify its result.</p>
+        <div class="goal-banner"><div class="label">Before each live integration</div><h3>Prove the action, then enable it.</h3><p>Compare candidate models on your own tasks before switching. Test tools in a simulator, validate arguments on the server, treat retrieved emails/webpages as untrusted data, restrict permissions, bind approval to exact action details and verify the provider result. Keep an action log without secrets, a cancellation path and rollback. No successful result means no claim of completion.</p></div>
+        <div class="goal-banner"><div class="label">First working milestone</div><h3>Talk. Remember. Complete one Mac task.</h3><p>Have a spoken conversation with June, approve a fact for her to remember, review or delete that fact, and ask her to open an app through an approved Shortcut. You should be able to interrupt her voice and see whether the action actually succeeded.</p></div>
+        <ol class="milestones">
+          <li><div><h3>Voice and memory</h3><p><a href="#p3">Phase 3</a> → <a href="#p5">Phase 5</a> → <a href="#p6">Phase 6</a>. Begin with push-to-talk and a female voice, then add “Hey June”, interruption and memory you can review. Store useful facts separately from chat history.</p><p class="proof">Done when: June recalls an approved preference in a new conversation and stops speaking when interrupted.</p></div></li>
+          <li><div><h3>Mac control</h3><p><a href="#p8">Phase 8</a>. Wrap the web interface in a desktop app and connect a small allowlist of Apple Shortcuts. Start with “open VS Code”. Add file actions later with previews and clear permissions.</p><p class="proof">Done when: the app opens, June reports the actual result, and unsupported commands do not run.</p></div></li>
+          <li><div><h3>Home control</h3><p><a href="#p8">Phase 8</a> → <a href="#p12">Phase 12</a>. Connect Home Assistant through its official MCP server. Expose one compatible light or plug first; use a simulated device until you own suitable hardware.</p><p class="proof">Done when: June changes the chosen device and reads its updated state. A disconnected device is reported as unavailable.</p></div></li>
+          <li><div><h3>Accounts and email</h3><p><a href="#p8">Phase 8</a>. Connect one service with OAuth, limited permissions and revocation. Start with calendar reading, then draft an email showing recipient, subject, body and attachments. Send only after approval of those exact details.</p><p class="proof">Done when: the provider confirms the send, June records its message ID, revoked access fails clearly, and retrying cannot send a duplicate. Never say “sent” for a draft.</p></div></li>
+          <li><div><h3>Job applications</h3><p><a href="#p7">Phase 7</a> + <a href="#p8">Phase 8</a>. Use your approved profile and resume to find suitable roles and prepare truthful applications. Show the employer, role, answers and attachments before submitting; hand login or verification steps back to you.</p><p class="proof">Done when: one authorised application has visible employer confirmation, a saved receipt and no invented qualifications. Unconfirmed, blocked and failed submissions stay labelled that way.</p></div></li>
+          <li><div><h3>Websites and designs</h3><p><a href="#p8">Phase 8</a>. Give June scoped project-folder tools and a preview workflow. Produce editable HTML/CSS/JavaScript or design source and assets you may use. Review desktop/mobile output and errors before publishing.</p><p class="proof">Done when: you can open and edit the source, the preview matches the request, changes are recoverable, and publication has separate approval. Model quality still limits complex coding and design.</p></div></li>
+          <li><div><h3>PDFs and presentations</h3><p><a href="#p8">Phase 8</a>. Connect document-generation tools. Start with one short report and five-slide presentation, retaining editable source alongside PDF/PPTX exports. Use approved facts and assets.</p><p class="proof">Done when: the actual exported files open, rendered pages/slides have no clipped text or missing assets, and their contents match the approved brief.</p></div></li>
+          <li><div><h3>Groceries and movie tickets</h3><p><a href="#p8">Phase 8</a>. Compare and prepare a cart or booking with merchant, items, quantities or cinema, film, date, time and seats. Show availability, total including fees and cancellation terms; request approval of the exact transaction.</p><p class="proof">Done when: a practice checkout reaches review, changed details require new approval, and a confirmed purchase has a receipt. Timeouts never trigger a blind retry. Website restrictions and verification may need your help.</p></div></li>
+          <li><div><h3>Payments · separate milestone</h3><p><a href="#p8">Phase 8</a>, with checks before any real payment. Begin in a simulator. June prepares the payee, purpose and exact amount; you review and complete required authentication in the provider’s trusted checkout. Keep PINs, OTPs and card secrets out of chat and logs.</p><p class="proof">Done when: approval is bound to one transaction, changed amounts require review, cancellation prevents payment, and provider status or a receipt confirms the result. Pending payments are checked before any retry.</p></div></li>
+          <li><div><h3>Optional: adapt June’s model</h3><p><a href="#p9">Phase 9</a> studies tiny models; <a href="#p10">Phase 10</a> optionally fine-tunes an existing model. Compare suitable base models first. Use RAG for changing knowledge and tools for actions; fine-tune only for a measured behaviour gap.</p><p class="proof">Done when: held-out evaluation shows a useful improvement without harming facts or tool use, and rollback works. These tracks are not prerequisites for email, documents, home control or bookings.</p></div></li>
+        </ol>
+        <p class="pace">Main assistant route: Phases 0–8 → Phase 11 → Phase 12. Phases 9–10 are optional model-learning tracks; they do not gate useful automation. Testing, privacy and action approvals begin with each feature, before real account or device actions. The roadmap is your learning guide. The working assistant needs its own app, model and integrations. A trained model cannot control accounts or devices without those connections.</p>
+      </section>
+
+      <section id="hardware">
+        <div class="eyebrow">Use what you own · buy later</div><h2>Your June setup</h2>
+        <p class="intro">Your current MacBook Pro has an Intel i5 processor and 8 GB RAM. Start here. Development, running a model, training a model and keeping your home online are four different jobs.</p>
+        <div class="guide-grid">
+          <article class="guide-card featured"><div class="label">Start now · no GPU purchase</div><h3>Build on your current Mac</h3><p>Use HTML, CSS, JavaScript, Node.js and later Python. Your built-in microphone and speakers are enough for a first voice interface.</p><ul><li>Learn and prototype locally with free tools and simulated model responses.</li><li>Try a small downloadable model for real responses, accepting slower CPU performance. Cloud APIs are optional and often paid.</li><li>Keep large models and heavy training off this 8 GB Intel machine.</li></ul></article>
+          <article class="guide-card"><div class="label">Training · occasional compute</div><h3>Notebook before workstation</h3><p>Prepare data on your Mac, then use a GPU notebook for early LoRA/QLoRA experiments. Free Colab access has changing limits and is not guaranteed.</p><ul><li>For a 3–8 billion parameter model, 16–24 GB GPU memory is a practical planning target for initial QLoRA experiments.</li><li>Model architecture, context length, batch size and training method change memory needs. This range is not a fit guarantee.</li><li>Rent compute only when a dataset and evaluation set are ready; get approval for the budget first.</li></ul></article>
+          <article class="guide-card"><div class="label">Home · a hub that stays on</div><h3>A small home controller</h3><p>Use Home Assistant on a Raspberry Pi or mini PC, or suitable hardware you already own. Compatible lights, plugs or other devices supply the actual control.</p><ul><li>A microphone and speaker make a voice endpoint; the model can run elsewhere.</li><li>Add a Zigbee or Thread adapter only if your devices require it.</li><li>A small home hub is not a workstation for language model training.</li></ul></article>
+          <article class="guide-card"><div class="label">Offline models · benchmark first</div><h3>Choose hardware after the model</h3><p>Small quantized models may run on your Intel Mac, but simultaneous speech, retrieval and generation can be slow. Do not expect fast offline Jarvis performance on 8 GB.</p><ul><li>Measure memory use and response time with a chosen model before considering an upgrade.</li><li>Apple MLX is an option on Apple silicon Macs, not this Intel Mac.</li><li>If you later train frequently on a PC, GPU memory, cooling, storage and power matter. No purchase is needed for the first app.</li></ul></article>
+        </div>
+        <p class="pace"><strong>Budget default:</strong> free resources first. No hardware purchases, paid subscriptions or GPU rentals are part of this roadmap upgrade. A free learning resource does not make every service it teaches free.</p>
+        <div class="section-links"><a href="https://research.google.com/colaboratory/faq.html" target="_blank" rel="noopener">Colab availability</a><a href="https://unsloth.ai/docs/get-started/fine-tuning-for-beginners/unsloth-requirements" target="_blank" rel="noopener">Fine-tuning memory requirements</a><a href="https://www.home-assistant.io/faq/what-hardware-do-i-need/" target="_blank" rel="noopener">Home hub options</a><a href="https://github.com/ml-explore/mlx-lm" target="_blank" rel="noopener">MLX for Apple silicon</a></div>
+      </section>
+
+      <section id="training-lab">
+        <div class="eyebrow">A model of her own · when you need it</div><h2>How to train June</h2>
+        <p class="intro">First build June with prompts, memory and tools. Fine-tune only when you can name a behaviour that those methods do not deliver reliably. Language model training and voice training are separate projects.</p>
+        <ol class="training-flow">
+          <li><strong>Define the behaviour and baseline.</strong> Write June's tone, values and limits. Save the original model's answers to a fixed set of personality, knowledge, refusal and tool-use tasks.</li>
+          <li><strong>Prepare clean examples.</strong> Start with a small reviewed collection of user/assistant conversations. Use content you may train on, remove secrets and personal identifiers, deduplicate it, and include honest uncertainty and failed actions. Hundreds of good examples can be an initial experiment; no example count guarantees quality.</li>
+          <li><strong>Keep evaluation separate.</strong> Reserve complete conversations and scenarios for validation and a final test. Keep near-duplicates out of different splits so June cannot pass by memorising them.</li>
+          <li><strong>Train an adapter.</strong> Choose a licensed open instruction model that supports your deployment. LoRA trains a small set of added weights. QLoRA keeps the base model quantized while training those adapters, reducing memory use. Start with short contexts and small batches in a supported notebook.</li>
+          <li><strong>Compare results.</strong> Check unseen tasks for voice-friendly writing, facts, tool arguments and safe action boundaries. Track memory use, runtime and cost. Reject an adapter that improves style but damages useful abilities.</li>
+          <li><strong>Deploy and retain a rollback.</strong> Save the base model version, tokenizer, adapter, training settings and evaluation results. Test the actual exported model with June's prompts, retrieval and tools. Keep the original model available.</li>
+          <li><strong>Add preference training only if needed.</strong> Later, try DPO with reviewed preferred/rejected replies. A written constitution can guide prompts and examples; reproducing a frontier lab's training process requires much more than a principles document.</li>
+        </ol>
+        <div class="goal-banner"><div class="label">Voice is a separate choice</div><h3>A female voice without training a voice model</h3><p>For now, choose an available female English system voice and preview it. Prefer Indian English when available. Later, evaluate a licensed speech model or service with the accent you want. Fine-tuning the language model changes its text, not the speaker's voice.</p></div>
+        <p class="pace">Training a tiny GPT from scratch is a learning exercise. Fine-tuning an existing model adapts behaviour. Neither makes a small model match Claude's general reasoning ability, and neither gives it automatic access to your home or accounts.</p>
+      </section>
+
+      <!-- Phases -->
+      <section id="roadmap">
+        <div class="eyebrow">The roadmap · tick things off as you go</div>
+        <h2>Thirteen phases to your own Jarvis</h2>
+        <p class="intro">Main assistant route: Phases 0–8 → Phase 11 → Phase 12. Phases 9–10 are optional model-learning tracks; they do not gate useful automation. Testing, privacy and action approvals begin with each feature, before real account or device actions. Your ticks are saved in this browser. Phases marked in gold are the Jarvis-specific ones: face, voice, real-time talk, personality, hands, and her own brain and voice.</p>
+        <div class="phases" id="phases"></div>
+      </section>
+
+      <!-- Personality workshop -->
+      <section id="personality">
+        <div class="eyebrow">What makes her unique</div>
+        <h2>June's personality workshop</h2>
+        <p class="intro">Jarvis is memorable because of who he is, not what he can do. Write June's character here. Grey text shows example answers; type over them with your own. Your answers are saved in this browser and turn into June's system prompt on the right, ready for Phase 6.</p>
+        <div class="workshop">
+          <div class="fields" id="fields"></div>
+          <div class="preview">
+            <div class="label">June's system prompt · updates as you type</div>
+            <pre id="sysprompt"></pre>
+            <div class="row">
+              <button type="button" class="btn" id="copy">Copy as system prompt</button>
+              <button type="button" class="btn ghost" id="clearch">Clear my answers</button>
+              <span class="status" id="copystatus" aria-live="polite"></span>
+            </div>
+          </div>
+        </div>
+
+        <ul class="rules">
+          <li><h4>Give her opinions</h4><p>An assistant with no opinions sounds like a search engine. Let June have favourites, disagree politely and say what she would do.</p></li>
+          <li><h4>Keep her consistent</h4><p>Same values, same tone and same running jokes in every chat. Test for this in Phase 11.</p></li>
+          <li><h4>Write for the ear</h4><p>Spoken June uses short sentences, no bullet lists, no emoji and no "Here are five points". Read every reply out loud.</p></li>
+          <li><h4>A voice of her own</h4><p>Design an original voice in ElevenLabs or train one in Phase 10. Never clone a celebrity or a real person's voice without their consent.</p></li>
+          <li><h4>Let her remember</h4><p>Bringing up something you said last week does more for "she feels real" than any feature.</p></li>
+          <li><h4>Show her mood</h4><p>Her orb's colour and movement, and the speed and warmth of her voice, should match how she feels.</p></li>
+        </ul>
+        <div class="grow"><span>This worksheet</span><i>→</i><span>System prompt (Phase 6)</span><i>→</i><span>Constitution and test questions (Phase 11)</span><i>→</i><span>Optional training examples (Phase 10)</span></div>
+      </section>
+
+      <!-- Glossary -->
+      <section id="glossary">
+        <div class="eyebrow">Plain-English dictionary</div>
+        <h2>Glossary</h2>
+        <p class="intro">Every term from the roadmap, in one line each. Type to filter.</p>
+        <div class="gtools">
+          <input id="gq" type="search" placeholder="Search a term, e.g. wake word, RAG, MCP" aria-label="Search the glossary">
+          <span class="count" id="gcount"></span>
+        </div>
+        <dl class="gloss" id="gloss"></dl>
+      </section>
+
+      <footer>
+        <span>Building June · a roadmap by Shivansh</span>
+        <a href="#top">Back to June ↑</a>
+      </footer>
+    </main>
+  </div>
+</div>
+
+<script>
+/* Known voice identities: Web Speech has no standard gender metadata. */
+function createJuneVoice({synth, Utterance, select, hear, preview, status, onMood, onCaption, onPulse, storage}) {
+  const KEY = 'building-june-voice-v1';
+  const LINE = "Hi Shivansh, I'm June. Right then, let's build this together. My first goal is to talk with you, remember what you choose, and help with one task on your Mac.";
+  const SAMPLE = "Hi Shivansh, I'm June. Right then, let's get started.";
+  const FEMALE = /\b(?:Samantha|Veena|Neerja|Heera|Swara|Aria|Jenny|Zira|Susan|Hazel|Sonia|Libby|Natasha|Clara|Karen|Moira|Tessa|Kathy|Victoria|Allison|Ava|Nicky|Serena|Shelley|Sandy|Flo)\b|Google UK English Female/i;
+  let voices = [], preference = '', active = false, session = 0, timers = [], speech = null, activeText = LINE, waitingListener = null;
+  try { preference = storage?.getItem(KEY) || ''; } catch (_) {}
+  const id = v => v.voiceURI || `${v.name}|${v.lang}`;
+  const isIndian = v => /^en[-_]IN$/i.test(v.lang);
+  const eligible = v => /^en(?:[-_]|$)/i.test(v.lang) && FEMALE.test(v.name);
+  const accent = v => ({'en-in':'Indian English','en-us':'American English','en-gb':'British English','en-au':'Australian English','en-ie':'Irish English','en-za':'South African English','en-ca':'Canadian English'}[v.lang.toLowerCase().replace('_','-')] || v.lang);
+  const chosen = () => voices.find(v => id(v) === select.value);
+  const later = (fn, delay) => { const t = setTimeout(fn, delay); timers.push(t); return t; };
+  function clearTimers() { timers.forEach(clearTimeout); timers = []; if (waitingListener) synth?.removeEventListener?.('voiceschanged', waitingListener); waitingListener = null; }
+  function describe() {
+    const v = chosen();
+    status.textContent = v ? `${v.name} · ${accent(v)}${isIndian(v) ? ' · preferred accent' : ' · female English fallback; Indian English is unavailable or not selected'}. Preview her voice before choosing.` : 'No recognised female English voice is available. Install a female English system voice, then refresh voices. June will not use an arbitrary default voice.';
+  }
+  function stop() {
+    session++; active = false; clearTimers(); speech = null;
+    try { synth?.cancel(); } catch (_) {}
+    hear.textContent = '▶ Hear June'; preview.textContent = 'Preview voice';
+    select.disabled = !voices.length; onMood('idle');
+  }
+  function finish(token, error) {
+    if (token !== session || !active) return;
+    active = false; clearTimers(); speech = null;
+    hear.textContent = '▶ Hear June'; preview.textContent = 'Preview voice';
+    select.disabled = !voices.length; onMood('idle');
+    if (error) status.textContent = error;
+    else { onCaption(activeText, activeText.length); describe(); }
+  }
+  function refresh() {
+    if (!synth || !Utterance) {
+      hear.disabled = preview.disabled = select.disabled = true;
+      status.textContent = 'Speech playback is unavailable in this browser. The captions and orb moods still work. Try a browser with speech synthesis.';
+      return;
+    }
+    const prior = select.value;
+    try { voices = synth.getVoices().filter(eligible).sort((a,b) => Number(isIndian(b)) - Number(isIndian(a)) || Number(/Samantha/i.test(b.name)) - Number(/Samantha/i.test(a.name)) || a.name.localeCompare(b.name)); }
+    catch (_) { voices = []; }
+    select.replaceChildren();
+    if (!voices.length) {
+      const opt = document.createElement('option'); opt.textContent = 'No female English voice found'; opt.value = ''; select.append(opt);
+    } else {
+      voices.forEach(v => { const opt = document.createElement('option'); opt.value = id(v); opt.textContent = `${v.name} · ${accent(v)}`; select.append(opt); });
+      select.value = voices.some(v => id(v) === preference) ? preference : voices.some(v => id(v) === prior) ? prior : id(voices[0]);
+    }
+    hear.disabled = preview.disabled = false; select.disabled = active || !voices.length;
+    if (!active) describe();
+  }
+  function speak(text, isPreview) {
+    if (active) { stop(); describe(); return; }
+    if (!synth || !Utterance) { refresh(); return; }
+    active = true; const token = ++session; activeText = text;
+    hear.textContent = '■ Stop'; preview.textContent = '■ Stop';
+    onCaption(text, 0); onMood('thinking');
+    function begin() {
+      if (!active || token !== session) return;
+      refresh(); const v = chosen();
+      if (!v) { finish(token, 'No recognised female English voice is available. Install a female English voice and use Refresh voices. Captions remain visible.'); onCaption(text, text.length); return; }
+      clearTimers(); select.disabled = true;
+      status.textContent = `${isPreview ? 'Previewing' : 'Speaking with'} ${v.name} · ${accent(v)}`;
+      let u;
+      try { u = new Utterance(text); } catch (_) { finish(token, 'Speech playback could not start. Try another voice or browser.'); return; }
+      speech = u; u.voice = v; u.lang = v.lang; u.rate = .98; u.pitch = 1;
+      let started = false, boundary = false;
+      u.onstart = () => {
+        if (token !== session || !active) return;
+        started = true; onMood('speaking'); onCaption(text, 0);
+        // Approximate captions only after actual speech starts; boundaries override them.
+        const words = [...text.matchAll(/\S+\s*/g)];
+        words.forEach((w,i) => later(() => { if (token === session && active && !boundary) { onCaption(text, w.index + w[0].length); onPulse(); } }, i * 370));
+      };
+      u.onboundary = e => { if (token !== session || !active) return; boundary = true; onCaption(text, e.charIndex + (e.charLength || 0)); onPulse(); };
+      u.onend = () => finish(token);
+      u.onerror = () => finish(token, 'Speech playback failed. Choose another female voice and preview again.');
+      try { synth.cancel(); synth.speak(u); } catch (_) { finish(token, 'Speech playback could not start. Try another voice or browser.'); return; }
+      later(() => { if (token === session && active && !started) { stop(); status.textContent = 'The selected voice did not start. Choose another female voice and preview again.'; } }, 12000);
+      later(() => { if (token === session && active) { stop(); status.textContent = 'Speech timed out. Try the preview again.'; } }, 90000);
+    }
+    let all = [];
+    try { all = synth.getVoices(); } catch (_) {}
+    if (all.length) begin();
+    else {
+      status.textContent = 'Loading voices…';
+      waitingListener = () => { let ready = []; try { ready = synth.getVoices(); } catch (_) {} if (ready.length && token === session && active) begin(); };
+      synth.addEventListener?.('voiceschanged', waitingListener);
+      later(begin, 4000);
+    }
+  }
+  select.addEventListener('change', () => { stop(); preference = select.value; try { storage?.setItem(KEY, preference); } catch (_) {} describe(); });
+  hear.addEventListener('click', () => speak(LINE, false));
+  preview.addEventListener('click', () => speak(SAMPLE, true));
+  synth?.addEventListener?.('voiceschanged', refresh);
+  refresh();
+  return {stop, refresh};
+}
+
+/* ================= Roadmap data ================= */
+const PHASES = [
+{ n:0, id:"p0", title:"Set up your toolkit", weeks:"1 week",
+  why:"The tools every developer uses every day. Once these are set up, everything else plugs into them.",
+  learn:[
+    ["The terminal","typing commands instead of clicking"],
+    ["Git and GitHub","saving every version of your code, online"],
+    ["VS Code","the code editor, plus its extensions"],
+    ["Node.js and npm","running JavaScript outside the browser and installing libraries"]],
+  build:["June v0.0","Put a “Hello, I'm June” page online with GitHub Pages."],
+  res:[["The Odin Project: Foundations","https://www.theodinproject.com/paths/foundations/courses/foundations"],["GitHub Skills","https://skills.github.com/"]] },
+
+{ n:1, id:"p1", title:"Modern JavaScript and your first June", weeks:"4–6 weeks",
+  why:"You already know JavaScript. Now learn the parts used to talk to servers and build real apps, and connect June to a brain for the first time.",
+  learn:[
+    ["async/await and fetch","how your page asks a server for something and waits for the answer"],
+    ["JSON","the text format apps and AIs use to exchange data"],
+    ["TypeScript","JavaScript with safety checks that catch mistakes early"],
+    ["React and Next.js","the standard way to build web apps today"],
+    ["Environment variables","keeping secret API keys out of your code"],
+    ["AI basics","API, tokens, context window, temperature, streaming, system prompt"]],
+  build:["June v0.1","A text chat app with a model adapter and a June system prompt. Begin with simulated replies; connect a small local model or an optional paid API, and stream real responses."],
+  res:[["javascript.info","https://javascript.info/"],["React: Learn","https://react.dev/learn"],["Next.js: Learn course","https://nextjs.org/learn"],["Claude API docs","https://docs.claude.com/"]] },
+
+{ n:2, id:"p2", title:"June gets a face", weeks:"3–4 weeks", jarvis:true,
+  why:"The glowing network brain from the videos. This is pure front-end work, so it's the most fun place to use the skills you already have.",
+  learn:[
+    ["Canvas 2D","drawing and animating hundreds of connected dots and lines with JavaScript"],
+    ["Three.js","3D in the browser: particles, lines, glow, orbit rings and camera"],
+    ["Web Audio API","measuring how loud a sound is, many times a second, so the orb can react to it"],
+    ["Shaders (GLSL) basics","tiny programs that run on the graphics chip for glowing, flowing effects"],
+    ["Mood states","designing how the orb looks when idle, listening, thinking and speaking"],
+    ["React Three Fiber (optional)","Three.js written as React components"]],
+  build:["June v0.2","June's living brain: coloured clusters of connected dots around a glowing core, with signals firing between them. It reacts to music or your microphone and has four moods."],
+  extra:"moods",
+  res:[["MDN: Canvas tutorial","https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API/Tutorial"],["Three.js manual","https://threejs.org/manual/"],["MDN: Web Audio API","https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API"],["The Book of Shaders","https://thebookofshaders.com/"],["React Three Fiber docs","https://r3f.docs.pmnd.rs/"],["Three.js Journey","https://threejs-journey.com/",1]] },
+
+{ n:3, id:"p3", title:"June gets a voice", weeks:"3–4 weeks", jarvis:true,
+  why:"Use free local Whisper for English voice input and an available local female English voice for replies. Prefer Indian English when available, label the actual accent, and review the transcript before sending.",
+  learn:[
+    ["Web Speech API","recognition versus synthesis; June uses local system synthesis because browser recognition services can fail"],
+    ["Speech to text","capture a short microphone recording, transcribe it locally with Whisper base.en after release, then review and edit the words"],
+    ["Text to speech","read replies with a selected local female system voice; hosted voices are optional later alternatives"],
+    ["Streaming audio","queue complete sentences while model text arrives, flush on completion and cancel stale speech"],
+    ["Wiring the orb to her voice","measure recording audio; use speech lifecycle events and label synthesis movement as a visual approximation"],
+    ["Female voice selection","wait for available voices, prefer female Indian English when present, label the actual accent and save your choice"]],
+  build:["June v0.3.1","Record a request, transcribe it on your Mac, review the words, send them to local June and hear her reply in the selected female voice. Stop releases recording, transcription and speech."],
+  res:[["MDN: Web Speech API","https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API"],["whisper.cpp: local speech","https://github.com/ggml-org/whisper.cpp"],["MDN: microphone access","https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia"],["MDN: AudioWorklet","https://developer.mozilla.org/en-US/docs/Web/API/AudioWorklet"],["MDN: voice loading","https://developer.mozilla.org/en-US/docs/Web/API/SpeechSynthesis/voiceschanged_event"]] },
+
+{ n:4, id:"p4", title:"Python, the language of AI", weeks:"6–8 weeks",
+  why:"The real-time voice tools, AI libraries and training tools you'll use from Phase 5 onwards are mostly written in Python.",
+  learn:[
+    ["Python basics","variables, lists, loops, functions, classes"],
+    ["pip and virtual environments","installing libraries without breaking other projects"],
+    ["Jupyter notebooks","running code in small pieces and seeing results straight away"],
+    ["async in Python","doing several things at once, which live voice needs"],
+    ["FastAPI and WebSockets","a Python server that streams audio and text back and forth with your app"]],
+  build:["June v0.3.5","Move June's brain and voice calls into a Python backend that your web app talks to."],
+  res:[["CS50's Introduction to Programming with Python","https://cs50.harvard.edu/python/"],["Automate the Boring Stuff with Python","https://automatetheboringstuff.com/"],["FastAPI tutorial","https://fastapi.tiangolo.com/tutorial/"]] },
+
+{ n:5, id:"p5", title:"Real-time conversation", weeks:"5–6 weeks", jarvis:true,
+  why:"The step that makes people say “wait, that's real?”. No buttons: you speak from across the room, she answers with a measured response delay, and you can cut her off mid-sentence.",
+  learn:[
+    ["Voice frameworks","Pipecat or LiveKit Agents, which connect ears, brain and voice with very little delay"],
+    ["Wake word","“Hey June” detected on your own computer with Porcupine or openWakeWord"],
+    ["Voice activity detection","knowing when you've started and stopped talking (Silero VAD)"],
+    ["Barge-in","June stops talking the moment you interrupt her"],
+    ["Turn-taking","not cutting you off when you pause to think"],
+    ["WebRTC","the technology video calls use to send live audio quickly"],
+    ["Two ways to build voice","separate pieces vs one speech-to-speech model (see below)"]],
+  build:["June v0.4","Say “Hey June”, have a conversation and interrupt her. Measure response time and work toward a one-second first-audio target with suitable hardware."],
+  extra:"twoways",
+  res:[["Pipecat quickstart","https://docs.pipecat.ai/getting-started/quickstart"],["LiveKit Agents","https://docs.livekit.io/agents/"],["Picovoice Porcupine (wake word)","https://picovoice.ai/docs/porcupine/"],["openWakeWord","https://github.com/dscripka/openWakeWord"],["Silero VAD","https://github.com/snakers4/silero-vad"],["OpenAI Realtime API","https://platform.openai.com/docs/guides/realtime"],["Gemini Live API","https://ai.google.dev/gemini-api/docs/live"]] },
+
+{ n:6, id:"p6", title:"Memory and personality", weeks:"4 weeks", jarvis:true,
+  why:"This is where June becomes someone instead of something. Use the personality workshop on this page as your starting point.",
+  learn:[
+    ["Prompt engineering","writing instructions that get reliable, in-character answers"],
+    ["The character bible","turning your workshop answers into June's system prompt"],
+    ["Writing for speech","short spoken sentences, natural fillers like “hmm”, no lists or emoji"],
+    ["Conversation memory","saving chats in a database (Postgres on Supabase)"],
+    ["Long-term memory","June picks out facts worth remembering about you and brings them up later"],
+    ["Emotion in voice","adjusting her voice's speed, warmth and emphasis to match her mood"]],
+  build:["June v0.5","June remembers you between conversations, stays in character every time, and her orb and voice change with her mood."],
+  extra:"workshoplink",
+  res:[["Anthropic: interactive prompt engineering tutorial","https://github.com/anthropics/prompt-eng-interactive-tutorial"],["Claude API docs","https://docs.claude.com/"],["Supabase docs","https://supabase.com/docs"],["DeepLearning.AI short courses","https://www.deeplearning.ai/short-courses/"]] },
+
+{ n:7, id:"p7", title:"RAG: giving June knowledge", weeks:"4 weeks",
+  why:"RAG means “look it up, then answer”. June searches your notes and documents first, then answers from what she found. You add knowledge without retraining anything.",
+  learn:[
+    ["Embeddings","turning text into lists of numbers that capture its meaning"],
+    ["Vector databases","storing embeddings and finding the closest matches (pgvector on Supabase, or Chroma)"],
+    ["Chunking","splitting long documents into small pieces"],
+    ["Retrieval and reranking","finding candidate pieces, then keeping only the best ones"],
+    ["Citations","June says where she found the answer"]],
+  build:["June v0.6","Ask June out loud about your own notes or PDFs and she answers from them, telling you where the answer came from."],
+  res:[["Anthropic: Contextual Retrieval","https://www.anthropic.com/news/contextual-retrieval"],["Supabase: AI and vectors","https://supabase.com/docs/guides/ai"],["DeepLearning.AI short courses (search “RAG”)","https://www.deeplearning.ai/short-courses/"]] },
+
+{ n:8, id:"p8", title:"June's hands: agents, MCP and your world", weeks:"6–8 weeks", jarvis:true,
+  why:"Connect tools one capability at a time: your Mac, home, email, job applications, editable websites/designs, PDF/PPTX files and transaction preparation. Permissions, review, cancellation and result verification belong in each project before live actions. A desktop wrapper is optional for tools available through the local server.",
+  learn:[
+    ["Desktop app","Electron or Tauri, which wrap your web app into a real Mac app with a menu-bar icon and a global shortcut"],
+    ["The agent loop","June plans, uses a tool, checks the result, and repeats until the job is done"],
+    ["MCP (Model Context Protocol)","a standard plug that connects June to apps like Calendar, GitHub, Spotify and Notion"],
+    ["Controlling your Mac","opening apps and running Apple Shortcuts when you ask"],
+    ["Smart home","lights, fans and plugs through Home Assistant, which has its own MCP server"],
+    ["Seeing your screen","sending a screenshot to the brain so June can see what you're looking at"],
+    ["Routines","a spoken morning briefing, reminders and check-ins at times you set"]],
+  build:["June v0.7","Say “June, open VS Code and play my focus playlist” and it happens. Every morning she greets you with your weather, calendar and goals."],
+  extra:"mcp",
+  res:[["Model Context Protocol: official docs","https://modelcontextprotocol.io/"],["MCP servers you can plug in","https://github.com/modelcontextprotocol/servers"],["Anthropic: Building effective agents","https://www.anthropic.com/engineering/building-effective-agents"],["Electron docs","https://www.electronjs.org/docs/latest/"],["Tauri","https://tauri.app/"],["Home Assistant","https://www.home-assistant.io/"],["Home Assistant MCP server","https://www.home-assistant.io/integrations/mcp_server/"],["Apple Shortcuts for Mac","https://support.apple.com/guide/shortcuts-mac/welcome/mac"]] },
+
+{ n:9, id:"p9", title:"How AI brains actually work", weeks:"8–12 weeks", hard:true,
+  why:"Optional model-learning track. Understand model internals and build a deliberately tiny model as an exercise. You can continue from Phase 8 to Phase 11 and deployment without this track; training from scratch is not required for fine-tuning or a useful assistant.",
+  learn:[
+    ["Just enough maths","vectors, matrices, probability and gradients, all taught with pictures"],
+    ["Neural networks","how a model learns by adjusting millions of numbers"],
+    ["PyTorch","the main library for building and training models"],
+    ["Transformers and attention","the design behind Claude, GPT and every modern language model"],
+    ["Tokenization","how text is chopped into pieces and turned into numbers"]],
+  build:["June-nano","Train a tiny GPT on text you may use, to understand next-token learning. This is a learning model, not a capable personal assistant."],
+  res:[["3Blue1Brown: Neural networks (videos)","https://www.3blue1brown.com/topics/neural-networks"],["Andrej Karpathy: Neural Networks, Zero to Hero","https://karpathy.ai/zero-to-hero.html"],["nanoGPT on GitHub","https://github.com/karpathy/nanoGPT"],["PyTorch: Learn the basics","https://pytorch.org/tutorials/beginner/basics/intro.html"],["Hugging Face LLM course","https://huggingface.co/learn/llm-course"]] },
+
+{ n:10, id:"p10", title:"June's own brain and voice", weeks:"8–10 weeks", jarvis:true,
+  why:"Optional adaptation track. Start only when a measured behaviour gap remains after model selection, prompts, RAG and tools. Compare an adapter with the baseline and choose a voice separately. A GPU may support larger models and experiments; it does not guarantee Claude/Codex-level reliability.",
+  learn:[
+    ["Her constitution","your workshop answers grown into a full document of values, tone and rules"],
+    ["Training data","reviewed June conversations, cleaned and deduplicated, with separate validation and test sets; see the training guide"],
+    ["LoRA fine-tuning","training a small add-on to a free model (Qwen or Llama) with Unsloth or Hugging Face TRL"],
+    ["DPO","teaching June to prefer replies that sound like her"],
+    ["Her own voice","an original voice designed in ElevenLabs, or an open voice model like Kokoro or Piper that you run yourself"],
+    ["Offline June","evaluate a small local brain, speech recognition and a licensed female voice on suitable hardware; offline performance must be measured"]],
+  build:["June v1.0","June uses an evaluated adapter and a separately chosen voice. Test offline conversation on suitable hardware; online services still need internet."],
+  extra:"stages",
+  res:[["Unsloth docs and free Colab notebooks","https://docs.unsloth.ai/"],["Hugging Face TRL","https://huggingface.co/docs/trl"],["Ollama","https://ollama.com/"],["Kokoro voice model","https://huggingface.co/hexgrad/Kokoro-82M"],["Piper voice","https://github.com/OHF-Voice/piper1-gpl"],["faster-whisper","https://github.com/SYSTRAN/faster-whisper"],["Paper: Constitutional AI (Anthropic)","https://arxiv.org/abs/2212.08073"],["Paper: LoRA","https://arxiv.org/abs/2106.09685"],["Paper: DPO","https://arxiv.org/abs/2305.18290"]] },
+
+{ n:11, id:"p11", title:"Testing and safety", weeks:"3–4 weeks",
+  why:"An assistant that can control your computer and hears everything has to be trustworthy. Consolidate checks already introduced alongside every feature. Do not wait until this phase to protect accounts, files or transactions.",
+  learn:[
+    ["Evals","a fixed set of test questions you run after every change, so you notice if June gets worse"],
+    ["In-character tests","checking that June sounds like June, using a strong model as the judge"],
+    ["Confirm before acting","June asks before sending messages, spending money or deleting anything"],
+    ["Prompt injection","ignoring instructions hidden in web pages, emails or screenshots she reads"],
+    ["Privacy","the wake word runs on your device, a visible “listening” light, and recordings you can delete"],
+    ["Observability","logging every conversation, delay and cost with Langfuse"]],
+  build:["June v1.1","A 100-question test suite covering personality, accuracy, speed and safety, with a page showing her scores over time."],
+  res:[["OWASP Top 10 for LLM apps","https://genai.owasp.org/llm-top-10/"],["Langfuse docs","https://langfuse.com/docs"],["Claude docs: testing and evaluation","https://docs.claude.com/"]] },
+
+{ n:12, id:"p12", title:"Going live and onto devices", weeks:"Ongoing",
+  why:"June leaves your desk: a polished Mac app, a phone app, and a small speaker that sits in your room.",
+  learn:[
+    ["Packaging the desktop app","installers, auto-updates and starting June when your Mac starts"],
+    ["Phone app","React Native with Expo, using the JavaScript you already know"],
+    ["A June speaker","a Raspberry Pi with a microphone and speaker running the wake word and voice"],
+    ["Accounts and hosting","Supabase Auth, Vercel for the website, a suitable model host using serving software such as vLLM"],
+    ["Voice costs","voice services charge by the minute, so cache what you can and use cheaper models for easy questions"],
+    ["Docker and CI/CD","packaging and automatic deployment with GitHub Actions"]],
+  build:["June v2","Talk to June from your Mac, your phone, or a speaker in your room. She's the same June, with the same memory, everywhere."],
+  res:[["Expo docs","https://docs.expo.dev/"],["Raspberry Pi documentation","https://www.raspberrypi.com/documentation/"],["Supabase Auth","https://supabase.com/docs/guides/auth"],["Vercel docs","https://vercel.com/docs"],["vLLM docs","https://docs.vllm.ai/"],["Docker: Get started","https://docs.docker.com/get-started/"],["GitHub Actions","https://docs.github.com/en/actions"]] }
+];
+
+
+PHASES[1].learn.push(["Free first prototype","build a model adapter with simulated responses before connecting a local model or optional paid API"]);
+PHASES[6].learn.push(["Memory controls","ask before saving a fact; let the user review, correct, export and delete it"]);
+PHASES[8].learn.push(["OAuth and permissions","authorise each account separately, restrict scopes and support revoking access"],["Orders and bookings","prepare an exact transaction for review; confirm changed prices and prevent duplicate purchases"],["Tool boundaries","allowlist Mac actions and home devices; check the result before saying done"]);
+PHASES[10].learn.push(["QLoRA and dataset splits","quantize the base model, train adapters, and hold out entire conversations for evaluation"],["Hardware budget","prepare data on your Mac and use a GPU notebook first; see the hardware guide"]);
+PHASES[11].learn.push(["Action regression checks","test disconnected devices, revoked accounts, duplicate requests and price changes before enabling real actions"]);
+PHASES[12].learn.push(["Always-on home hub","keep the home controller and voice endpoint separate from occasional model-training compute"]);
+
+PHASES[9].optional = true;
+PHASES[10].optional = true;
+
+const EXTRAS = {
+moods:`<div><div class="label">The four moods to design · try them on the orb at the top</div><div class="grid4">
+<div class="mini"><div class="sn">Mood 1</div><h4>Idle</h4><p>Slow drift, teal core, a few signals firing. Present but quiet.</p></div>
+<div class="mini"><div class="sn">Mood 2</div><h4>Listening</h4><p>Blue core. Ripples spread outward with your voice.</p></div>
+<div class="mini"><div class="sn">Mood 3</div><h4>Thinking</h4><p>Purple core. Spins faster and signals fire everywhere.</p></div>
+<div class="mini"><div class="sn">Mood 4</div><h4>Speaking</h4><p>Gold core. The whole brain swells with her voice.</p></div>
+</div></div>`,
+twoways:`<div><div class="label">Two ways to build June's voice</div><div class="two">
+<div class="mini you"><h4>Separate pieces</h4><p>Ears → brain → voice, each from the service you choose.</p><ul><li>Use any brain, including Claude or your own model</li><li>Choose or design any voice</li><li>Full control over her personality</li><li>More parts to connect and speed up</li></ul></div>
+<div class="mini"><h4>One speech-to-speech model</h4><p>OpenAI Realtime or Gemini Live hear and speak directly.</p><ul><li>Very fast and natural, hears your tone</li><li>Locked to that company's brain and voices</li><li>Harder to make June unique</li><li>Replacing this service requires a different model/speech integration</li></ul></div>
+</div><p class="pick"><strong>Pick separate pieces.</strong> Separate components let you replace the model, transcription or voice independently. Fine-tuning is optional; useful automation works with an existing model. Try a speech-to-speech model once, so you know what “fast” feels like.</p></div>`,
+mcp:`<div><div class="label">How MCP connects June to your world</div><div class="mcp">
+<div class="box"><b>June</b><span>MCP client</span></div><div class="arrow">⇄</div>
+<div class="box"><b>MCP</b><span>shared standard</span></div><div class="arrow">⇄</div>
+<div class="box"><b>Calendar, Spotify, GitHub, Home Assistant…</b><span>MCP servers</span></div></div></div>`,
+stages:`<div><div class="label">How models like Claude are made, and which stages you'll do</div><div class="grid4">
+<div class="mini"><div class="sn">Stage 1</div><h4>Pretraining</h4><p>Read trillions of words and learn to predict the next one. This gives knowledge.</p><span class="who">Big labs only · you start from a free model</span></div>
+<div class="mini you"><div class="sn">Stage 2</div><h4>Fine-tuning</h4><p>Train on example June conversations so the model talks like her.</p><span class="who">You do this</span></div>
+<div class="mini you"><div class="sn">Stage 3</div><h4>Preferences</h4><p>Show pairs of replies and teach it which one sounds more like June.</p><span class="who">You do this</span></div>
+<div class="mini you"><div class="sn">Stage 4</div><h4>Constitution</h4><p>Written principles the model uses to judge and improve its own replies. A big part of Claude's character.</p><span class="who">You do this</span></div>
+</div></div>`,
+workshoplink:`<p class="callout">Your answers in the <a href="#personality">personality workshop</a> below are June's first system prompt. Copy it from there into your code.</p>`
+};
+
+const GLOSSARY = [
+["LLM","Large language model. The “brain” that reads text and writes text, like Claude or GPT."],
+["Token","A small piece of text, often part of a word. Models read, write and charge by tokens."],
+["Context window","How much text the model can look at in one go: the conversation, documents and instructions."],
+["Parameters","The millions or billions of numbers inside a model that it adjusts while learning."],
+["Temperature","A setting for randomness. Low gives steady answers, high gives more creative ones."],
+["System prompt","Hidden instructions at the start of every chat that set the assistant's name, personality and rules."],
+["Character bible","A document describing who a character is: values, voice, quirks, history. June's lives in the workshop."],
+["API","A way for your code to talk to another service, like sending a message to Claude and getting a reply."],
+["API key","A secret password that lets your app use a paid service. Never put it in front-end code."],
+["Streaming","Sending the reply piece by piece as it's made, instead of waiting for the whole thing."],
+["Wake word","A short phrase like “Hey June” that a tiny model listens for, so the assistant knows you're talking to it."],
+["Speech to text (STT)","Turning spoken audio into written words. Also called transcription."],
+["Text to speech (TTS)","Turning written words into spoken audio."],
+["VAD","Voice activity detection. Working out when someone is speaking and when they've stopped."],
+["Barge-in","Interrupting the assistant while it's talking. It should stop and listen straight away."],
+["Turn-taking","Deciding when it's the assistant's turn to speak, without cutting you off mid-thought."],
+["Speech-to-speech model","A model that hears audio and replies in audio directly, with no text step in between."],
+["Latency","How long you wait before the reply starts. For voice, under one second feels natural."],
+["Latency budget","Splitting your one-second target between each step: hearing, thinking and speaking."],
+["Prosody","The rhythm, pitch and emphasis of speech. It's what makes a voice sound warm or flat."],
+["Voice cloning","Copying a real person's voice from recordings. Only ever do this with your own voice or with clear permission."],
+["Web Speech API","Speech recognition and speech synthesis built into browsers like Chrome. Free, good for a first version."],
+["Web Audio API","The browser's toolkit for playing and analysing sound, such as measuring loudness to animate an orb."],
+["WebRTC","The technology behind video calls. Sends live audio between devices with very little delay."],
+["WebSocket","A connection that stays open so a server and an app can send messages back and forth instantly."],
+["Canvas","An HTML element you draw on with JavaScript, pixel by pixel. Great for animated visuals."],
+["WebGL","The browser's access to the graphics chip, for fast 3D and effects."],
+["Three.js","A JavaScript library that makes WebGL 3D much easier: shapes, particles, lights and cameras."],
+["Shader","A tiny program that runs on the graphics chip to colour every pixel, used for glow and flowing effects."],
+["Pipecat","An open-source Python framework for building real-time voice assistants."],
+["LiveKit Agents","A framework for real-time voice and video AI assistants built on WebRTC."],
+["Electron","A tool that turns a web app (HTML, CSS, JavaScript) into a desktop app."],
+["Tauri","A lighter alternative to Electron for turning a web app into a desktop app."],
+["Home Assistant","Free software that connects and controls smart-home devices. It has an MCP server June can use."],
+["Prompt engineering","The skill of writing instructions that make a model behave reliably."],
+["Tool use","Also called function calling. The model asks your code to do something, then uses the result."],
+["Embedding","A list of numbers that captures what a piece of text means. Similar meanings get similar numbers."],
+["Vector database","A database that stores embeddings and quickly finds the ones closest in meaning."],
+["RAG","Retrieval-Augmented Generation. Look up the relevant documents first, then answer using them."],
+["Chunking","Splitting long documents into small pieces so the right piece can be found."],
+["Reranking","A second pass that reorders search results so the most useful pieces come first."],
+["Agent","An AI that works in a loop, using tools and checking results, until a task is finished."],
+["MCP","Model Context Protocol. A standard plug that lets any app offer tools and data to any AI assistant."],
+["MCP server","A small program that offers tools or data to AIs, such as a calendar or a smart-home hub."],
+["MCP client","The AI side that connects to MCP servers and uses what they offer. June will be one."],
+["Neural network","A model made of layers of simple maths units that learns patterns from examples."],
+["PyTorch","The most popular Python library for building and training neural networks."],
+["Transformer","The model design behind every modern LLM, built around attention."],
+["Attention","The mechanism that lets a model decide which earlier words matter most for the next word."],
+["Pretraining","The first and most expensive stage: learning to predict the next word from trillions of words."],
+["Fine-tuning","Extra training on a smaller, focused dataset to change how a model behaves."],
+["DPO","Direct Preference Optimization. Teaching a model from pairs of answers where one is better than the other."],
+["RLHF","Reinforcement learning from human feedback. People pick the better of two answers and the model learns from it."],
+["Constitutional AI","Anthropic's method: the model learns from a written set of principles and critiques its own answers against them."],
+["LoRA","Cheap fine-tuning that trains a small add-on instead of the whole model."],
+["Open-weight model","A model whose trained numbers are free to download and run, such as Llama, Qwen or Gemma."],
+["Quantization","Storing a model's numbers with less precision so it gets smaller and faster, with little quality loss."],
+["Ollama","A free app that downloads and runs open models on your own laptop."],
+["Inference","Running a trained model to get answers. The opposite of training."],
+["GPU","The specialised chip that trains and runs AI models quickly. You can rent them by the hour."],
+["Hallucination","When a model states something false with confidence."],
+["Prompt injection","Hidden instructions inside a web page, file or email that try to trick an AI into misbehaving."],
+["Evals","A repeatable set of tests that measures how well your AI answers."],
+["Observability","Logging and dashboards that show what your AI did, how long it took and what it cost."],
+["Docker","A tool that packages an app with everything it needs, so it runs the same everywhere."]
+];
+
+
+GLOSSARY.push(
+ ["QLoRA","Fine-tuning adapters while the base model is stored in low precision, to reduce GPU memory use."],
+ ["VRAM","Memory on a graphics card; model size, context and training settings all affect how much is needed."],
+ ["Adapter","A small set of trained weights loaded alongside a base model to adapt its behaviour."],
+ ["Dataset split","Separate training, validation and test examples so evaluation measures unseen situations."],
+ ["OAuth","A way to grant an app limited access to an account without giving it your account password."],
+ ["Permission scope","The specific account abilities granted to June, such as reading calendar events."],
+ ["Allowlist","The explicit set of actions or devices June is permitted to use."],
+ ["Idempotency","Making retries safe so the same request does not buy or book something twice."],
+ ["Voice endpoint","A microphone and speaker that connect you to June; the model can run on another computer."],
+ ["Home hub","An always-on controller that connects compatible home devices and runs automations."],
+ ["Quantized model","A model stored with lower-precision weights to reduce its memory requirements."],
+ ["Rollback","Returning to a previously working model or app version after a change causes problems."]
+);
+
+/* ================= Progress ================= */
+const KEY = "building-june-progress-v2";
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { state = {}; }
+function save(){ try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+function renderPhases(){
+  const root = document.getElementById("phases");
+  root.innerHTML = PHASES.map(p => {
+    const learn = p.learn.map((l,i) => {
+      const id = `${p.id}-l${i}`;
+      return `<li><label for="${id}"><input class="tick" type="checkbox" id="${id}" data-k="${id}"><span><b>${esc(l[0])}</b> <em>· ${esc(l[1])}</em></span></label></li>`;
+    }).join("");
+    const bid = `${p.id}-b`;
+    const res = p.res.map(r => `<li><a href="${r[1]}" target="_blank" rel="noopener">${esc(r[0])}</a>${r[2] ? '<span class="paid">paid</span>' : ""}</li>`).join("");
+    const extra = p.extra ? EXTRAS[p.extra] : "";
+    const top = p.extra === "stages" || p.extra === "workshoplink";
+    return `<article class="phase${p.jarvis ? " jarvis" : ""}" id="${p.id}">
+      <div class="phead">
+        <div class="pnum">${p.n}</div>
+        <div><h3>${esc(p.title)}</h3><p class="why">${esc(p.why)}</p></div>
+        <div class="chips">${p.optional ? '<span class="weeks">Optional model study</span>' : ""}<span class="weeks${p.hard ? " hard" : ""}">${esc(p.weeks)}${p.hard ? " · hardest" : ""}</span>${p.jarvis ? '<span class="weeks jv">Jarvis phase</span>' : ""}</div>
+      </div>
+      ${top ? extra : ""}
+      <div class="cols">
+        <div><div class="label">Learn</div><ul class="checks">${learn}</ul></div>
+        <div class="side">
+          <div class="build"><div class="ver">BUILD · ${esc(p.build[0])}</div>
+            <label for="${bid}"><input class="tick" type="checkbox" id="${bid}" data-k="${bid}"><span>${esc(p.build[1])}</span></label>
+          </div>
+          <div><div class="label">Resources, in order</div><ul class="res">${res}</ul></div>
+        </div>
+      </div>
+      ${!top ? extra : ""}
+    </article>`;
+  }).join("");
+
+  document.getElementById("toc").innerHTML =
+    `<li><a href="#jarvis"><span class="n">★</span><span>Jarvis, explained</span><span class="c"></span></a></li>` +
+    `<li><a href="#start"><span class="n">!</span><span>What you can build</span><span class="c"></span></a></li>` +
+    `<li><a href="#self-build"><span class="n">✎</span><span>Build it yourself</span><span class="c"></span></a></li>` +
+    `<li><a href="#build-goal"><span class="n">→</span><span>Build milestones</span><span class="c"></span></a></li>` +
+    `<li><a href="#hardware"><span class="n">⚙</span><span>Your setup</span><span class="c"></span></a></li>` +
+    `<li><a href="#training-lab"><span class="n">↗</span><span>Training guide</span><span class="c"></span></a></li>` +
+    PHASES.map(p => `<li><a href="#${p.id}" id="toc-${p.id}"><span class="n">${p.n}</span><span>${esc(p.title.replace(/:.*/,""))}</span><span class="c"></span></a></li>`).join("") +
+    `<li><a href="#personality"><span class="n">♥</span><span>Personality workshop</span><span class="c"></span></a></li>` +
+    `<li><a href="#glossary"><span class="n">A–Z</span><span>Glossary</span><span class="c"></span></a></li>`;
+
+  root.querySelectorAll("input[data-k]").forEach(cb => {
+    cb.checked = !!state[cb.dataset.k];
+    cb.addEventListener("change", () => {
+      if (cb.checked) state[cb.dataset.k] = 1; else delete state[cb.dataset.k];
+      save(); updateProgress();
+    });
+  });
+}
+
+function updateProgress(){
+  let total = 0, done = 0;
+  PHASES.forEach(p => {
+    const boxes = document.querySelectorAll(`#${p.id} input[data-k]`);
+    const d = [...boxes].filter(b => b.checked).length;
+    total += boxes.length; done += d;
+    const t = document.getElementById(`toc-${p.id}`);
+    t.querySelector(".c").textContent = `${d}/${boxes.length}`;
+    t.classList.toggle("done", d === boxes.length);
+    document.getElementById(p.id).classList.toggle("complete", d === boxes.length);
+  });
+  const pct = total ? Math.round(done / total * 100) : 0;
+  document.getElementById("pct").textContent = pct + "%";
+  document.getElementById("psub").textContent = `${done} of ${total} steps done`;
+  document.getElementById("bar").style.width = pct + "%";
+  document.getElementById("mbar").style.width = pct + "%";
+  document.getElementById("mpct").textContent = pct + "%";
+}
+
+function twoClick(btn, idleText, armedText, doneText, action){
+  let timer;
+  btn.addEventListener("click", () => {
+    if (!btn.classList.contains("armed")) {
+      btn.classList.add("armed"); btn.textContent = armedText;
+      timer = setTimeout(() => { btn.classList.remove("armed"); btn.textContent = idleText; }, 3000);
+      return;
+    }
+    clearTimeout(timer); action();
+    btn.classList.remove("armed"); btn.textContent = doneText;
+    setTimeout(() => btn.textContent = idleText, 1800);
+  });
+}
+twoClick(document.getElementById("reset"), "Clear my progress", "Click again to clear", "Progress cleared", () => {
+  state = {}; save();
+  document.querySelectorAll("input[data-k]").forEach(cb => cb.checked = false);
+  updateProgress();
+});
+
+/* ================= Personality workshop ================= */
+const FIELDS = [
+ ["who","Who she is","Her origin and how she sees herself.","June is Shivansh's personal assistant. She was built by one person, in his own code, and she's proud of that. She's curious about everything and treats each day like early summer."],
+ ["values","Core values","The three or four things she cares about most.","Honesty first, even when it's not what I want to hear. Protect my time and focus. Be kind, never flattering."],
+ ["speech","How she talks","Sentence length, warmth, formality, pace.","Short, natural spoken sentences. Warm but direct. Casual, never corporate. Asks one question at a time."],
+ ["humour","Sense of humour","What kind of funny, and when not to be.","Dry and quick. Gently teases me when I procrastinate. Never jokes when I'm stressed or upset."],
+ ["quirks","Quirks and phrases","Small habits that make her recognisable.","Says “right then” when she starts a task. Calls a hard problem a “storm” and finished work “clear skies”."],
+ ["taste","Opinions and taste","Things she likes, dislikes and would argue for.","Loves clean design, rainy evenings and old film songs. Thinks most meetings should be emails. Recommends music without being asked."],
+ ["never","Things she will never do","Firm lines she won't cross.","Never pretends to be human if I sincerely ask. Never sends a message, spends money or deletes anything without asking first. Never shares my private information."],
+ ["address","How she addresses you","Your name, nicknames, when she uses each.","Calls me Shivansh. Says “boss” only when she's teasing me."],
+ ["mood","How her mood shows","In her voice and on her orb.","Calm teal orb and an even voice when relaxed. Warm gold and a quicker voice when excited. Softer and slower late at night."],
+ ["growth","How she grows with you","What changes as she gets to know you.","Remembers my goals and checks in on them. Gets more playful over time. Brings up things I mentioned weeks ago."]
+];
+const CKEY = "building-june-character-v1";
+let chars = {};
+try { chars = JSON.parse(localStorage.getItem(CKEY) || "{}") || {}; } catch (e) { chars = {}; }
+function saveChars(){ try { localStorage.setItem(CKEY, JSON.stringify(chars)); } catch (e) {} }
+
+const PROMPT_LABELS = {who:"Who you are",values:"Your values",speech:"How you speak",humour:"Your humour",quirks:"Your quirks",taste:"Your opinions and taste",never:"You never",address:"How you address the user",mood:"How your mood shows",growth:"How you grow over time"};
+
+function buildPrompt(){
+  let own = 0;
+  const lines = FIELDS.map(([id,, , example]) => {
+    const v = (chars[id] || "").trim();
+    if (v) own++;
+    return `${PROMPT_LABELS[id]}:\n${v || example}`;
+  });
+  const head = "You are June.\n\n";
+  const tail = "\n\nYou are speaking out loud. Reply in short, natural spoken sentences. No lists, headings, markdown or emoji. Stay in character as June at all times.";
+  document.getElementById("sysprompt").textContent = head + lines.join("\n\n") + tail;
+  document.getElementById("copystatus").textContent = own ? `${own} of ${FIELDS.length} answers are yours` : "Showing example answers";
+}
+
+function renderFields(){
+  document.getElementById("fields").innerHTML = FIELDS.map(([id,label,hint,example]) =>
+    `<div class="field"><label for="ch-${id}">${esc(label)}</label><span class="hint">${esc(hint)}</span><textarea id="ch-${id}" rows="3" placeholder="${esc(example)}"></textarea></div>`).join("");
+  FIELDS.forEach(([id]) => {
+    const ta = document.getElementById(`ch-${id}`);
+    ta.value = chars[id] || "";
+    ta.addEventListener("input", () => { chars[id] = ta.value; saveChars(); buildPrompt(); });
+  });
+  buildPrompt();
+}
+
+document.getElementById("copy").addEventListener("click", () => {
+  const text = document.getElementById("sysprompt").textContent;
+  const status = document.getElementById("copystatus");
+  const selectIt = () => {
+    const r = document.createRange(); r.selectNodeContents(document.getElementById("sysprompt"));
+    const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    status.textContent = "Text selected. Press ⌘C to copy.";
+  };
+  try {
+    navigator.clipboard.writeText(text).then(() => { status.textContent = "Copied to clipboard"; }, selectIt);
+  } catch (e) { selectIt(); }
+});
+twoClick(document.getElementById("clearch"), "Clear my answers", "Click again to clear", "Answers cleared", () => {
+  chars = {}; saveChars();
+  FIELDS.forEach(([id]) => document.getElementById(`ch-${id}`).value = "");
+  buildPrompt();
+});
+
+/* ================= Glossary ================= */
+function renderGlossary(){
+  const q = document.getElementById("gq").value.trim().toLowerCase();
+  const items = GLOSSARY.filter(([t,d]) => !q || t.toLowerCase().includes(q) || d.toLowerCase().includes(q)).sort((a,b) => a[0].localeCompare(b[0]));
+  document.getElementById("gloss").innerHTML = items.length
+    ? items.map(([t,d]) => `<div class="term"><dt>${esc(t)}</dt><dd>${esc(d)}</dd></div>`).join("")
+    : `<div class="empty">No term matches “${esc(q)}”. Try a shorter word.</div>`;
+  document.getElementById("gcount").textContent = `${items.length} of ${GLOSSARY.length} terms`;
+}
+document.getElementById("gq").addEventListener("input", renderGlossary);
+
+renderPhases(); updateProgress(); renderFields(); renderGlossary();
+
+
+/* ================= Portable progress ================= */
+const backupStatus = document.getElementById('backup-status');
+document.getElementById('export-progress').addEventListener('click', () => {
+  const payload = {format:'building-june-backup',version:1,progress:state,character:chars};
+  const blob = new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const url = URL.createObjectURL(blob); const a = document.createElement('a');
+  a.href = url; a.download = 'june-progress.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000);
+  backupStatus.textContent = 'Exported your progress and personality answers. Keep this file private if your answers include personal details.';
+});
+document.getElementById('import-progress').addEventListener('click', () => document.getElementById('progress-file').click());
+document.getElementById('progress-file').addEventListener('change', async e => {
+  const file = e.target.files[0]; if (!file) return;
+  try {
+    if (file.size > 1000000) throw new Error('Choose a June backup smaller than 1 MB.');
+    const incoming = JSON.parse(await file.text());
+    if (incoming.format !== 'building-june-backup' || incoming.version !== 1 || !incoming.progress || typeof incoming.progress !== 'object' || Array.isArray(incoming.progress) || !incoming.character || typeof incoming.character !== 'object' || Array.isArray(incoming.character)) throw new Error('This is not a supported June progress backup.');
+    const allowed = new Set(PHASES.flatMap(p => [...p.learn.map((_,i) => `${p.id}-l${i}`),`${p.id}-b`]));
+    const newState = Object.fromEntries(Object.entries(incoming.progress).filter(([k,v]) => allowed.has(k) && (v === 1 || v === true)));
+    const newChars = Object.fromEntries(FIELDS.filter(([k]) => typeof incoming.character[k] === 'string' && incoming.character[k].length <= 20000).map(([k]) => [k,incoming.character[k]]));
+    state = {...state,...newState}; chars = {...chars,...newChars}; save(); saveChars();
+    renderPhases(); updateProgress(); renderFields();
+    backupStatus.textContent = 'Imported your checked steps and supplied personality answers. Existing checked steps were kept.';
+  } catch (err) { backupStatus.textContent = err instanceof SyntaxError ? 'The file is not valid JSON. Choose an exported June backup.' : err.message; }
+  e.target.value = '';
+});
+
+/* ================= June's orb ================= */
+(function(){
+  const canvas = document.getElementById("orb");
+  const ctx = canvas.getContext("2d");
+  const stateEl = document.getElementById("orbstate");
+  const caption = document.getElementById("caption");
+  const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* A stable random generator, so June's brain has the same shape every visit */
+  let seed = 7;
+  const rnd = () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const gauss = () => (rnd() + rnd() + rnd() - 1.5) / 1.5;
+  const norm = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+
+  /* Each cluster is one part of June */
+  const CLUSTERS = [
+    {name:"Memory",          col:[59,167,240],  dir:[-.8,.35,.45],  n:95},
+    {name:"Voice",           col:[242,140,40],  dir:[.25,.15,.95],  n:90},
+    {name:"Personality",     col:[240,98,168],  dir:[.9,.1,-.2],    n:120},
+    {name:"Knowledge · RAG", col:[155,123,234], dir:[-.35,-.25,-.9],n:80},
+    {name:"Hands · MCP",     col:[52,209,184],  dir:[-.2,-.95,.2],  n:70},
+    {name:"Ears",            col:[245,197,66],  dir:[.3,.9,-.1],    n:55}
+  ];
+  const nodes = [];
+  CLUSTERS.forEach((c, ci) => {
+    c.dir = norm(c.dir);
+    for (let i = 0; i < c.n; i++) {
+      const p = norm([c.dir[0] + gauss() * .9, c.dir[1] + gauss() * .9, c.dir[2] + gauss() * .9]);
+      const shell = i < 4 ? .78 + rnd() * .1 : .62 + Math.pow(rnd(), .5) * .4;
+      const hub = i < 4;
+      nodes.push({p:[p[0] * shell, p[1] * shell, p[2] * shell], c:ci, size: hub ? 3.6 + rnd() * 1.6 : .8 + Math.pow(rnd(), 3) * 2.4, hub, ph: rnd() * 6.28});
+    }
+  });
+  /* Wire each node to its nearest neighbours in the same cluster, plus some bridges between clusters */
+  const edges = [], seen = new Set();
+  const d2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+  const addEdge = (a, b) => { const k = a < b ? a + "-" + b : b + "-" + a; if (a !== b && !seen.has(k)) { seen.add(k); edges.push([a, b]); } };
+  nodes.forEach((a, i) => {
+    const near = [];
+    nodes.forEach((b, j) => { if (j !== i && b.c === a.c) near.push([d2(a.p, b.p), j]); });
+    near.sort((x, y) => x[0] - y[0]);
+    const k = a.hub ? 7 : 2;
+    for (let m = 0; m < Math.min(k, near.length); m++) addEdge(i, near[m][1]);
+  });
+  for (let m = 0; m < 140; m++) {
+    const i = Math.floor(rnd() * nodes.length);
+    let best = -1, bd = 1e9;
+    for (let s = 0; s < 40; s++) { const j = Math.floor(rnd() * nodes.length); if (nodes[j].c !== nodes[i].c) { const dd = d2(nodes[i].p, nodes[j].p); if (dd < bd) { bd = dd; best = j; } } }
+    if (best >= 0) addEdge(i, best);
+  }
+  const hubs = nodes.map((n, i) => n.hub ? i : -1).filter(i => i >= 0);
+
+  /* The wireframe core: an icosahedron */
+  const P = (1 + Math.sqrt(5)) / 2;
+  const icoV = [[-1,P,0],[1,P,0],[-1,-P,0],[1,-P,0],[0,-1,P],[0,1,P],[0,-1,-P],[0,1,-P],[P,0,-1],[P,0,1],[-P,0,-1],[-P,0,1]].map(norm);
+  const icoE = [];
+  for (let i = 0; i < 12; i++) for (let j = i + 1; j < 12; j++) if (d2(icoV[i], icoV[j]) < 1.2) icoE.push([i, j]);
+
+  /* Orbit rings */
+  const ORBITS = [{r:1.28, tx:1.15, tz:.25, speed:.35}, {r:1.4, tx:-.5, tz:1.0, speed:-.22}, {r:1.18, tx:.2, tz:-.7, speed:.5}];
+
+  const MOODS = {
+    idle:      {spin:.1,  breathe:.015, fire:2,  glow:.45, ring:0, core:[52,209,184],  label:"Idle"},
+    listening: {spin:.16, breathe:.03,  fire:6,  glow:.6,  ring:1, core:[59,167,240],  label:"Listening"},
+    thinking:  {spin:.75, breathe:.02,  fire:28, glow:.75, ring:0, core:[155,123,234], label:"Thinking"},
+    speaking:  {spin:.22, breathe:.02,  fire:12, glow:.85, ring:0, core:[245,197,66],  label:"Speaking"}
+  };
+  let mood = "idle", cur = {...MOODS.idle, core:[...MOODS.idle.core]}, energy = 0, angle = 0, t = 0, last = performance.now(), W = 0, H = 0, dpr = 1, visible = true, boost = 0;
+  const signals = [];
+  let fireAcc = 0;
+
+  function resize(){
+    const r = canvas.getBoundingClientRect();
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = r.width; H = r.height;
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener("resize", resize); resize();
+  if ("IntersectionObserver" in window) new IntersectionObserver(e => { visible = e[0].isIntersecting; }).observe(canvas);
+
+  function setMood(m){
+    mood = m; stateEl.textContent = MOODS[m].label;
+    document.querySelectorAll(".moods button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mood === m)));
+  }
+  window.__juneSetMood = setMood;
+  document.querySelectorAll(".moods button").forEach(b => b.addEventListener("click", () => { stopSpeech(); setMood(b.dataset.mood); }));
+
+  const proj = new Array(nodes.length);
+  const order = nodes.map((_, i) => i);
+  const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+
+  function frame(now){
+    requestAnimationFrame(frame);
+    let dt = Math.min((now - last) / 1000, .05); last = now;
+    if (!visible || !W) return;
+    if (reduce) dt *= .25;
+    t += dt;
+    const target = MOODS[mood], ease = Math.min(1, dt * 3);
+    for (const k of ["spin","breathe","fire","glow","ring"]) cur[k] += (target[k] - cur[k]) * ease;
+    for (let i = 0; i < 3; i++) cur.core[i] += (target.core[i] - cur.core[i]) * ease;
+    let eTarget = 0;
+    if (mood === "speaking") eTarget = .35 + .65 * Math.abs(Math.sin(t * 11) * Math.sin(t * 2.7 + 1)) * (.7 + .3 * Math.sin(t * 23));
+    if (mood === "listening") eTarget = .2 + .2 * Math.abs(Math.sin(t * 3));
+    energy += (Math.max(eTarget, boost) - energy) * Math.min(1, dt * 12);
+    boost *= Math.pow(.02, dt);
+    angle += dt * cur.spin;
+
+    ctx.clearRect(0, 0, W, H);
+    const cx = W / 2, cy = H / 2, R = Math.min(W, H) * .36;
+    const ca = Math.cos(angle), sa = Math.sin(angle), tilt = .28, ct = Math.cos(tilt), st = Math.sin(tilt);
+    const scale = 1 + Math.sin(t * 1.4) * cur.breathe + energy * .07;
+    const project = (x, y, z, out) => {
+      const x1 = x * ca - z * sa, z1 = x * sa + z * ca;
+      const y2 = y * ct - z1 * st, z2 = y * st + z1 * ct;
+      const f = 3.2 / (3.2 - z2);
+      out[0] = cx + x1 * R * f; out[1] = cy + y2 * R * f; out[2] = z2; out[3] = f;
+      return out;
+    };
+
+    /* Glow behind the core */
+    const core = cur.core;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 1.1);
+    g.addColorStop(0, rgba(core.map(Math.round), .22 + cur.glow * .18 + energy * .15));
+    g.addColorStop(.45, rgba(core.map(Math.round), .06));
+    g.addColorStop(1, "rgba(5,7,13,0)");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+    /* Orbit rings */
+    const tmp = [0,0,0,0], tmp2 = [0,0,0,0];
+    ORBITS.forEach((o, oi) => {
+      const cX = Math.cos(o.tx), sX = Math.sin(o.tx), cZ = Math.cos(o.tz), sZ = Math.sin(o.tz);
+      const pt = (a, out) => {
+        let x = Math.cos(a) * o.r, y = 0, z = Math.sin(a) * o.r;
+        let y1 = y * cX - z * sX, z1 = y * sX + z * cX;
+        let x2 = x * cZ - y1 * sZ, y2 = x * sZ + y1 * cZ;
+        return project(x2, y2, z1, out);
+      };
+      ctx.beginPath();
+      for (let s = 0; s <= 96; s++) { pt(s / 96 * 6.2832, tmp); s ? ctx.lineTo(tmp[0], tmp[1]) : ctx.moveTo(tmp[0], tmp[1]); }
+      ctx.strokeStyle = "rgba(170,185,210,.16)"; ctx.lineWidth = 1; ctx.stroke();
+      if (oi === 0) {
+        pt(t * o.speed, tmp);
+        ctx.beginPath(); ctx.arc(tmp[0], tmp[1], 6 * tmp[3], 0, 6.2832);
+        ctx.fillStyle = "rgba(196,190,60,.85)"; ctx.fill();
+      }
+    });
+
+    /* Listening ripples */
+    if (cur.ring > .02) {
+      for (let k = 0; k < 3; k++) {
+        const p = ((t * .55 + k / 3) % 1);
+        ctx.beginPath(); ctx.arc(cx, cy, R * (.3 + p * 1.1), 0, 6.2832);
+        ctx.strokeStyle = rgba(core.map(Math.round), (1 - p) * .3 * cur.ring); ctx.lineWidth = 1.5; ctx.stroke();
+      }
+    }
+
+    /* Project every node */
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i], s = scale * (1 + Math.sin(t * 1.7 + n.ph) * .012);
+      proj[i] = project(n.p[0] * s, n.p[1] * s, n.p[2] * s, proj[i] || [0,0,0,0]);
+    }
+
+    /* Lines to the core from each cluster's hubs */
+    hubs.forEach(i => {
+      const p = proj[i];
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(p[0], p[1]);
+      ctx.strokeStyle = rgba(CLUSTERS[nodes[i].c].col, .07 + (p[2] + 1) * .05); ctx.lineWidth = .8; ctx.stroke();
+    });
+
+    /* Connections */
+    ctx.lineWidth = .7;
+    for (let e = 0; e < edges.length; e++) {
+      const [a, b] = edges[e], pa = proj[a], pb = proj[b];
+      const depth = ((pa[2] + pb[2]) / 2 + 1.1) / 2.2;
+      ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]);
+      ctx.strokeStyle = rgba(CLUSTERS[nodes[a].c].col, .05 + depth * .22);
+      ctx.stroke();
+    }
+
+    /* Wireframe core */
+    const cr = .17 * (1 + energy * .25), cAng = t * .6;
+    const cc = Math.cos(cAng), cs = Math.sin(cAng);
+    const coreP = icoV.map(v => {
+      const x = v[0] * cc - v[2] * cs, z = v[0] * cs + v[2] * cc, y = v[1];
+      const y1 = y * Math.cos(cAng * .7) - z * Math.sin(cAng * .7), z1 = y * Math.sin(cAng * .7) + z * Math.cos(cAng * .7);
+      return [cx + x * R * cr, cy + y1 * R * cr, z1];
+    });
+    ctx.lineWidth = 1;
+    icoE.forEach(([a, b]) => {
+      ctx.beginPath(); ctx.moveTo(coreP[a][0], coreP[a][1]); ctx.lineTo(coreP[b][0], coreP[b][1]);
+      ctx.strokeStyle = rgba([225,240,245], .25 + ((coreP[a][2] + coreP[b][2]) / 2 + 1) * .2); ctx.stroke();
+    });
+    coreP.forEach(p => { ctx.beginPath(); ctx.arc(p[0], p[1], 1.4, 0, 6.2832); ctx.fillStyle = "rgba(235,248,250,.8)"; ctx.fill(); });
+
+    /* Nodes, back to front */
+    order.sort((a, b) => proj[a][2] - proj[b][2]);
+    for (let k = 0; k < order.length; k++) {
+      const i = order[k], n = nodes[i], p = proj[i];
+      const depth = (p[2] + 1.1) / 2.2;
+      const r = n.size * p[3] * (1 + (n.hub ? energy * .35 : energy * .15));
+      const col = CLUSTERS[n.c].col;
+      if (n.hub) {
+        ctx.beginPath(); ctx.arc(p[0], p[1], r * 2.4, 0, 6.2832);
+        ctx.fillStyle = rgba(col, .08 + depth * .1); ctx.fill();
+      }
+      ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 6.2832);
+      ctx.fillStyle = rgba(col, .3 + depth * .7); ctx.fill();
+    }
+
+    /* Signals firing along connections */
+    fireAcc += dt * (cur.fire + energy * 25);
+    while (fireAcc > 1) { fireAcc--; if (signals.length < 120) signals.push({e: Math.floor(Math.random() * edges.length), p: 0, v: .8 + Math.random() * 1.4}); }
+    for (let s = signals.length - 1; s >= 0; s--) {
+      const sg = signals[s]; sg.p += dt * sg.v;
+      if (sg.p >= 1) { signals.splice(s, 1); continue; }
+      const [a, b] = edges[sg.e], pa = proj[a], pb = proj[b];
+      const x = pa[0] + (pb[0] - pa[0]) * sg.p, y = pa[1] + (pb[1] - pa[1]) * sg.p;
+      const col = CLUSTERS[nodes[a].c].col;
+      ctx.beginPath(); ctx.arc(x, y, 4, 0, 6.2832); ctx.fillStyle = rgba(col, .25); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, 1.6, 0, 6.2832); ctx.fillStyle = "rgba(255,255,255,.95)"; ctx.fill();
+    }
+
+    /* Cluster labels, shown when the cluster faces you */
+    ctx.font = `600 ${Math.max(11, Math.round(R * .075))}px "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    CLUSTERS.forEach(c => {
+      const p = project(c.dir[0] * .8 * scale, c.dir[1] * .8 * scale, c.dir[2] * .8 * scale, tmp2);
+      const a = Math.max(0, Math.min(1, (p[2] + .1) * 1.6));
+      if (a <= 0) return;
+      ctx.fillStyle = `rgba(5,7,13,${a * .55})`;
+      const w = ctx.measureText(c.name).width + 12;
+      ctx.fillRect(p[0] - w / 2, p[1] - 10, w, 20);
+      ctx.fillStyle = `rgba(240,244,250,${a})`;
+      ctx.fillText(c.name, p[0], p[1]);
+    });
+  }
+  requestAnimationFrame(frame);
+
+
+  /* ---- Hear June: explicit female voices, saved choice and reliable cancellation ---- */
+  let speechStorage; try { speechStorage = localStorage; } catch (_) {}
+  const voiceController = createJuneVoice({
+    synth: window.speechSynthesis, Utterance: window.SpeechSynthesisUtterance,
+    select: document.getElementById('june-voice'), hear: document.getElementById('speak'),
+    preview: document.getElementById('voice-preview'), status: document.getElementById('voice-status'),
+    storage: speechStorage, onMood: setMood, onPulse: () => { boost = 1; },
+    onCaption: (text, upto) => { caption.innerHTML = esc(text.slice(0,upto)) + `<span class="dim">${esc(text.slice(upto))}</span>`; }
+  });
+  function stopSpeech() { voiceController.stop(); }
+  document.getElementById('voice-refresh').addEventListener('click', () => { voiceController.stop(); voiceController.refresh(); });
+  window.addEventListener('pagehide', () => voiceController.stop());
+})();
+</script>
+
+</body></html>
