@@ -102,9 +102,24 @@ test('quiet recordings never reach the local model and retain edited words', asy
   controller.edit('Keep edited words'); controller.start(); await tick(); controller.finish(); await tick();
   assert.equal(calls, 0); assert.match(states.at(-1).error, /quiet/i); assert.equal(states.at(-1).transcript, 'Keep edited words'); controller.dispose();
 });
+async function isolateTemporaryAudio(t) {
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const directory = await mkdtemp(join(tmpdir(), 'june-audio-test-'));
+  const previous = process.env.TMPDIR;
+  process.env.TMPDIR = directory;
+  t.after(async () => {
+    if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous;
+    await rm(directory, { recursive: true, force: true });
+  });
+}
 test('real local engine transcribes speech and cancellation releases its job', async t => {
   const { readFile, readdir } = await import('node:fs/promises'); const { homedir, tmpdir } = await import('node:os'); const { join } = await import('node:path');
   if ((await server.speechStatus()).state !== 'ready') { t.skip('Run speech:setup for the real-engine check.'); return; }
+  // A running June may create/remove its own Whisper folders concurrently.
+  // Assert cleanup only for this test's jobs, not the whole macOS temp folder.
+  await isolateTemporaryAudio(t);
   const raw = new Uint8Array(await readFile(join(homedir(), 'Library/Application Support/June/speech/whisper.cpp/samples/jfk.wav')));
   // The upstream fixture has extra metadata chunks. Canonicalise its PCM payload
   // into the narrow recording format this app sends, retaining the actual speech.
@@ -186,6 +201,7 @@ test('speech setup reads the same ignored configuration file as the app server',
 });
 test('engine failure and forced timeout remove temporary audio and free the process lock', async t => {
   if ((await server.speechStatus()).state !== 'ready') { t.skip('Run speech:setup for process lifecycle checks.'); return; }
+  await isolateTemporaryAudio(t);
   const { mkdtemp, mkdir, writeFile, readFile, symlink, rm, readdir } = await import('node:fs/promises');
   const { tmpdir, homedir } = await import('node:os'); const { join } = await import('node:path');
   const directory = await mkdtemp(join(tmpdir(),'june-engine-test-')); const previous = process.env.JUNE_SPEECH_HOME;

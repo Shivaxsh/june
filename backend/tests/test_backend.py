@@ -222,13 +222,6 @@ class SpeechJobs(unittest.IsolatedAsyncioTestCase):
         self.service.binary.write_text(f'#!{sys.executable}\nimport time,sys,json,os\nfrom pathlib import Path\nPath({str(self.root / "pid")!r}).write_text(str(os.getpid()))\ntime.sleep({wait})\nPath(sys.argv[sys.argv.index("-of")+1]+".json").write_text(json.dumps({{"transcription":[{{"text":"Hello June"}}]}}))\n')
         self.service.binary.chmod(0o700)
 
-    async def started(self):
-        for _ in range(100):
-            if (self.root / 'pid').exists():
-                return int((self.root / 'pid').read_text())
-            await asyncio.sleep(.01)
-        self.fail('Fake engine did not start')
-
     def released(self, pid):
         with self.assertRaises(ProcessLookupError):
             os.kill(pid, 0)
@@ -237,14 +230,28 @@ class SpeechJobs(unittest.IsolatedAsyncioTestCase):
 
     async def test_busy_and_cancellation_cleanup(self):
         self.engine(10)
-        task = asyncio.create_task(self.service.transcribe(wav()))
-        pid = await self.started()
-        with self.assertRaises(JuneError) as result:
-            await self.service.transcribe(wav())
-        self.assertEqual(result.exception.status, 409)
-        task.cancel()
-        with self.assertRaises(asyncio.CancelledError):
-            await task
+        # Observe the actual spawn, not the fixture's startup speed. Under
+        # memory pressure its first Python instruction can take over a second.
+        spawn = asyncio.create_subprocess_exec
+        started = asyncio.Event()
+        pid = None
+        async def observe(*args, **kwargs):
+            nonlocal pid
+            process = await spawn(*args, **kwargs)
+            pid = process.pid
+            started.set()
+            return process
+        with patch('june.speech.asyncio.create_subprocess_exec', side_effect=observe):
+            task = asyncio.create_task(self.service.transcribe(wav()))
+            try:
+                await asyncio.wait_for(started.wait(), 5)
+                with self.assertRaises(JuneError) as result:
+                    await self.service.transcribe(wav())
+                self.assertEqual(result.exception.status, 409)
+            finally:
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
         self.released(pid)
 
     async def test_timeout_cleanup(self):
@@ -326,3 +333,47 @@ class ReplyLimits(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class CorrectionFocus(unittest.IsolatedAsyncioTestCase):
+    async def payload(self, messages):
+        captured = []
+        def model(request):
+            import json
+            captured.append(json.loads(request.content))
+            return httpx.Response(200, text='{"message":{"content":"A new explanation."},"done":true}\n')
+        async with httpx.AsyncClient(transport=httpx.MockTransport(model)) as client:
+            events = [event async for event in stream_chat(client, Settings.from_env(), 'local', messages, '\nCharacter preferences: concise.')]
+        self.assertEqual(events[-1]['type'], 'done')
+        return captured[0]
+
+    async def test_latest_correction_has_explicit_focus_after_personality_data(self):
+        import json
+        messages = [{'role': 'user', 'content': 'What is a web worker?'},
+                    {'role': 'assistant', 'content': 'A web worker runs background tasks.'},
+                    {'role': 'user', 'content': 'I meant React.js'}]
+        payload = await self.payload(messages)
+        # The actual model request keeps original roles/history, while the
+        # corrected user request is quoted as current-turn data after preferences.
+        self.assertEqual(payload['messages'][1:], messages)
+        system = payload['messages'][0]['content']
+        self.assertTrue(system.endswith(json.dumps('I meant React.js')))
+        self.assertLess(system.index('Character preferences:'), system.rfind('I meant React.js'))
+        self.assertNotIn('A web worker runs background tasks.', system)
+
+    async def test_normal_contextual_followups_and_explicit_repeats_keep_history(self):
+        from june.chat import PROMPT
+        for latest in ['What is its capital?', 'Repeat that answer from the start.']:
+            messages = [{'role': 'user', 'content': 'Tell me about France.'},
+                        {'role': 'assistant', 'content': 'Paris is its capital.'},
+                        {'role': 'user', 'content': latest}]
+            with self.subTest(latest=latest):
+                payload = await self.payload(messages)
+                self.assertEqual(payload['messages'][1:], messages)
+                self.assertEqual(payload['messages'][0]['content'], PROMPT + '\nCharacter preferences: concise.')
+
+    async def test_corrected_request_remains_quoted_data_with_newlines(self):
+        import json
+        latest = 'I meant React.js\nThis is a second line.'
+        payload = await self.payload([{'role': 'user', 'content': latest}])
+        self.assertTrue(payload['messages'][0]['content'].endswith(json.dumps(latest)))
+        self.assertEqual(payload['messages'][-1]['content'], latest)

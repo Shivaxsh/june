@@ -349,6 +349,12 @@ class NaturalInterruption(unittest.IsolatedAsyncioTestCase):
 
     async def test_sustained_speech_interrupts_generation_without_wake(self):
         for _ in range(15): await self.audio(True)
+        self.assertEqual(self.turn.number, 1)
+        self.assertFalse(any(e['type'] == 'probe' for e in self.events))
+        for _ in range(45): await self.audio(True)
+        await asyncio.sleep(0)
+        for _ in range(10): await self.audio(True)
+        await asyncio.sleep(0)
         self.assertEqual(self.turn.number, 2)
         self.assertEqual(self.turn.phase, 'listening')
         self.assertEqual(len([e for e in self.events if e['type']=='interrupt']), 1)
@@ -367,11 +373,9 @@ class NaturalInterruption(unittest.IsolatedAsyncioTestCase):
     async def probe(self):
         self.turn.phase = 'speaking'
         for _ in range(8): await self.audio(True)
-        event = next(e for e in self.events if e['type']=='probe')
-        await self.turn.probe_paused(1, event['probe'])
-        return event['probe']
+        return self.turn.probe['id']
 
-    async def test_speaker_echo_stops_with_pause_and_resumes_without_new_turn(self):
+    async def test_speaker_echo_does_not_pause_or_start_a_new_turn(self):
         async def no_words(_): return {'text': '[silence]', 'durationMs': 1}
         self.turn.transcribe = no_words
         probe = await self.probe()
@@ -379,11 +383,14 @@ class NaturalInterruption(unittest.IsolatedAsyncioTestCase):
         await self.turn.flush()
         self.assertEqual(self.turn.number, 1)
         self.assertFalse(any(e['type']=='interrupt' for e in self.events))
-        self.assertTrue(any(e['type']=='resume' and e['probe']==probe for e in self.events))
+        self.assertFalse(any(e['type']=='probe' for e in self.events))
 
-    async def test_real_speech_after_playback_pause_owns_a_new_turn(self):
+    async def test_verified_real_speech_owns_a_new_turn(self):
         await self.probe()
-        for _ in range(30): await self.audio(True)
+        for _ in range(45): await self.audio(True)
+        await asyncio.sleep(0)
+        for _ in range(10): await self.audio(True)
+        await asyncio.sleep(0)
         self.assertEqual(self.turn.phase, 'listening')
         self.assertEqual(self.turn.number, 2)
         for _ in range(80): await self.audio(False)
@@ -391,20 +398,23 @@ class NaturalInterruption(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len([e for e in self.events if e['type']=='transcript']), 1)
         self.assertFalse(any(e['type']=='resume' for e in self.events))
 
-    async def test_stale_pause_ack_and_timeout_cannot_leave_playback_paused(self):
+    async def test_failed_word_verification_keeps_playback_running(self):
+        async def timeout(_): raise TimeoutError()
+        self.turn.transcribe = timeout
         self.turn.phase = 'speaking'
-        for _ in range(8): await self.audio(True)
-        probe = next(e for e in self.events if e['type']=='probe')['probe']
-        await self.turn.probe_paused(0, probe)
-        self.now += 3
-        await self.turn.tick()
-        self.assertTrue(any(e['type']=='error' and e['fatal'] for e in self.events))
+        for _ in range(55): await self.audio(True)
+        await self.turn.flush()
+        self.assertEqual(self.turn.phase, 'speaking')
+        self.assertEqual(self.turn.number, 1)
+        self.assertFalse(any(e['type'] in ('probe', 'interrupt', 'transcript') for e in self.events))
 
 class InterruptionReview(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.events=[];self.now=0.
+        self.events=[];self.now=0.;self.clips=[]
         async def emit(e): self.events.append(e)
-        async def transcribe(_): return {'text':'Wait.', 'durationMs':15}
+        async def transcribe(data):
+            self.clips.append(data)
+            return {'text':'Wait.', 'durationMs':15}
         self.turn=VoiceTurn(emit,transcribe,clock=lambda:self.now)
         self.turn.number=1;self.turn.phase='speaking'
 
@@ -416,16 +426,18 @@ class InterruptionReview(unittest.IsolatedAsyncioTestCase):
 
     async def start_probe(self):
         for _ in range(8): await self.packet(True)
-        probe=next(e for e in self.events if e['type']=='probe')
-        await self.turn.probe_paused(1,probe['probe'])
-        return probe
+        return self.turn.probe
 
     async def test_interruption_retains_whole_pcm_samples_under_clock_jitter(self):
         await self.start_probe()
-        for _ in range(25): await self.packet(True)
-        self.assertEqual(len(self.turn.buffer)%2,0)
+        for _ in range(50): await self.packet(True)
+        await self.turn.flush()
+        self.assertTrue(self.clips)
+        clip=self.clips[0]
+        from june.speech import validate_wav
+        self.assertGreater(validate_wav(clip)['durationMs'],500)
         import struct
-        self.assertTrue(all(sample[0]==4096 for sample in struct.iter_unpack('<h',self.turn.buffer)))
+        self.assertTrue(all(sample[0]==4096 for sample in struct.iter_unpack('<h',clip[44:])))
 
     async def test_sentence_end_generating_feedback_cannot_release_probe(self):
         await self.start_probe()
@@ -449,7 +461,7 @@ class InterruptionReview(unittest.IsolatedAsyncioTestCase):
         for _ in range(50): await self.packet(False)
         await self.turn.flush()
         self.assertFalse(any(e['type']=='interrupt' for e in self.events))
-        self.assertTrue(any(e['type']=='resume' for e in self.events))
+        self.assertFalse(any(e['type']=='probe' for e in self.events))
 
 class ShortProbeRaces(unittest.IsolatedAsyncioTestCase):
     async def test_new_wake_cancels_accepted_probe_before_transcript_delivery(self):
@@ -472,9 +484,9 @@ class ShortProbeRaces(unittest.IsolatedAsyncioTestCase):
     async def test_spoken_digit_echo_uses_same_normalization_as_transcript(self):
         async def ignore(_):pass
         turn=VoiceTurn(ignore,ignore)
-        self.assertFalse(turn.is_new_short_speech('5060','five zero six zero'))
-        self.assertFalse(turn.is_new_short_speech('The code is 7294.','The code is seven two nine four.'))
-        self.assertTrue(turn.is_new_short_speech('5060','three zero six zero'))
+        self.assertTrue(turn.is_playback_echo('5060','five zero six zero'))
+        self.assertTrue(turn.is_playback_echo('The code is 7294.','The code is seven two nine four.'))
+        self.assertFalse(turn.is_playback_echo('5060','three zero six zero'))
         await turn.close()
 
 class FeedbackOwnership(unittest.IsolatedAsyncioTestCase):
@@ -570,3 +582,270 @@ class PauseMatrix(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(turn.phase, 'generating')
                 finally:
                     await turn.close()
+
+class FalseInterruptions(unittest.IsolatedAsyncioTestCase):
+    """VAD is evidence of sound, never proof that the user took a turn."""
+    async def asyncSetUp(self):
+        self.now = 0.
+        self.events = []
+        self.result = '[noise]'
+        async def emit(event): self.events.append(event)
+        async def transcribe(_): return {'text': self.result, 'durationMs': 1}
+        self.turn = VoiceTurn(emit, transcribe, clock=lambda: self.now)
+        self.turn.number = 1
+        self.turn.phase = 'generating'
+        await self.turn.activity(1, 'speaking', 'A graphics card helps render pictures.')
+        self.turn.phase = 'speaking'
+        self.turn.spoken = 'A graphics card helps render pictures.'
+
+    async def asyncTearDown(self): await self.turn.close()
+
+    async def packet(self, voiced=True, elapsed=.02):
+        self.now += elapsed
+        await self.turn.audio(b'\x00\x10' * 320, voiced)
+        if self.turn.probe and self.turn.probe['paused'] is None:
+            await self.turn.probe_paused(1, self.turn.probe['id'])
+        await asyncio.sleep(0)
+
+    async def test_sustained_noise_never_cancels_reply_before_text_confirmation(self):
+        blocked = asyncio.Event()
+        async def slow(_):
+            await blocked.wait()
+            return {'text': '[noise]', 'durationMs': 1}
+        self.turn.transcribe = slow
+        for _ in range(70): await self.packet()
+        self.assertEqual(self.turn.number, 1)
+        self.assertFalse(any(e['type'] == 'interrupt' for e in self.events))
+        blocked.set()
+        await self.turn.flush()
+        self.assertFalse(any(e['type'] == 'probe' for e in self.events))
+
+    async def test_sustained_own_speech_is_rejected_without_audible_pause(self):
+        self.result = 'A graphics card helps render pictures.'
+        for _ in range(70): await self.packet()
+        await self.turn.flush()
+        self.assertEqual(self.turn.number, 1)
+        self.assertFalse(any(e['type'] in ('interrupt', 'transcript') for e in self.events))
+        self.assertFalse(any(e['type'] == 'probe' for e in self.events))
+
+    async def test_sentence_gap_echo_cannot_use_unverified_generating_path(self):
+        await self.turn.activity(1, 'generating')
+        self.result = 'A graphics card helps render pictures.'
+        for _ in range(70): await self.packet()
+        await self.turn.flush()
+        self.assertEqual(self.turn.number, 1)
+        self.assertFalse(any(e['type'] == 'interrupt' for e in self.events))
+
+    async def test_previous_sentence_echo_remains_known_after_next_sentence_starts(self):
+        await self.turn.activity(1, 'speaking', 'The monitor displays the image.')
+        self.result = 'A graphics card helps render pictures.'
+        for _ in range(8): await self.packet()
+        for _ in range(55): await self.packet(False)
+        await self.turn.flush()
+        self.assertFalse(any(e['type'] in ('interrupt', 'transcript') for e in self.events))
+
+    async def test_wall_clock_stall_does_not_count_queued_echo_as_post_pause_speech(self):
+        for _ in range(8): await self.packet()
+        # Only 40 ms of audio arrived, even though this busy CPU took a second.
+        await self.packet(elapsed=1.)
+        await self.packet()
+        self.assertEqual(self.turn.number, 1)
+        self.assertFalse(any(e['type'] == 'interrupt' for e in self.events))
+
+    async def test_wake_detector_echo_during_reply_still_requires_confirmation(self):
+        self.result = 'A graphics card helps render pictures.'
+        self.now += .02
+        await self.turn.audio(b'\x00\x10' * 320, True, wake=True)
+        self.assertEqual(self.turn.number, 1)
+        self.assertFalse(any(e['type'] == 'wake' for e in self.events))
+
+    async def test_followup_echo_is_not_sent_as_a_new_question(self):
+        self.result = 'A graphics card helps render pictures.'
+        await self.turn.activity(1, 'complete')
+        for _ in range(35): await self.packet()
+        for _ in range(80): await self.packet(False)
+        await self.turn.flush()
+        self.assertFalse(any(e['type'] == 'transcript' for e in self.events))
+
+    async def test_generating_without_playback_accepts_a_different_question(self):
+        self.turn.playback.clear()
+        self.turn.spoken = ''
+        self.turn.phase = 'generating'
+        self.result = 'Tell me something else.'
+        for _ in range(15): await self.packet()
+        for _ in range(55): await self.packet(False)
+        await self.turn.flush()
+        self.assertEqual([e['text'] for e in self.events if e['type'] == 'transcript'], ['Tell me something else.'])
+
+    async def test_completion_during_noise_probe_is_not_lost(self):
+        for _ in range(8): await self.packet()
+        await self.turn.activity(1, 'complete')
+        for _ in range(55): await self.packet(False)
+        await self.turn.flush()
+        self.assertEqual(self.turn.phase, 'followup')
+        self.assertIsNotNone(self.turn.deadline)
+        self.assertFalse(any(e['type'] == 'interrupt' for e in self.events))
+
+    async def test_continued_question_keeps_start_during_slow_confirmation(self):
+        started, release = asyncio.Event(), asyncio.Event()
+        clips = []
+        async def slow(data):
+            clips.append(data)
+            if len(clips) == 1:
+                started.set()
+                await release.wait()
+                return {'text': 'Wait, explain', 'durationMs': 1}
+            return {'text': 'Wait, explain workers instead.', 'durationMs': 1}
+        self.turn.transcribe = slow
+        for _ in range(55): await self.packet()
+        await started.wait()
+        for _ in range(130): await self.packet()
+        release.set()
+        await self.turn.flush()
+        self.assertEqual(self.turn.number, 2)
+        # Over 2s elapsed during the decoder: an ordinary 2s pre-roll would
+        # have discarded the beginning. The owned capture must keep it all.
+        self.assertGreater(len(self.turn.buffer), 96000)
+        for _ in range(80): await self.packet(False)
+        await self.turn.flush()
+        self.assertEqual([e['text'] for e in self.events if e['type'] == 'transcript'], ['Wait, explain workers instead.'])
+
+    async def test_non_speech_hallucination_without_post_pause_voice_is_not_a_turn(self):
+        self.result = 'Thank you for watching.'
+        for _ in range(8): await self.packet()
+        for _ in range(55): await self.packet(False)
+        await self.turn.flush()
+        self.assertEqual(self.turn.number, 1)
+        self.assertFalse(any(e['type'] == 'transcript' for e in self.events))
+
+    async def test_verified_wake_only_interruption_listens_for_the_question(self):
+        self.result = 'Hey June.'
+        for _ in range(15): await self.packet()
+        for _ in range(55): await self.packet(False)
+        await self.turn.flush()
+        self.assertEqual(self.turn.number, 2)
+        self.assertEqual(self.turn.phase, 'listening')
+        self.assertFalse(any(e['type'] == 'transcript' for e in self.events))
+
+    async def test_cancelled_pause_cannot_overwrite_deferred_completion(self):
+        for _ in range(8): await self.packet()
+        probe = self.turn.probe['id']
+        await self.turn.activity(1, 'complete')
+        await self.turn.probe_cancelled(1, probe)
+        self.assertEqual(self.turn.phase, 'followup')
+
+    async def test_one_word_followup_is_not_confused_with_echo(self):
+        self.result = 'Linux.'
+        await self.turn.activity(1, 'complete')
+        for _ in range(35): await self.packet()
+        for _ in range(80): await self.packet(False)
+        await self.turn.flush()
+        self.assertEqual([e['text'] for e in self.events if e['type'] == 'transcript'], ['Linux.'])
+
+    async def test_caption_arriving_during_probe_is_still_an_echo_reference(self):
+        self.turn.phase = 'generating'; self.turn.playback.clear(); self.turn.spoken = ''
+        for _ in range(15): await self.packet()
+        self.result = 'The monitor displays the image.'
+        await self.turn.activity(1, 'speaking', self.result)
+        for _ in range(55): await self.packet(False)
+        await self.turn.flush()
+        self.assertEqual(self.turn.number, 1)
+        self.assertFalse(any(e['type'] == 'transcript' for e in self.events))
+
+    async def test_user_question_during_noise_decode_is_checked_before_resuming(self):
+        started, release = asyncio.Event(), asyncio.Event()
+        calls = []
+        async def slow(data):
+            calls.append(data)
+            if len(calls) == 1:
+                started.set(); await release.wait()
+                return {'text': '[noise]', 'durationMs': 1}
+            return {'text': 'Wait, explain workers instead.', 'durationMs': 1}
+        self.turn.transcribe = slow
+        for _ in range(8): await self.packet()
+        for _ in range(50): await self.packet(False)
+        await started.wait()
+        for _ in range(40): await self.packet()
+        for _ in range(30): await self.packet(False)
+        release.set()
+        # A second owned probe check may be created as the first finishes.
+        for _ in range(10):
+            await asyncio.sleep(0)
+        await self.turn.flush()
+        self.assertEqual([e['text'] for e in self.events if e['type'] == 'transcript'], ['Wait, explain workers instead.'])
+        self.assertFalse(any(e['type'] == 'resume' for e in self.events))
+
+    async def test_unverified_noise_never_pauses_browser_playback(self):
+        for _ in range(70): await self.packet()
+        await self.turn.flush()
+        self.assertFalse(any(e['type'] in ('probe', 'interrupt', 'transcript') for e in self.events))
+
+    async def test_wake_only_decode_retains_question_spoken_during_the_check(self):
+        started, release = asyncio.Event(), asyncio.Event()
+        calls = []
+        async def slow(data):
+            calls.append(data)
+            if len(calls) == 1:
+                started.set(); await release.wait()
+                return {'text': 'Hey June.', 'durationMs': 1}
+            return {'text': 'Hey June, explain workers.', 'durationMs': 1}
+        self.turn.transcribe = slow
+        for _ in range(55): await self.packet()
+        await started.wait()
+        for _ in range(45): await self.packet()
+        release.set(); await self.turn.flush()
+        for _ in range(80): await self.packet(False)
+        await self.turn.flush()
+        self.assertEqual([e['text'] for e in self.events if e['type'] == 'transcript'], ['explain workers.'])
+
+    async def test_wake_only_can_interrupt_before_first_spoken_sentence(self):
+        self.turn.phase = 'generating'; self.turn.playback.clear(); self.turn.spoken = ''
+        self.result = 'Hey June.'
+        for _ in range(15): await self.packet()
+        for _ in range(55): await self.packet(False)
+        await self.turn.flush()
+        self.assertEqual(self.turn.number, 2)
+        self.assertEqual(self.turn.phase, 'listening')
+
+    async def test_contextual_followup_question_is_not_echo(self):
+        self.result = 'How does a graphics card render pictures?'
+        await self.turn.activity(1, 'complete')
+        for _ in range(35): await self.packet()
+        for _ in range(80): await self.packet(False)
+        await self.turn.flush()
+        self.assertEqual([e['text'] for e in self.events if e['type'] == 'transcript'], ['How does a graphics card render pictures?'])
+
+    async def test_clipped_echo_with_an_asr_word_error_is_not_a_question(self):
+        self.result = 'Eating the page.'
+        await self.turn.activity(1, 'speaking', 'It allows tasks such as fetching data from a server, updating the page, or managing user sessions.')
+        for _ in range(65): await self.packet()
+        await self.turn.flush()
+        self.assertFalse(any(e['type'] in ('interrupt', 'transcript') for e in self.events))
+
+    async def test_real_playback_state_updates_while_quiet_verification_runs(self):
+        self.turn.phase = 'generating'
+        for _ in range(15): await self.packet()
+        await self.turn.activity(1, 'speaking', 'A graphics card helps render pictures.')
+        self.assertEqual(self.turn.phase, 'speaking')
+        await self.turn.activity(1, 'complete')
+        self.assertEqual(self.turn.phase, 'followup')
+        self.assertIsNotNone(self.turn.probe)
+
+    async def test_echo_fuzziness_never_drops_a_corrected_number(self):
+        self.assertFalse(self.turn.is_playback_echo('The code is 5060.', 'The code is 3060.'))
+        self.assertFalse(self.turn.is_playback_echo('The RTX 5070 Ti.', 'The RTX 5070.'))
+
+    async def test_echo_prefix_is_removed_from_the_real_interruption(self):
+        self.result = 'A graphics card helps render pictures. Wait, keep it short.'
+        for _ in range(65): await self.packet()
+        for _ in range(80): await self.packet(False)
+        await self.turn.flush()
+        self.assertEqual([e['text'] for e in self.events if e['type'] == 'transcript'], ['Wait, keep it short.'])
+
+    async def test_echo_prefix_is_removed_from_a_followup_question(self):
+        self.result = 'A graphics card helps render pictures. How about you explain workers?'
+        await self.turn.activity(1, 'complete')
+        for _ in range(35): await self.packet()
+        for _ in range(80): await self.packet(False)
+        await self.turn.flush()
+        self.assertEqual([e['text'] for e in self.events if e['type'] == 'transcript'], ['How about you explain workers?'])

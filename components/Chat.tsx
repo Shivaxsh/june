@@ -291,7 +291,7 @@ export default function Chat() {
   const automatic = handsFree.state.phase;
   const orb = handsFree.active ? {
     mood: handsFree.state.probing ? "listening" as const : voiceActivity.speaking ? "speaking" as const : ["listening", "followup"].includes(automatic) ? "listening" as const : ["generating", "transcribing", "connecting"].includes(automatic) ? "thinking" as const : "idle" as const,
-    label: handsFree.state.probing ? "Checking your interruption · voice paused" : voiceActivity.speaking ? "June is speaking · speak to interrupt" : handsFreeLabels[automatic],
+    label: handsFree.state.probing ? "Checking microphone sound · voice paused" : voiceActivity.speaking ? "June is speaking · speak to interrupt" : handsFreeLabels[automatic],
   } : resolveOrb(busy, mode === "demo", preview, audio.phase, voiceActivity);
   const stopAll = () => { handsFree.stop(); interrupt(); voice.cancel(); audio.stop(); setAnnouncement("Stopped. Microphone off; ready for another message."); };
   function useTranscript(text: string) {

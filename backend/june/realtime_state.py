@@ -42,6 +42,9 @@ class VoiceTurn:
         self.probe_cooldown = 0.
         self.probe_job = None
         self.spoken = ''
+        self.playback = []
+        self.audio_time = 0.
+        self.echo_check = False
 
     async def clear_probe(self, resume=True):
         number = self.number
@@ -54,26 +57,28 @@ class VoiceTurn:
             with suppress(asyncio.CancelledError, Exception):
                 await job
         if probe and resume:
-            await self.emit({'type': 'resume', 'turn': number, 'probe': probe['id']})
+            if not self.closed and self.number == number:
+                # Completion may arrive while the voice is held. Do not lose
+                # it, or leave a completed reply labelled as still speaking.
+                await self.activity(number, probe['activity'])
 
     async def probe_paused(self, number, probe):
         if number == self.number and self.probe and self.probe['id'] == probe and self.probe['paused'] is None:
-            self.probe['paused'] = self.clock()
+            self.probe['paused'] = self.audio_time
 
     async def probe_cancelled(self, number, probe):
         if number == self.number and self.probe and self.probe['id'] == probe:
             await self.clear_probe()
-            if not self.closed and number == self.number:
-                await self.state('generating')
 
     async def interrupt(self):
-        # Short pre-roll keeps the user's first word, but not two seconds of
-        # June's previous answer. The browser invalidates its request first.
-        seconds = (self.clock() - self.probe['started'] + .12) if self.probe else self.interrupt_voiced
+        # The owned candidate retains the user's first word during decoding.
+        # The browser invalidates its request on confirmed interruption.
+        probe = self.probe
+        seconds = self.interrupt_voiced
         # Quantise to whole PCM16 samples; wall-clock jitter can produce an odd
         # byte count, which would shift every sample and invalidate the WAV.
         size = min(len(self.preroll), int((seconds + .2) * 16000) * 2)
-        clip = bytes(self.preroll[-size:])
+        clip = bytes(probe['audio']) if probe else bytes(self.preroll[-size:])
         self.number += 1
         number = self.number
         await self.emit({'type': 'interrupt', 'turn': number})
@@ -84,34 +89,59 @@ class VoiceTurn:
         self.buffer = bytearray(clip)
         self.reset_pending()
         self.minimum_voiced = .24
-        self.voiced, self.silence = .24, 0.
+        self.voiced, self.silence = .24, probe['silence'] if probe else 0.
+        self.echo_check = True
         self.deadline = self.clock() + 10
         self.question_deadline = None
         await self.state('listening')
 
-    def is_new_short_speech(self, text, reference):
+    def is_playback_echo(self, text, reference):
         words = re.findall(r'[a-z0-9]+', clean_transcript(text).lower())
         spoken = re.findall(r'[a-z0-9]+', clean_transcript(reference).lower())
-        if not words or len(words) > 16:
-            return False
-        if spoken:
-            matching = sum(block.size for block in SequenceMatcher(None, words, spoken, autojunk=False).get_matching_blocks())
-            if matching / len(words) >= .7:
+        if words and spoken:
+            if any((word.isdigit() or word in {'ti', 'super', 'xt', 'xtx'}) and word not in spoken for word in words):
                 return False
-        controls = {'wait', 'stop', 'pause', 'hold', 'no', 'actually', 'sorry', 'okay', 'ok', 'why', 'how'}
-        # With no playback reference, accept only explicit controls or a number;
-        # otherwise a partial word from a speaker echo is too ambiguous.
-        if not spoken or len(words) == 1:
-            return bool(controls.intersection(words)) or any(word.isdigit() for word in words)
-        return True
+            # Common words alone are not echo. Preserve a newly phrased
+            # question/correction about the subject June just discussed.
+            openings = {'how', 'what', 'why', 'where', 'when', 'which', 'can', 'could', 'does', 'do', 'did', 'is', 'are', 'wait', 'stop', 'actually', 'no'}
+            prefix = words[:2]
+            if words[0] in openings and not any(spoken[i:i + len(prefix)] == prefix for i in range(len(spoken))):
+                return False
+            matcher = SequenceMatcher(None, words, spoken, autojunk=False)
+            if matcher.find_longest_match().size / len(words) >= .85:
+                return True
+            # Clipped native speech can become "Eating the page" for
+            # "updating the page". Compare local phrases, not global overlap.
+            if 3 <= len(words) <= 16:
+                phrase = ' '.join(words)
+                for size in (len(words) - 1, len(words), len(words) + 1):
+                    for start in range(len(spoken) - size + 1):
+                        window = spoken[start:start + size]
+                        shared = SequenceMatcher(None, words, window, autojunk=False).find_longest_match().size
+                        if shared / len(words) >= .5 and SequenceMatcher(None, phrase, ' '.join(window), autojunk=False).ratio() >= .8:
+                            return True
+        return False
+
+    def without_playback_prefix(self, text, reference):
+        # Overlapping native output can precede a real question in the mic
+        # recording. Trim only a substantial, verbatim leading playback span;
+        # preserve the original spelling/case of the user's remaining words.
+        matches = list(re.finditer(r'[a-z0-9]+', text, re.I))
+        words = [match.group().lower() for match in matches]
+        spoken = re.findall(r'[a-z0-9]+', clean_transcript(reference).lower())
+        for block in SequenceMatcher(None, words, spoken, autojunk=False).get_matching_blocks():
+            if block.a == 0 and 4 <= block.size < len(words):
+                return text[matches[block.size].start():].strip()
+        return text
 
     async def check_short_probe(self):
         probe, number = self.probe, self.number
         if not probe or probe.get('checking'):
             return
         probe['checking'] = True
-        size = min(len(self.preroll), int((self.clock() - probe['started'] + .32) * 16000) * 2)
-        clip = pcm_wav(bytes(self.preroll[-size:]))
+        probe['checks'] = probe.get('checks', 0) + 1
+        clip = pcm_wav(bytes(probe['audio']))
+        probe['tail_voiced'] = 0.
 
         async def verify():
             try:
@@ -120,8 +150,31 @@ class VoiceTurn:
                 result = await asyncio.wait_for(self.transcribe(clip), 8)
                 if self.closed or number != self.number or self.probe is not probe:
                     return
-                text = remove_wake_phrase(clean_transcript(result['text']))
-                if self.is_new_short_speech(text, probe['spoken']):
+                raw = clean_transcript(result['text'])
+                text = self.without_playback_prefix(remove_wake_phrase(raw), probe['spoken'])
+                wake_only = bool(raw and not text and not self.is_playback_echo(raw, probe['spoken']))
+                if wake_only:
+                    await self.interrupt()
+                    if not self.closed and self.number == number + 1 and probe['tail_voiced'] < .08:
+                        self.buffer.clear(); self.preroll.clear(); self.preroll_voice.clear()
+                        self.minimum_voiced = .5
+                        self.voiced = self.silence = 0.
+                        self.echo_check = False
+                    return
+                # Before the first spoken sentence there is no echo reference.
+                # A real multiword question can still interrupt generation.
+                no_playback_question = not probe['spoken'] and len(re.findall(r'[a-z0-9]+', text.lower())) >= 2
+                controls = {'wait', 'stop', 'pause', 'hold', 'no', 'actually', 'sorry', 'okay', 'ok', 'why', 'how', 'what'}
+                words = re.findall(r'[a-z0-9]+', text.lower())
+                explicit = bool(controls.intersection(words)) or any(word.isdigit() for word in words)
+                acoustic_evidence = probe['clean_voiced'] + 1e-6 >= .18 or explicit or no_playback_question
+                if acoustic_evidence and words and not self.is_playback_echo(text, probe['spoken']):
+                    if probe['tail_voiced'] >= .08 or probe['silence'] < .3:
+                        # Speech continued while Whisper checked the prefix.
+                        # Keep the entire bounded capture, including its start,
+                        # and finish transcribing at the normal silence boundary.
+                        await self.interrupt()
+                        return
                     accepted = number + 1
                     self.number = accepted
                     await self.emit({'type': 'interrupt', 'turn': accepted})
@@ -140,8 +193,15 @@ class VoiceTurn:
             except (JuneError, TimeoutError, ValueError, KeyError, TypeError):
                 pass
             if not self.closed and number == self.number and self.probe is probe:
+                if probe['tail_voiced'] >= .08 and probe['checks'] < 3 and len(probe['audio']) < 960000:
+                    # The first clip was noise/echo, but a person started talking
+                    # during its decoder job. Check the retained question before
+                    # releasing the hold. Bound repeated decoding under noise.
+                    probe['checking'] = False
+                    await self.check_short_probe()
+                    return
                 await self.clear_probe()
-                self.probe_cooldown = self.clock() + .4
+                self.probe_cooldown = self.audio_time + (0. if probe['tail_voiced'] >= .08 else 1.)
         async def owned():
             try:
                 await verify()
@@ -152,23 +212,31 @@ class VoiceTurn:
 
     async def consider_interruption(self, voiced, duration, now):
         if self.probe:
-            paused = self.probe['paused']
-            # Let speaker output and the detector's short history settle after
-            # the browser acknowledges pausing. Continued speech is barge-in.
-            if paused is not None and now - paused >= .25:
-                self.probe['voiced'] = self.probe['voiced'] + duration if voiced else 0.
-                if self.probe['voiced'] + 1e-6 >= .18:
-                    await self.interrupt()
-                elif now - paused >= .8:
+            probe = self.probe
+            paused = probe['paused']
+            # Count actual audio, not CPU/wall-clock delay. VAD alone cannot
+            # confirm a turn: fans and speaker tails can stay classified voiced.
+            probe['silence'] = 0. if voiced else probe['silence'] + duration
+            if paused is not None and self.audio_time - paused >= .25 and voiced:
+                probe['clean_voiced'] += duration
+            if probe.get('checking') and voiced:
+                probe['tail_voiced'] += duration
+            if paused is not None and self.audio_time - paused + 1e-6 >= .8:
+                if not probe.get('checking'):
                     await self.check_short_probe()
             return
         self.interrupt_voiced = self.interrupt_voiced + duration if voiced else 0.
-        if self.phase == 'generating' and self.interrupt_voiced + 1e-6 >= .24:
-            await self.interrupt()
-        elif self.phase == 'speaking' and now >= self.probe_cooldown and self.interrupt_voiced + 1e-6 >= .12:
+        threshold = .12 if self.phase == 'speaking' else .24
+        if self.audio_time >= self.probe_cooldown and self.interrupt_voiced + 1e-6 >= threshold:
             self.probe_number += 1
-            self.probe = {'id': self.probe_number, 'started': now, 'paused': None, 'voiced': 0., 'spoken': self.spoken}
-            await self.emit({'type': 'probe', 'turn': self.number, 'probe': self.probe_number})
+            size = int((self.interrupt_voiced + .2) * 16000) * 2
+            # Verify the words while playback continues. Pausing on VAD alone
+            # made speaker echo repeatedly break speech into tiny fragments.
+            self.probe = {'id': self.probe_number, 'started': now, 'paused': self.audio_time,
+                          'spoken': ' '.join(self.playback) or self.spoken,
+                          'audio': bytearray(self.preroll[-size:]), 'silence': 0.,
+                          'clean_voiced': 0.,
+                          'activity': self.phase}
 
     def reset_pending(self):
         # Only provisional audio while identifying a wake-only utterance.
@@ -222,6 +290,7 @@ class VoiceTurn:
         if self.closed or number != self.number:
             return
         self.minimum_voiced = .5
+        self.echo_check = False
         # Notify the browser before waiting for Whisper to exit: playback and
         # model generation should stop as soon as the wake phrase is detected.
         await self.emit({'type': 'wake', 'turn': self.number})
@@ -247,16 +316,22 @@ class VoiceTurn:
             del self.preroll[:-64000]
             del self.preroll_voice[:-64000]
         now, duration = self.clock(), len(pcm) / 32000
-        if wake and now - self.last_wake >= 1.5:
+        self.audio_time += duration
+        if self.probe:
+            self.probe['audio'].extend(pcm[:max(0, 960000 - len(self.probe['audio']))])
+        # Restricted wake recognition can mistake speaker echo for the wake
+        # phrase too. During replies it must use the same confirmation path.
+        if wake and self.phase not in ('generating', 'speaking') and now - self.last_wake >= 1.5:
             self.last_wake = now
             await self.wake()
             return
-        if self.phase in ('generating', 'speaking'):
+        if self.phase in ('generating', 'speaking') or self.probe:
             await self.consider_interruption(voiced, duration, now)
             return
         if self.phase == 'followup' and voiced:
             self.number += 1
             self.minimum_voiced = .5
+            self.echo_check = True
             self.buffer = bytearray(self.preroll[:-len(pcm)])
             self.voiced = self.silence = 0.
             self.deadline = now + 10
@@ -303,6 +378,13 @@ class VoiceTurn:
                 if self.closed or number != self.number:
                     return
                 text = remove_wake_phrase(clean_transcript(result['text']))
+                if self.echo_check:
+                    text = self.without_playback_prefix(text, ' '.join(self.playback))
+                if self.echo_check and self.playback and text and self.is_playback_echo(text, ' '.join(self.playback)):
+                    self.echo_check = False
+                    self.deadline = self.clock() + 30
+                    await self.state('followup')
+                    return
                 if not text:
                     if result['text'].strip() and self.question_deadline is not None and (self.pending_started is not None or self.clock() < self.question_deadline):
                         # A wake phrase can be a separate utterance. Keep its
@@ -351,11 +433,26 @@ class VoiceTurn:
         elif self.phase in ('generating', 'speaking'):
             if phase == 'speaking' and spoken:
                 self.spoken = spoken[:4000]
+                if not self.playback or self.playback[-1] != self.spoken:
+                    self.playback.append(self.spoken)
+                    while len(self.playback) > 6 or len(' '.join(self.playback)) > 8000:
+                        self.playback.pop(0)
+            if self.probe and phase in ('generating', 'speaking', 'complete'):
+                self.probe['activity'] = phase
+                self.probe['spoken'] = ' '.join(self.playback) or self.spoken
+                if phase == 'complete':
+                    self.deadline = self.clock() + 30
+                    await self.state('followup')
+                else:
+                    await self.state(phase)
+                return
             if phase in ('generating', 'speaking'):
                 # A streamed sentence may end during a pause probe. Generation
                 # feedback must not release the held queue before validation.
                 if self.probe:
                     return
+                if phase != self.phase:
+                    self.interrupt_voiced = 0.
                 await self.state(phase)
             elif phase == 'complete':
                 await self.clear_probe()
@@ -383,9 +480,12 @@ class VoiceTurn:
                 await self.state('waiting')
 
     async def flush(self):
-        if self.probe_job is not None:
+        while self.probe_job is not None:
+            job = self.probe_job
             with suppress(asyncio.CancelledError):
-                await self.probe_job
+                await job
+            if self.probe_job is job:
+                break
         while self.job is not None:
             job = self.job
             await job
@@ -401,3 +501,4 @@ class VoiceTurn:
         self.preroll.clear()
         self.preroll_voice.clear()
         self.reset_pending()
+        self.playback.clear()
