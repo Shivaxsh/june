@@ -387,7 +387,7 @@ The step that makes people say “wait, that's real?”. No buttons: you speak f
 
 ## Phase 6 — Memory and personality
 
-This is where June becomes someone instead of something. Use the personality workshop on this page as your starting point.
+Give June a consistent style and user-controlled application memory. Use the workshop as a starting point; this does not train the model.
 
 ### Learn and practise — same order as the artifact
 
@@ -411,31 +411,31 @@ This is where June becomes someone instead of something. Use the personality wor
 
 #### 6.4 Conversation memory
 
-**Learn:** saving chats in a database (Postgres on Supabase).
+**Learn:** private SQLite chats on this Mac for 30 days; hosted Postgres/Supabase is optional later.
 
-**Practice:** Save conversation history with explicit identifiers and a retention choice. Learn the database concepts in the listed topic; start locally if a hosted database is unnecessary.
+**Practice:** Use Python SQLite outside Git with private permissions, versioned migrations and chat/turn identifiers. Reopen and search chats; New chat preserves history. Test expiry 30 days after last activity. Hosted Postgres/Supabase is optional later.
 
 #### 6.5 Long-term memory
 
-**Learn:** June picks out facts worth remembering about you and brings them up later.
+**Learn:** June suggests facts with exact supporting quotes; only approved facts inform later chats.
 
-**Practice:** Let June propose a useful fact for review, then use only an approved fact in a new conversation. Do not automatically promote every chat message to lasting memory.
+**Practice:** Let the local model suggest up to three facts with exact user quotations; approve, edit or reject them. Reject secrets, fiction and inferences. Recall approved facts after New chat and restart; inspect which memories informed the reply.
 
 #### 6.6 Emotion in voice
 
 **Learn:** adjusting her voice's speed, warmth and emphasis to match her mood.
 
-**Practice:** Adjust voice pace and orb mood for a chosen conversational state. Keep the voice understandable and label limitations of your current speech engine.
+**Practice:** Compare steady (0.98), calm (0.92) and bright (1.04) speech rates at ordinary pitch, with restrained idle glow/breathing. Actual listening/thinking/speaking takes priority; Still view stays static. Evaluate style on fixed examples.
 
 #### 6.7 Memory controls
 
 **Learn:** ask before saving a fact; let the user review, correct, export and delete it.
 
-**Practice:** Build Save, Review, Edit, Delete and Export. Decline one proposed fact, save another, recall it after reload, edit it and finally delete it. Confirm deletion also removes it from the next model context.
+**Practice:** Build approval, manual add, deduplication, conflict review, edit/delete and validated JSON import/export. Export chats only by choice. Memory edits/deletions cancel generation and speech across tabs and reset inference context, while source chats remain visible until separately deleted or expired. Handle database failure with an explicit temporary-chat choice.
 
 ### Build — June v0.5
 
-**Artifact project:** June remembers you between conversations, stays in character every time, and her orb and voice change with her mood.
+**Artifact project:** Review and approve suggested facts, recall them after New chat and restart, and manage a ten-field personality. Chats expire after 30 days; approved memories persist. Voice expression is a preference, not a guarantee of model consistency.
 
 **Your exercise:** Use the personality workshop to personalise June and add approved persistent memory separately from chat history.
 
@@ -445,7 +445,8 @@ This is where June becomes someone instead of something. Use the personality wor
 
 - [Anthropic: interactive prompt engineering tutorial](https://github.com/anthropics/prompt-eng-interactive-tutorial)
 - [Claude API docs](https://docs.claude.com/)
-- [Supabase docs](https://supabase.com/docs)
+- [Python SQLite documentation](https://docs.python.org/3/library/sqlite3.html)
+- [Supabase docs (optional later)](https://supabase.com/docs)
 - [DeepLearning.AI short courses](https://www.deeplearning.ai/short-courses/)
 
 <a id="phase-7"></a>

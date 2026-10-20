@@ -272,3 +272,38 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--inset); 
   .handsfree-actions button { min-height: 44px; }
   .handsfree-readout { gap: 4px; }
 }
+
+/* Phase 6: the library is part of the conversation, with explicit save controls. */
+.library { margin: 8px 0 24px; }
+.library-nav, .library-actions, .library-heading { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.library-nav { padding: 12px 0; border-block:1px solid var(--line); }
+.library-nav [aria-expanded="true"] { color:var(--accent); border-color:var(--accent); background:var(--panel); }
+.storage-label { color:var(--muted); font-size:11px; line-height:1.6; margin-left:auto; }
+.library-body { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:24px; margin-top:12px; }
+.library-heading { justify-content:space-between; align-items:flex-start; }
+.library-heading h2 { font-size:32px; margin:4px 0 16px; }
+.library-body h3 { font-size:15px; margin-top:25px; }
+.library-body p, .library-body label, .library-body dd { font-size:13px; line-height:1.75; overflow-wrap:anywhere; }
+.library-body p, .library-body small { color:var(--muted); }
+.library-body label { display:block; margin:12px 0; }
+.library-body textarea, .library-body input:not([type="checkbox"]), .library-body select { display:block; width:100%; background:var(--raised); border:1px solid var(--line-strong); border-radius:7px; padding:10px; color:var(--text); margin:6px 0; font:inherit; max-width:100%; }
+.library-body textarea { max-height:250px; }
+.library-body .check-line { display:flex; gap:8px; align-items:center; }
+.check-line input { accent-color:var(--accent); }
+.memory-card, .saved-chat { padding:16px; margin:12px 0; background:var(--raised); border:1px solid var(--line); border-radius:9px; }
+.memory-card > p { color:var(--text); margin-top:0; white-space:pre-wrap; }
+.memory-card blockquote { margin:8px 0; padding-left:12px; border-left:2px solid var(--accent); white-space:pre-wrap; font-size:12px; color:var(--muted); }
+.memory-card small { display:block; margin-bottom:12px; }
+.count { font-size:10px; color:var(--accent); margin-left:6px; }
+.chat-open { display:block; padding:0; text-align:left; border:0; background:none; color:var(--text); width:100%; margin-bottom:12px; overflow-wrap:anywhere; }
+.chat-open[aria-current] strong { color:var(--accent); }
+.chat-open small { display:block; margin-top:8px; font-size:11px; }
+.profile-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px 20px; }
+.library-transfer { margin-top:26px; border-top:1px solid var(--line); padding-top:18px; }
+.library-transfer summary, .used-memories summary { cursor:pointer; color:var(--muted); font-size:12px; }
+.import-preview { margin:16px 0; padding:16px; border:1px solid var(--accent); border-radius:8px; }
+.import-preview dt { font-size:12px; font-weight:600; }
+.import-preview dd { margin:4px 0 12px; white-space:pre-wrap; }
+.used-memories { margin:12px 0; }
+.used-memories p { font-size:12px; color:var(--muted); white-space:pre-wrap; }
+@media(max-width:600px) { .profile-grid { grid-template-columns:1fr; } .library-body { padding:16px; } .library-heading h2 { font-size:26px; } .storage-label { margin-left:0; width:100%; } .library-actions button { white-space:normal; text-align:left; } }

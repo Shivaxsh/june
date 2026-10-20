@@ -136,6 +136,11 @@ class Streaming(unittest.IsolatedAsyncioTestCase):
 
 class HttpContracts(unittest.TestCase):
     def setUp(self):
+        self.data_directory = tempfile.TemporaryDirectory()
+        self.data_environment = patch.dict(os.environ, {'JUNE_DATA_HOME': self.data_directory.name})
+        self.data_environment.start()
+        self.addCleanup(self.data_directory.cleanup)
+        self.addCleanup(self.data_environment.stop)
         self.context = TestClient(app, base_url='http://127.0.0.1:8001')
         self.client = self.context.__enter__()
 

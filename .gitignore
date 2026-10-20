@@ -10,3 +10,8 @@ backend/.venv/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+# Defense in depth: June's private database belongs outside this repository.
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*

@@ -4,7 +4,7 @@ import type { Mood } from "@/lib/orb/state";
 import type { Level } from "@/lib/orb/audio-controller";
 import { createOrbRenderer } from "@/lib/orb/renderer";
 
-export default function Orb({ mood, label, level, still = false, activity, speechActive = false }: { mood: Mood; label: string; level: Level; still?: boolean; activity?: Level; speechActive?: boolean }) {
+export default function Orb({ mood, label, level, still = false, activity, speechActive = false, expression = "steady" }: { mood: Mood; label: string; level: Level; still?: boolean; activity?: Level; speechActive?: boolean; expression?: "steady" | "calm" | "bright" }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const meter = useRef<HTMLMeterElement>(null);
   const reading = useRef<HTMLSpanElement>(null);
@@ -13,12 +13,12 @@ export default function Orb({ mood, label, level, still = false, activity, speec
   const [available, setAvailable] = useState(true);
   const [systemStill, setSystemStill] = useState(false);
   const reduced = still || systemStill;
-  const inputs = useRef({ mood, label, level, activity, speechActive, reduced });
+  const inputs = useRef({ mood, label, level, activity, speechActive, reduced, expression });
 
   useEffect(() => {
-    inputs.current = { mood, label, level, activity, speechActive, reduced };
+    inputs.current = { mood, label, level, activity, speechActive, reduced, expression };
     renderer.current?.invalidate();
-  }, [mood, label, level, activity, speechActive, reduced]);
+  }, [mood, label, level, activity, speechActive, reduced, expression]);
   useEffect(() => {
     const media = matchMedia("(prefers-reduced-motion: reduce)");
     const changed = () => setSystemStill(media.matches);
@@ -31,7 +31,7 @@ export default function Orb({ mood, label, level, still = false, activity, speec
     const instance = createOrbRenderer(canvas.current, () => {
       const input = inputs.current;
       return {
-        mood: input.mood, level: input.level.current, activity: input.activity?.current || 0,
+        expression: input.expression, mood: input.mood, level: input.level.current, activity: input.activity?.current || 0,
         speechActive: input.speechActive, reduced: input.reduced,
         preview: input.label.includes("visual preview"),
       };

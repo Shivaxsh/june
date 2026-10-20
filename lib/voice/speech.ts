@@ -6,6 +6,8 @@ export class SpeechController {
   private synth: SpeechSynthesis;
   private Utterance: typeof SpeechSynthesisUtterance;
   private notify: (state: SpeechState) => void;
+  private rate = .98;
+  setRate(rate: number) { this.rate = [.98,.92,1.04].includes(rate) ? rate : .98; }
   private token = 0;
   private streamId: number | null = null;
   private buffer = new SentenceBuffer();
@@ -99,7 +101,7 @@ export class SpeechController {
     try {
       const utterance = new this.Utterance(text); this.utterance = utterance;
       utterance.voice = this.voice || null; utterance.lang = this.voice?.lang || "en-US";
-      utterance.rate = .98; utterance.pitch = 1;
+      utterance.rate = this.rate; utterance.pitch = 1;
       let began = false, boundaries = false, index = 0;
       const words = [...text.matchAll(/\S+/g)];
       utterance.onstart = () => {

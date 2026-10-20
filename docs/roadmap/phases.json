@@ -349,7 +349,7 @@
     "title": "Memory and personality",
     "weeks": "4 weeks",
     "jarvis": true,
-    "why": "This is where June becomes someone instead of something. Use the personality workshop on this page as your starting point.",
+    "why": "Give June a consistent style and user-controlled application memory. Use the workshop as a starting point; this does not train the model.",
     "learn": [
       [
         "Prompt engineering",
@@ -365,11 +365,11 @@
       ],
       [
         "Conversation memory",
-        "saving chats in a database (Postgres on Supabase)"
+        "private SQLite chats on this Mac for 30 days; hosted Postgres/Supabase is optional later"
       ],
       [
         "Long-term memory",
-        "June picks out facts worth remembering about you and brings them up later"
+        "June suggests facts with exact supporting quotes; only approved facts inform later chats"
       ],
       [
         "Emotion in voice",
@@ -382,7 +382,7 @@
     ],
     "build": [
       "June v0.5",
-      "June remembers you between conversations, stays in character every time, and her orb and voice change with her mood."
+      "Review and approve suggested facts, recall them after New chat and restart, and manage a ten-field personality. Chats expire after 30 days; approved memories persist. Voice expression is a preference, not a guarantee of model consistency."
     ],
     "extra": "workshoplink",
     "res": [
@@ -395,7 +395,11 @@
         "https://docs.claude.com/"
       ],
       [
-        "Supabase docs",
+        "Python SQLite documentation",
+        "https://docs.python.org/3/library/sqlite3.html"
+      ],
+      [
+        "Supabase docs (optional later)",
         "https://supabase.com/docs"
       ],
       [

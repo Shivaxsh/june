@@ -7,7 +7,7 @@ import { resolve, join } from 'node:path';
 export const root = fileURLToPath(new URL('../', import.meta.url));
 if (existsSync(join(root, '.env.local'))) process.loadEnvFile(join(root, '.env.local'));
 export const python = join(root, 'backend/.venv/bin/python');
-export const version = '0.4.0';
+export const version = '0.5.0';
 
 export function address() {
   const url = new URL(process.env.JUNE_BACKEND_URL || 'http://127.0.0.1:8001');

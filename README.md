@@ -1,6 +1,8 @@
-# June v0.4
+# June v0.5
 
 A personal assistant, built one phase at a time. June combines a Python backend, local streamed text chat, a Canvas particle orb, local Whisper speech recognition and a local female speaking voice.
+
+**Phase 6:** [Memory and personality walkthrough](docs/phase-6.md) · [learning studio](http://127.0.0.1:3001/learn/phase-6). Private SQLite history (30 days), approved facts, editable character profile and reviewed JSON import/export. This is application memory, not model training.
 
 **Phase 5:** [Hands-free walkthrough](docs/phase-5.md) · [learning studio](http://127.0.0.1:3001/learn/phase-5). Explicit microphone enablement, local “Hey June” activation, natural speech interruption, automatic question sending and 30-second follow-ups. [Voice repair notes](docs/voice-interruption-repair.md). Run `npm run realtime:setup` once; microphone conversation verification remains a separate completion gate.
 
@@ -8,7 +10,7 @@ A personal assistant, built one phase at a time. June combines a Python backend,
 
 **Open locally:** <http://127.0.0.1:3001>
 
-Qwen2.5 1.5B is an existing pretrained model running through Ollama on your Intel Mac's CPU. This phase builds the assistant around it; it does not train a new model. The browser voice interface is now available; saved memory and computer actions follow later phases.
+Qwen2.5 1.5B is an existing pretrained model running through Ollama on your Intel Mac's CPU. This phase builds the assistant around it; it does not train a new model. Memory and personality are available locally with approval controls. Computer/account actions follow later phases.
 
 ## Start and stop June
 

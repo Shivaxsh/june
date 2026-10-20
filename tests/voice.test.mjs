@@ -208,3 +208,12 @@ test('length-limited speech keeps a complete terminal sentence but discards its 
     } finally {controller.dispose();}
   }
 });
+test('expression changes the next sentence rate while ordinary pitch stays fixed',()=>{
+ const {controller,utterances}=speechEnvironment();
+ try {
+  controller.setRate(.92);controller.begin(1,samantha,true);controller.push(1,'Hello. Tail');
+  assert.equal(utterances[0].rate,.92);assert.equal(utterances[0].pitch,1);
+  controller.stop();controller.setRate(9);controller.begin(2,samantha,true);controller.push(2,'Hello. Tail');
+  assert.equal(utterances[1].rate,.98);
+ }finally{controller.dispose();}
+});

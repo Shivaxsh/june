@@ -10,6 +10,9 @@ import httpx
 from starlette.requests import ClientDisconnect
 
 from .chat import model_status, stream_chat, validate_chat
+from .memory import Store
+from .memory_service import Coordinator, persisted_chat
+from .memory_api import router as memory_router
 from .config import Settings, VERSION
 from .errors import JuneError
 from .speech import SpeechService, MAX_AUDIO_BYTES
@@ -20,13 +23,29 @@ from .realtime_socket import VoiceSlots, voice_socket
 @asynccontextmanager
 async def lifespan(app):
     app.state.settings = Settings.from_env()
+    app.state.coordinator = Coordinator()
+    try:
+        app.state.store = Store(app.state.settings.data_home)
+    except JuneError:
+        app.state.store = None
     app.state.speech = SpeechService(app.state.settings)
     app.state.voice_assets = RealtimeAssets(app.state.settings)
     app.state.voice_slots = VoiceSlots()
     async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=5), trust_env=False,
                                  limits=httpx.Limits(max_connections=6, max_keepalive_connections=3)) as client:
         app.state.client = client
-        yield
+        async def sweep():
+            while True:
+                await asyncio.sleep(60)
+                if app.state.store:
+                    try: app.state.store.cleanup()
+                    except JuneError: pass  # Next access exposes the failure; no data is claimed saved.
+        sweeper=asyncio.create_task(sweep())
+        try: yield
+        finally:
+            sweeper.cancel()
+            await app.state.coordinator.cancel()
+            with suppress(asyncio.CancelledError):await sweeper
 
 
 app = FastAPI(title='June local backend', version=VERSION, lifespan=lifespan)
@@ -78,6 +97,7 @@ class LocalOnly:
 
 
 app.add_middleware(LocalOnly)
+app.include_router(memory_router)
 
 
 @app.exception_handler(JuneError)
@@ -118,7 +138,9 @@ async def chat(request: Request):
         mode, messages = validate_chat(value)
     except (ValueError, UnicodeError, RecursionError):
         raise JuneError('invalid-chat', 'The message request was not valid JSON or was too large.', 400)
-    if mode == 'local':
+    if request.app.state.store is None and value.get('temporary') is not True:
+        raise JuneError('storage','Private storage is unavailable. Retry or explicitly choose temporary chat.',503)
+    if mode == 'local' and not value.get('conversationId'):
         available = await status(request)
         if available['state'] != 'ready':
             raise JuneError('model-unavailable', available['message'])
@@ -126,9 +148,12 @@ async def chat(request: Request):
     async def events():
         # StreamingResponse cancels this iterator on disconnect. No background
         # model task is detached from its browser request.
-        async with aclosing(stream_chat(request.app.state.client, request.app.state.settings, mode, messages)) as source:
-            async for event in source:
-                yield json.dumps(event, ensure_ascii=False).encode() + b'\n'
+        try:
+            async with aclosing(persisted_chat(request.app.state.client, request.app.state.settings, request.app.state.store, request.app.state.coordinator, value, mode, messages)) as source:
+                async for event in source:
+                    yield json.dumps(event, ensure_ascii=False).encode() + b'\n'
+        except JuneError as error:
+            yield json.dumps({'type':'error','message':error.message}).encode()+b'\n'
     return CancellableStream(events(), media_type='application/x-ndjson')
 
 
@@ -154,6 +179,7 @@ async def realtime(socket: WebSocket):
     if not local_host(socket.headers.get('host', ''), settings) or socket.headers.get('origin') not in settings.web_origins:
         await socket.close(code=1008)
         return
+    await socket.app.state.coordinator.cancel('extract')
     await voice_socket(socket, socket.app.state.voice_assets, socket.app.state.voice_slots, socket.app.state.speech)
 
 
@@ -184,6 +210,7 @@ async def transcribe(request: Request):
     if request.headers.get('content-type', '').split(';')[0].strip() != 'audio/wav':
         raise JuneError('format', 'Send a WAV recording from June’s listening controls.', 415)
     try:
+        await request.app.state.coordinator.cancel('extract')
         data = await bounded_body(request, MAX_AUDIO_BYTES, True)
         return await until_disconnect(request, request.app.state.speech.transcribe(data))
     except ClientDisconnect:
@@ -204,15 +231,18 @@ async def socket_chat(socket: WebSocket):
         async with send_lock:
             await socket.send_json(event)
 
-    async def generate(mode, messages):
-        if mode == 'local':
+    async def generate(mode, messages, value):
+        if mode == 'local' and not value.get('conversationId'):
             available = await model_status(socket.app.state.client, settings)
             if available['state'] != 'ready':
                 await send({'type': 'error', 'message': available['message']})
                 return
-        async with aclosing(stream_chat(socket.app.state.client, settings, mode, messages)) as source:
-            async for event in source:
-                await send(event)
+        try:
+            async with aclosing(persisted_chat(socket.app.state.client, settings, socket.app.state.store, socket.app.state.coordinator, value, mode, messages)) as source:
+                async for event in source:
+                    await send(event)
+        except JuneError as error:
+            await send({'type':'error','message':error.message})
 
     async def stop():
         nonlocal active
@@ -245,7 +275,7 @@ async def socket_chat(socket: WebSocket):
                     await send({'type': 'error', 'message': 'A reply is already running. Stop it before starting another.'})
                     continue
                 await stop()
-                active = asyncio.create_task(generate(mode, messages))
+                active = asyncio.create_task(generate(mode, messages, value))
             except (ValueError, UnicodeError, RecursionError):
                 await send({'type': 'error', 'message': 'Send valid JSON.'})
             except JuneError as error:

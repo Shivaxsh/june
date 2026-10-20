@@ -217,7 +217,9 @@ class VoiceOrigins(unittest.TestCase):
         from fastapi.testclient import TestClient
         from starlette.websockets import WebSocketDisconnect
         from june.app import app
-        with TestClient(app, base_url='http://127.0.0.1:8001') as client:
+        import tempfile, os
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as data_directory, patch.dict(os.environ, {'JUNE_DATA_HOME': data_directory}), TestClient(app, base_url='http://127.0.0.1:8001') as client:
             for headers in ({}, {'Origin':'https://example.com'}):
                 with self.subTest(headers=headers), self.assertRaises(WebSocketDisconnect):
                     with client.websocket_connect('/ws/voice', headers=headers): pass

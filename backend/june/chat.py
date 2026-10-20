@@ -73,7 +73,7 @@ async def model_lines(response):
         yield json.loads(buffer)
 
 
-async def stream_chat(client, settings, mode, messages):
+async def stream_chat(client, settings, mode, messages, memory_context=""):
     if mode == 'demo':
         reply = 'This is a simulated practice reply, not a model answer. The same chat flow will show real replies when you select Local AI and connect Ollama. I’m June — ready to grow one phase at a time.'
         for word in reply.split(' '):
@@ -85,7 +85,7 @@ async def stream_chat(client, settings, mode, messages):
         identity = ReplyIdentityGuard(messages)
         async with asyncio.timeout(180):
             async with client.stream('POST', settings.ollama + '/api/chat', json={
-                'model': settings.model, 'messages': [{'role': 'system', 'content': prompt_for_turn(messages, identity)}, *messages],
+                'model': settings.model, 'messages': [{'role': 'system', 'content': prompt_for_turn(messages, identity) + memory_context}, *messages],
                 'stream': True, 'think': False, 'keep_alive': '5m',
                 'options': {'num_ctx': 4096, 'num_predict': 256, 'temperature': .1},
             }) as response:

@@ -3,7 +3,7 @@ import type { Mood } from "./state";
 // Ported from docs/roadmap/building-june.html. Keep seed, topology and visual constants aligned.
 export interface Cluster { name: string; col: number[]; dir: number[]; n: number }
 export interface NetworkNode { p: number[]; c: number; size: number; hub: boolean; ph: number }
-export interface OrbInput { mood: Mood; level: number; activity: number; speechActive: boolean; preview: boolean; reduced: boolean }
+export interface OrbInput { expression?: "steady" | "calm" | "bright"; mood: Mood; level: number; activity: number; speechActive: boolean; preview: boolean; reduced: boolean }
 export interface RendererHost {
   requestFrame(callback: (time: number) => void): number;
   cancelFrame(id: number): void;
@@ -132,7 +132,8 @@ export function createOrbRenderer(canvas: HTMLCanvasElement, read: () => OrbInpu
     const side = Math.min(W, H);
     const cx = W / 2, cy = H / 2, R = Math.min(side * .36, Math.max(0, side / 2 - 12) / 1.58);
     const ca = Math.cos(angle), sa = Math.sin(angle), tilt = .28, ct = Math.cos(tilt), st = Math.sin(tilt);
-    const scale = state.reduced ? 1 : 1 + Math.sin(t * 1.4) * cur.breathe + energy * .07;
+    const expression = mood === "idle" ? state.expression === "calm" ? .8 : state.expression === "bright" ? 1.15 : 1 : 1;
+    const scale = state.reduced ? 1 : 1 + Math.sin(t * 1.4 * expression) * cur.breathe * expression + energy * .07;
     const project = (x: number, y: number, z: number, out: number[]) => {
       const x1 = x * ca - z * sa, z1 = x * sa + z * ca;
       const y2 = y * ct - z1 * st, z2 = y * st + z1 * ct;
@@ -144,7 +145,7 @@ export function createOrbRenderer(canvas: HTMLCanvasElement, read: () => OrbInpu
     /* Glow behind the core */
     const core = cur.core;
     const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 1.1);
-    g.addColorStop(0, rgba(core.map(Math.round), .22 + cur.glow * .18 + energy * .15));
+    g.addColorStop(0, rgba(core.map(Math.round), .22 + cur.glow * .18 * expression + energy * .15));
     g.addColorStop(.45, rgba(core.map(Math.round), .06));
     g.addColorStop(1, "rgba(5,7,13,0)");
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);

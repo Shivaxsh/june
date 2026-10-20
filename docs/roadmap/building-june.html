@@ -691,17 +691,17 @@ const PHASES = [
   res:[["Pipecat quickstart","https://docs.pipecat.ai/getting-started/quickstart"],["LiveKit Agents","https://docs.livekit.io/agents/"],["Picovoice Porcupine (wake word)","https://picovoice.ai/docs/porcupine/"],["openWakeWord","https://github.com/dscripka/openWakeWord"],["Silero VAD","https://github.com/snakers4/silero-vad"],["OpenAI Realtime API","https://platform.openai.com/docs/guides/realtime"],["Gemini Live API","https://ai.google.dev/gemini-api/docs/live"]] },
 
 { n:6, id:"p6", title:"Memory and personality", weeks:"4 weeks", jarvis:true,
-  why:"This is where June becomes someone instead of something. Use the personality workshop on this page as your starting point.",
+  why:"Give June a consistent style and user-controlled application memory. Use the workshop as a starting point; this does not train the model.",
   learn:[
     ["Prompt engineering","writing instructions that get reliable, in-character answers"],
     ["The character bible","turning your workshop answers into June's system prompt"],
     ["Writing for speech","short spoken sentences, natural fillers like “hmm”, no lists or emoji"],
-    ["Conversation memory","saving chats in a database (Postgres on Supabase)"],
-    ["Long-term memory","June picks out facts worth remembering about you and brings them up later"],
+    ["Conversation memory","private SQLite chats on this Mac for 30 days; hosted Postgres/Supabase is optional later"],
+    ["Long-term memory","June suggests facts with exact supporting quotes; only approved facts inform later chats"],
     ["Emotion in voice","adjusting her voice's speed, warmth and emphasis to match her mood"]],
-  build:["June v0.5","June remembers you between conversations, stays in character every time, and her orb and voice change with her mood."],
+  build:["June v0.5","Review and approve suggested facts, recall them after New chat and restart, and manage a ten-field personality. Chats expire after 30 days; approved memories persist. Voice expression is a preference, not a guarantee of model consistency."],
   extra:"workshoplink",
-  res:[["Anthropic: interactive prompt engineering tutorial","https://github.com/anthropics/prompt-eng-interactive-tutorial"],["Claude API docs","https://docs.claude.com/"],["Supabase docs","https://supabase.com/docs"],["DeepLearning.AI short courses","https://www.deeplearning.ai/short-courses/"]] },
+  res:[["Anthropic: interactive prompt engineering tutorial","https://github.com/anthropics/prompt-eng-interactive-tutorial"],["Claude API docs","https://docs.claude.com/"],["Python SQLite documentation","https://docs.python.org/3/library/sqlite3.html"],["Supabase docs (optional later)","https://supabase.com/docs"],["DeepLearning.AI short courses","https://www.deeplearning.ai/short-courses/"]] },
 
 { n:7, id:"p7", title:"RAG: giving June knowledge", weeks:"4 weeks",
   why:"RAG means “look it up, then answer”. June searches your notes and documents first, then answers from what she found. You add knowledge without retraining anything.",

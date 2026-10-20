@@ -4,7 +4,7 @@ from pathlib import Path
 import os
 from urllib.parse import urlsplit
 
-VERSION = '0.4.0'
+VERSION = '0.5.0'
 
 
 def local_url(value: str) -> str:
@@ -35,6 +35,10 @@ class Settings:
             Path(os.environ.get('JUNE_SPEECH_HOME', str(Path.home() / 'Library/Application Support/June/speech'))).expanduser(),
             local_url(os.environ.get('JUNE_BACKEND_URL', 'http://127.0.0.1:8001')),
         )
+
+    @property
+    def data_home(self):
+        return Path(os.environ.get('JUNE_DATA_HOME', str(Path.home() / 'Library/Application Support/June/data'))).expanduser()
 
     @property
     def web_origins(self):

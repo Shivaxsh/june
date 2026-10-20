@@ -1,5 +1,5 @@
 // Next.js is a small same-origin bridge. AI processing lives in Python.
-type Kind = "chat" | "model-status" | "speech" | "speech-status" | "health";
+type Kind = "chat" | "model-status" | "speech" | "speech-status" | "health" | "library";
 
 export function backendURL() {
   const url = new URL(process.env.JUNE_BACKEND_URL || "http://127.0.0.1:8001");
@@ -41,11 +41,11 @@ export async function proxyBackend(request: Request, path: string, kind: Kind) {
   const cleanup = () => { clearTimeout(timer); request.signal.removeEventListener("abort", abort); };
   try {
     let body: Uint8Array | undefined;
-    if (request.method === "POST") {
+    if (["POST", "PUT", "PATCH"].includes(request.method)) {
       if (kind === "speech" && request.headers.get("content-type")?.split(";")[0].trim() !== "audio/wav") {
         cleanup(); return failure(kind, "Send a WAV recording from June’s listening controls.", 415, "format");
       }
-      const limit = kind === "speech" ? 1048576 : 32000;
+      const limit = kind === "speech" ? 1048576 : kind === "library" ? 2097152 : 32000;
       const declared = request.headers.get("content-length");
       if (declared && (!/^\d+$/.test(declared) || Number(declared) > limit)) {
         cleanup(); return failure(kind, "The request is too large or has an invalid size.", kind === "speech" ? 413 : 400, "too-large");
@@ -69,7 +69,7 @@ export async function proxyBackend(request: Request, path: string, kind: Kind) {
       body = new Uint8Array(size); let offset = 0;
       for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
     }
-    timer = setTimeout(abort, kind === "chat" ? 185000 : kind === "speech" ? 130000 : 8000);
+    timer = setTimeout(abort, kind === "chat" ? 185000 : kind === "speech" ? 130000 : kind === "library" ? 35000 : 8000);
     const upstream = await fetch(backendURL() + path, {
       method: request.method, body: body as BodyInit | undefined, cache: "no-store", signal: controller.signal, redirect: "error",
       headers: body ? { "Content-Type": kind === "speech" ? "audio/wav" : "application/json" } : undefined,
