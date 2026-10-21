@@ -21,6 +21,31 @@ def pcm_wav(pcm):
                        b'fmt ', 16, 1, 1, 16000, 32000, 2, 16, b'data', len(pcm)) + pcm
 
 
+def playback_tokens(text):
+    # Comparison only: keep source offsets so prefix removal never rewrites
+    # the remaining transcript. Native ASR can spell "5070 Ti" as "5,070t".
+    tokens = []
+    for match in re.finditer(r'[0-9]{1,3}(?:,[0-9]{3})+(?:ti|t|super|xtx|xt)?\b|[a-z0-9]+', text, re.I):
+        word = match.group().lower()
+        number = re.fullmatch(r'([0-9,]+)(ti|t|super|xtx|xt)?', word)
+        if number:
+            digits = number[1].replace(',', '')
+            tokens.append((digits, match.start()))
+            if number[2]:
+                suffix = 'ti' if number[2] == 't' and len(digits) == 4 else number[2]
+                tokens.append((suffix, match.start() + number.start(2)))
+        else:
+            tokens.append((word, match.start()))
+    return tokens
+
+
+def playback_identity(words, index):
+    suffix = words[index + 1] if index + 1 < len(words) and words[index + 1] in {'ti', 'super', 'xt', 'xtx'} else ''
+    if suffix == 'ti' and words[index + 2:index + 3] == ['super']:
+        suffix = 'ti super'
+    return words[index], suffix
+
+
 class VoiceTurn:
     def __init__(self, emit, transcribe, pause='normal', clock=time.monotonic):
         self.emit, self.transcribe, self.clock = emit, transcribe, clock
@@ -96,11 +121,19 @@ class VoiceTurn:
         await self.state('listening')
 
     def is_playback_echo(self, text, reference):
-        words = re.findall(r'[a-z0-9]+', clean_transcript(text).lower())
-        spoken = re.findall(r'[a-z0-9]+', clean_transcript(reference).lower())
+        words = [word for word, _ in playback_tokens(clean_transcript(text))]
+        spoken = [word for word, _ in playback_tokens(clean_transcript(reference))]
         if words and spoken:
             if any((word.isdigit() or word in {'ti', 'super', 'xt', 'xtx'}) and word not in spoken for word in words):
                 return False
+            # A base model is also a correction to a suffixed model. Do not
+            # let fuzzy matching discard that distinction in either direction.
+            identities = {playback_identity(spoken, i)
+                          for i, word in enumerate(spoken) if word.isdigit()}
+            for i, word in enumerate(words):
+                if word.isdigit():
+                    if playback_identity(words, i) not in identities:
+                        return False
             # Common words alone are not echo. Preserve a newly phrased
             # question/correction about the subject June just discussed.
             openings = {'how', 'what', 'why', 'where', 'when', 'which', 'can', 'could', 'does', 'do', 'did', 'is', 'are', 'wait', 'stop', 'actually', 'no'}
@@ -124,14 +157,24 @@ class VoiceTurn:
 
     def without_playback_prefix(self, text, reference):
         # Overlapping native output can precede a real question in the mic
-        # recording. Trim only a substantial, verbatim leading playback span;
+        # recording. Trim only a substantial, matching leading playback span;
         # preserve the original spelling/case of the user's remaining words.
-        matches = list(re.finditer(r'[a-z0-9]+', text, re.I))
-        words = [match.group().lower() for match in matches]
-        spoken = re.findall(r'[a-z0-9]+', clean_transcript(reference).lower())
+        tokens = playback_tokens(text)
+        words = [word for word, _ in tokens]
+        spoken = [word for word, _ in playback_tokens(clean_transcript(reference))]
         for block in SequenceMatcher(None, words, spoken, autojunk=False).get_matching_blocks():
             if block.a == 0 and 4 <= block.size < len(words):
-                return text[matches[block.size].start():].strip()
+                size = block.size
+                start = size - 1
+                while start > 0 and words[start] in {'ti', 'super', 'xt', 'xtx'}:
+                    start -= 1
+                if words[start].isdigit():
+                    if playback_identity(words, start) != playback_identity(spoken, block.b + start):
+                        # Retain the whole corrected identifier, including a
+                        # number that happened to match the playback prefix.
+                        size = start
+                if size >= 4:
+                    return text[tokens[size][1]:].strip()
         return text
 
     async def check_short_probe(self):

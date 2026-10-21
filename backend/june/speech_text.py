@@ -9,6 +9,7 @@ DIGITS = dict(zip('zero one two three four five six seven eight nine'.split(), '
 DIGIT_SEQUENCE = re.compile(r'\b(?:' + '|'.join(DIGITS) + r')(?:\s+(?:' + '|'.join(DIGITS) + r')){2,}\b', re.I)
 NOISE = r'(?:cough(?:ing)?|clears?\s+throat|throat\s+clearing|music|silence|blank[_ ]audio|breathing|noise|inaudible|laughter)'
 ANNOTATION = re.compile(r'(?:\*\s*' + NOISE + r'\s*\*|\[\s*' + NOISE + r'\s*\]|\(\s*' + NOISE + r'\s*\))', re.I)
+MODEL_ID = re.compile(r'\b(?:(RTX|GTX|RX)\s*)?(\d{4})(?!\d)(?:\s*(Ti(?:\s+Super)?|Super|XTX|XT))?\b', re.I)
 
 
 def clean_transcript(text):
@@ -20,7 +21,7 @@ def clean_transcript(text):
 
 def model_ids(text, explicit=False):
     found = set()
-    for match in re.finditer(r'\b(?:(RTX|GTX|RX)\s*)?(\d{4})(?!\d)(?:\s*(Ti(?:\s+Super)?|Super|XTX|XT))?\b', text, re.I):
+    for match in MODEL_ID.finditer(text):
         prefix, number, suffix = match.groups()
         if not explicit or prefix or suffix:
             found.add((number, ' '.join((suffix or '').lower().split())))
@@ -51,8 +52,28 @@ class ReplyIdentityGuard:
                             r'^\s*(\d{4})\s*[.!?]?\s*$'):
                 self.focus.update(re.findall(pattern, latest, re.I))
             self.focus = {identity for identity in model_ids(latest) if identity[0] in self.focus}
+            excluded = set()
             for negative in re.finditer(r'\bnot\s+(?:the\s+)?(?:(?:RTX|GTX|RX)\s*)?\d{4}(?!\d)(?:\s*(?:Ti(?:\s+Super)?|Super|XTX|XT))?\b', latest, re.I):
-                self.focus.difference_update(model_ids(negative.group()))
+                excluded.update(model_ids(negative.group()))
+            self.focus.difference_update(excluded)
+            # Bare numbers inherit GPU context only within a connected list
+            # containing an already identified card, in either list order.
+            groups, end = [], None
+            for match in MODEL_ID.finditer(latest):
+                if end is None or not re.fullmatch(r'\s*(?:,\s*(?:(?:and|or)\s+)?|(?:and|or|vs\.?|versus)\s+|/\s*)(?:the\s+)?', latest[end:match.start()], re.I):
+                    groups.append(set())
+                prefix, number, suffix = match.groups()
+                if not (prefix or suffix) and (
+                        re.fullmatch(r'(?:19|20)\d{2}', number)
+                        or re.match(r'\s*(?:rupees|dollars|euros|pounds|INR|USD|EUR|GBP|prices?|budget|Rs)\b', latest[match.end():], re.I)):
+                    end = None
+                    continue
+                groups[-1].update(model_ids(match.group()))
+                end = match.end()
+            for group in groups:
+                group.difference_update(excluded)
+                if group.intersection(self.focus):
+                    self.focus.update(group)
         self.buffer = ''
         self.rejected = False
 

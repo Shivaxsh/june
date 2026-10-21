@@ -4,8 +4,9 @@ from contextlib import asynccontextmanager, aclosing, suppress
 import json
 import re
 from .chat import stream_chat
+from .app_info import application_reply_for_turn
 from .errors import JuneError
-from .memory import FICTION, validate_candidates
+from .memory import FICTION, validate_candidates, explicit_candidates, exclude_proposals
 
 
 def memory_prompt(profile, facts):
@@ -50,15 +51,16 @@ async def persisted_chat(client,settings,store,coordinator,value,mode,messages):
     facts=[];started=False;reply='';ending='stopped'
     revision=store.revision() if store and not temporary else 0
     if store and not temporary:
-        facts=store.retrieve(messages[-1]['content']) if mode=='local' else []
         if cid:
             # Server-owned history prevents old clients or tabs from reintroducing erased facts.
             context=store.context(cid)
             messages=context+[messages[-1]]
+            facts=store.retrieve(messages[-1]['content']) if mode=='local' and application_reply_for_turn(settings.model,messages,True) is None else []
             store.start_turn(cid,tid,messages[-1]['content'],revision,facts);started=True
         else:
             # Backward-compatible calls have no persisted thread; after a reset they cannot replay old history.
             if revision:messages=messages[-1:]
+            facts=store.retrieve(messages[-1]['content']) if mode=='local' and application_reply_for_turn(settings.model,messages,True) is None else []
     prompt=memory_prompt(store.snapshot()['profile'],facts) if store and not temporary else ''
     try:
         async with coordinator.slot('chat'):
@@ -72,7 +74,12 @@ async def persisted_chat(client,settings,store,coordinator,value,mode,messages):
                     if event['type']=='error': ending='failed'
                     if event['type']=='done':
                         ending='complete' if reply.strip() else 'failed'
-                        if started:store.finish_turn(tid,reply,ending)
+                        if started:
+                            # Exact explicit clauses need no CPU inference and
+                            # must not disappear when the next voice turn starts.
+                            # Store pending suggestions only; approval stays human.
+                            if not store.finish_turn(tid,reply,ending,propose=mode=='local'):
+                                raise JuneError('stale-turn','This reply was interrupted before it could be saved. Reopen the chat or send your question again.',409)
                         if started or temporary: event={**event,'persistence':'saved' if started else 'temporary','memoryIds':[x['id'] for x in facts], 'revision':revision, 'conversationId':cid, 'turnId':tid}
                     yield event
     except JuneError as error:
@@ -85,11 +92,18 @@ async def extract(client,settings,store,coordinator,cid,tid):
     chat=store.conversation(cid)
     turn=next((t for t in chat['turns'] if t['id']==tid and t['status']=='complete'),None)
     if not turn: raise JuneError('invalid-turn','Only completed replies can suggest memories.',400)
+    if exclude_proposals(turn['user']):return
     # Fictional framing anywhere in this conversation prevents accidental personalisation.
     if FICTION.search(' '.join(t['user'] for t in chat['turns'])):return
     revision=store.revision()
     if turn['revision']!=revision:return
     async with coordinator.slot('extract'):
+        candidates=explicit_candidates(turn['user'])
+        if candidates:
+            # Idempotent for new turns; recovers proposals for turns completed
+            # before this fix. Rejected/approved suggestions are not re-created.
+            store.suggest(cid,tid,candidates,revision)
+            return
         async with asyncio.timeout(30):
             response=await client.post(settings.ollama+'/api/chat',json={
                 'model':settings.model,'stream':False,'think':False,'format':'json',

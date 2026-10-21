@@ -14,6 +14,25 @@ EXPRESSIONS = {'steady': .98, 'calm': .92, 'bright': 1.04}
 RETENTION = 30 * 86400
 SECRET = re.compile(r'\b(password|passcode|api.?key|secret|token|otp|cvv|pin|pin code|credit card|bank account)\b|sk-[\w-]+|\b\d{12,19}\b', re.I)
 FICTION = re.compile(r'\b(fictional|pretend|role.?play|hypothetical|imagine|made.up|for (?:a |an )?(?:story|exercise|scenario))\b', re.I)
+PROPOSAL_OPT_OUT = re.compile(
+    r'(?:^|[.!?;:,\n]|\b(?:and|but))\s*(?:please\s+)?'
+    r'(?:(?:do\s+not|don[\'’]t|never)\s+(?:save|store|remember)\b|forget\s+(?:this|that|it)\b)', re.I)
+PROPOSAL_ATTRIBUTION = re.compile(
+    r'\b(?:said|says|wrote|writes|told me|quoted)(?:\s+the following)?\s*[:"\'“‘]'
+    r'|\b(?:example|sample|quote|quotation|excerpt|transcript|message|email|note|text)\s*:'
+    r'|^\s*(?:>|```|["\'“‘])', re.I | re.M)
+TRANSIENT_QUESTION = re.compile(r'^I am (?:currently )?asking\b', re.I)
+
+
+def exclude_proposals(user_text):
+    """Conservatively exclude a whole message before either extraction path.
+
+    Quoted or attributed prose has ambiguous ownership even across newlines.
+    Opt-outs are commands, not a blanket ban on ordinary contractions.
+    """
+    return bool(SECRET.search(user_text) or FICTION.search(user_text)
+                or PROPOSAL_OPT_OUT.search(user_text) or PROPOSAL_ATTRIBUTION.search(user_text)
+                or re.search(r'\b(?:ignore|disregard|override)\b', user_text, re.I))
 
 def invalid(message='This data is invalid. Review it before saving.', status=400):
     return JuneError('invalid-data', message, status)
@@ -55,18 +74,56 @@ def validate_profile(value):
     return {'fields': fields, 'expression': value.get('expression', 'steady')}
 
 def validate_candidates(items, user_text):
-    if not isinstance(items, list) or FICTION.search(user_text): return []
+    if not isinstance(items, list) or exclude_proposals(user_text): return []
     valid = []
     for item in items[:3]:
         try:
             fact, quote = text(item['text']), text(item['quote'], 1000)
             # Exact clauses only: no inference from job titles, assistant text or paraphrase.
             if quote not in user_text or fact not in quote or SECRET.search(fact + ' ' + quote) or FICTION.search(fact): continue
+            if TRANSIENT_QUESTION.search(fact): continue
             if not re.search(r'\b(?:my|i|we|our)\b', fact, re.I): continue
             if not re.search(r'\b(?:is|am|are|prefer|like|live|work|use|want|need|building|learning|name)\b', fact, re.I): continue
             valid.append({'text': fact, 'quote': quote})
         except (KeyError, TypeError, JuneError): continue
     return valid
+
+
+def _explicit_sentences(user_text):
+    start = 0
+    for boundary in re.finditer(r'(?<=[.!?])\s+|\n|;\s*', user_text):
+        sentence = user_text[start:boundary.start()]
+        # Keep honorifics, place abbreviations and initials inside the exact
+        # source slice. Never rewrite punctuation to shield it from splitting.
+        if ('\n' not in boundary.group() and sentence.endswith('.')
+                and not re.match(r'(?:my|I)\b', user_text[boundary.end():], re.I)):
+            token = sentence.rsplit(None, 1)[-1]
+            if re.fullmatch(r'(?:Dr|Mr|Mrs|Ms|Prof|St|Jr|Sr)\.', token, re.I) or re.fullmatch(r'(?:[A-Z]\.)+', token):
+                continue
+        yield sentence
+        start = boundary.end()
+    yield user_text[start:]
+
+
+def explicit_candidates(user_text):
+    """Quote clear first-person facts without waiting for an inference job.
+
+    These are pending proposals, never automatic approvals. Ambiguous prose
+    remains the model extractor's job and is still subject to quote validation.
+    """
+    if exclude_proposals(user_text):
+        return []
+    candidates = []
+    for sentence in _explicit_sentences(user_text):
+        if '?' in sentence:
+            continue
+        for part in re.split(r'\s+and\s+(?=(?:my|I)\b)|,\s*(?=(?:my|I)\b)', sentence, flags=re.I):
+            clause = re.sub(r'^(?:(?:okay|ok|so|well|also|please|remember(?: that)?)\b[\s,:]*)+', '', part.strip(), flags=re.I).strip(' ,.;:')
+            if re.search(r'\b(?:if|maybe|might|would|could|should|not)\b', clause, re.I):
+                continue
+            if re.match(r'(?:my (?:name|background|project|favourite colou?r|favorite colou?r) (?:is|are)\b|I (?:am|live in|work at|work as|prefer|like|use)\b)', clause, re.I):
+                candidates.append({'text': clause, 'quote': clause})
+    return validate_candidates(candidates, user_text)
 
 def validate_import(value):
     if not isinstance(value, dict) or value.get('version') != 1: raise invalid('Unsupported June export version.')
@@ -164,10 +221,18 @@ PRAGMA user_version=1;
             if db.execute('SELECT 1 FROM turns WHERE id=?',(tid,)).fetchone(): raise invalid('This turn was already submitted. Reopen the saved chat.',409)
             db.execute('INSERT INTO turns(id,conversation,user,status,revision,created,memories) VALUES(?,?,?,?,?,?,?)',(tid,cid,text(content,2000),'pending',revision,self.clock(),json.dumps([x['id'] for x in memories])))
             db.execute("UPDATE conversations SET title=CASE WHEN title='New conversation' THEN ? ELSE title END,updated=? WHERE id=?",(content[:90],self.clock(),cid))
-    def finish_turn(self, tid, content, status):
+    def finish_turn(self, tid, content, status, propose=False):
         with self.db() as db:
-            db.execute("UPDATE turns SET assistant=?,status=? WHERE id=? AND status='pending'",(content,status,tid))
+            changed=db.execute("UPDATE turns SET assistant=?,status=? WHERE id=? AND status='pending'",(content,status,tid)).rowcount
             db.execute('UPDATE conversations SET updated=? WHERE id=(SELECT conversation FROM turns WHERE id=?)',(self.clock(),tid))
+            if changed and status=='complete' and propose:
+                turn=db.execute('SELECT * FROM turns WHERE id=?',(tid,)).fetchone()
+                sources=' '.join(r[0] for r in db.execute('SELECT user FROM turns WHERE conversation=?',(turn['conversation'],)))
+                if not FICTION.search(sources):
+                    # Reply and pending proposals commit together. A disk error
+                    # cannot leave UI failure paired with a saved complete turn.
+                    self._suggest(db,turn['conversation'],tid,explicit_candidates(turn['user']),turn['revision'])
+            return bool(changed)
     def context(self,cid):
         chat = self.conversation(cid)
         turns = [t for t in chat['turns'] if t['status']=='complete' and t['revision']==self.revision()]
@@ -225,13 +290,15 @@ PRAGMA user_version=1;
         return result
     def suggest(self,cid,tid,items,revision):
         with self.db() as db:
-            if revision != db.execute('SELECT revision FROM meta').fetchone()[0]: return
-            turn=db.execute("SELECT user FROM turns WHERE id=? AND conversation=? AND status='complete'",(tid,cid)).fetchone()
-            if not turn: return
-            for item in validate_candidates(items,turn['user']):
-                fp=fingerprint(item['text'])
-                if db.execute('SELECT 1 FROM memories WHERE fingerprint=?',(fp,)).fetchone():continue
-                db.execute("INSERT OR IGNORE INTO suggestions VALUES(?,?,?,?,?,?,'pending')",(str(uuid.uuid4()),cid,tid,item['text'],item['quote'],fp))
+            self._suggest(db,cid,tid,items,revision)
+    def _suggest(self,db,cid,tid,items,revision):
+        if revision != db.execute('SELECT revision FROM meta').fetchone()[0]: return
+        turn=db.execute("SELECT user FROM turns WHERE id=? AND conversation=? AND status='complete'",(tid,cid)).fetchone()
+        if not turn: return
+        for item in validate_candidates(items,turn['user']):
+            fp=fingerprint(item['text'])
+            if db.execute('SELECT 1 FROM memories WHERE fingerprint=?',(fp,)).fetchone():continue
+            db.execute("INSERT OR IGNORE INTO suggestions VALUES(?,?,?,?,?,?,'pending')",(str(uuid.uuid4()),cid,tid,item['text'],item['quote'],fp))
     def decide(self,sid,action,fact=None,pinned=False,replace=None):
         with self.db() as db:
             s=db.execute("SELECT * FROM suggestions WHERE id=? AND status='pending'",(sid,)).fetchone()

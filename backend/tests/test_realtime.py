@@ -835,6 +835,87 @@ class FalseInterruptions(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.turn.is_playback_echo('The code is 5060.', 'The code is 3060.'))
         self.assertFalse(self.turn.is_playback_echo('The RTX 5070 Ti.', 'The RTX 5070.'))
 
+    async def test_grouped_gpu_echo_does_not_pause_or_admit_a_transcript(self):
+        caption = ('You asked about 5070 Ti. I cannot verify its specifications or current price, '
+                   'so I should not substitute a different graphics card.')
+        await self.turn.activity(1, 'speaking', caption)
+        self.result = 'You asked about 5,070t, I cannot'
+        for _ in range(8): await self.packet()
+        for _ in range(55): await self.packet(False)
+        await self.turn.flush()
+        self.assertEqual(self.turn.number, 1)
+        self.assertFalse(any(e['type'] in ('probe', 'interrupt', 'transcript') for e in self.events))
+
+    async def test_grouped_gpu_echo_prefix_preserves_raw_user_identifiers(self):
+        await self.turn.activity(1, 'speaking', 'You asked about 5070 Ti. I cannot verify its specifications.')
+        self.result = 'You asked about 5,070t, I cannot. Wait, I meant 5,060T, not 5070Ti.'
+        for _ in range(15): await self.packet()
+        for _ in range(55): await self.packet(False)
+        await self.turn.flush()
+        self.assertEqual([e['text'] for e in self.events if e['type'] == 'transcript'],
+                         ['Wait, I meant 5,060T, not 5070Ti.'])
+
+    async def test_gpu_comparison_tokenization_keeps_real_corrections(self):
+        for text, reference in (
+            ('The RTX 5,060t.', 'The RTX 5070 Ti.'),
+            ('The RTX 5070Ti.', 'The RTX 5060 Ti.'),
+            ('5070', '5070 Ti'),
+            ('The RTX 5070.', 'The RTX 5070 Ti.'),
+            ('The RTX 5070Ti.', 'The RTX 5070.'),
+            ('The RTX 5070 Super.', 'The RTX 5070 Ti.'),
+        ):
+            with self.subTest(text=text, reference=reference):
+                self.assertFalse(self.turn.is_playback_echo(text, reference))
+
+    async def test_echo_prefix_keeps_the_number_with_a_corrected_gpu_suffix(self):
+        for text, reference, expected in (
+            ('You asked about the 5070Ti.', 'You asked about the 5070.', '5070Ti.'),
+            ('You asked about the 5070. Wait.', 'You asked about the 5070 Ti.', '5070. Wait.'),
+            ('You asked about 5,070t, I cannot. Keep "5,060T" exactly.',
+             'You asked about 5070 Ti. I cannot verify it.', 'Keep "5,060T" exactly.'),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.turn.without_playback_prefix(text, reference), expected)
+
+    async def test_grouped_numbers_and_attached_gpu_suffixes_compare_as_echo(self):
+        for text, reference in (
+            ('You asked about 5,070t, I cannot', 'You asked about 5070 Ti. I cannot verify it.'),
+            ('The RTX 5070Ti.', 'The RTX 5,070 Ti.'),
+            ('The RX 7900XTX.', 'The RX 7900 XTX.'),
+            ('The RTX 4070Super.', 'The RTX 4070 Super.'),
+            ('The code is 7,294.', 'The code is 7294.'),
+            ('The cost is 1,234,567.', 'The cost is 1234567.'),
+        ):
+            with self.subTest(text=text, reference=reference):
+                self.assertTrue(self.turn.is_playback_echo(text, reference))
+
+    async def test_compound_gpu_suffix_changes_are_not_playback_echo(self):
+        for text, reference in (
+            ('You asked about the RTX 5,070t Super.', 'You asked about the RTX 5070 Ti.'),
+            ('You asked about the RTX 5,070t.', 'You asked about the RTX 5070 Ti Super.'),
+            ('You asked about the RTX 5,060t Super.', 'You asked about the RTX 5070 Ti Super.'),
+        ):
+            with self.subTest(text=text, reference=reference):
+                self.assertFalse(self.turn.is_playback_echo(text, reference))
+
+    async def test_echo_prefix_keeps_complete_raw_compound_gpu_corrections(self):
+        for text, reference, identifier in (
+            ('You asked about the RTX 5,070t Super.',
+             'You asked about the RTX 5070 Ti.', '5,070t Super.'),
+            ('You asked about the RTX 5,070t. Please compare.',
+             'You asked about the RTX 5070 Ti Super.', '5,070t. Please compare.'),
+            ('You asked about the RTX 5,060t Super.',
+             'You asked about the RTX 5070 Ti Super.', '5,060t Super.'),
+        ):
+            with self.subTest(text=text, reference=reference):
+                self.assertIn(self.turn.without_playback_prefix(text, reference), (identifier, text))
+
+    async def test_unchanged_compound_gpu_echo_still_trims_playback_prefix(self):
+        text = 'You asked about the RTX 5,070t Super. Wait, compare prices.'
+        reference = 'You asked about the RTX 5070 Ti Super.'
+        self.assertTrue(self.turn.is_playback_echo('The RTX 5,070t Super.', 'The RTX 5070 Ti Super.'))
+        self.assertEqual(self.turn.without_playback_prefix(text, reference), 'Wait, compare prices.')
+
     async def test_echo_prefix_is_removed_from_the_real_interruption(self):
         self.result = 'A graphics card helps render pictures. Wait, keep it short.'
         for _ in range(65): await self.packet()
