@@ -38,6 +38,8 @@ class MemoryLatencyTests(unittest.IsolatedAsyncioTestCase):
             'I wanted to ask if there’s a 3090 NVIDIA graphics card available in India right now in 2026.',
             'Okay, so I wanted to know that which current generation is in production of NVIDIA graphics card.',
             'I mean, explain React.js in one short sentence.',
+            'What is my favorite color?',
+            'Can you do you remember what my name is?',
         )
         def no_model(request):
             self.fail('Nonpersonal turn must not incur an extraction inference')
@@ -117,3 +119,35 @@ class MemoryLatencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bodies[1]['options']['temperature'], 0)
         self.assertEqual(bodies[1]['format'], 'json')
         self.assertEqual(bodies[1]['think'], False)
+        self.assertEqual(bodies[0]['keep_alive'], '15m')
+        self.assertEqual(bodies[1]['keep_alive'], bodies[0]['keep_alive'])
+
+class ContextWindowTests(unittest.TestCase):
+    def test_window_moves_in_blocks_then_appends_without_reprocessing_its_prefix(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store=Store(directory);cid=store.create_conversation()['id']
+            for i in range(10):
+                store.start_turn(cid,str(i),f'Question {i}',0);store.finish_turn(str(i),f'Answer {i}','complete')
+            ten=store.context(cid)
+            store.start_turn(cid,'10','Question 10',0);store.finish_turn('10','Answer 10','complete')
+            eleven=store.context(cid)
+            self.assertEqual(eleven[:-2],ten)
+            self.assertEqual(ten[0]['content'],'Question 4')
+            self.assertEqual(ten[-2]['content'],'Question 9')
+            self.assertLessEqual(len(eleven),18)
+            self.assertEqual(len(store.conversation(cid)['turns']),11)
+    def test_long_pairs_still_keep_newest_context_within_character_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store=Store(directory);cid=store.create_conversation()['id']
+            for i in range(10):
+                store.start_turn(cid,str(i),f'Q{i} '+('x'*700),0);store.finish_turn(str(i),'y'*700,'complete')
+            context=store.context(cid)
+            self.assertLessEqual(sum(len(x['content'].encode('utf-16-le'))//2 for x in context),4000)
+            self.assertTrue(context[-2]['content'].startswith('Q9 '))
+
+class PromptStabilityTests(unittest.TestCase):
+    def test_same_retrieved_facts_have_stable_prompt_order(self):
+        from june.memory_service import memory_prompt
+        from june.memory import profile_defaults
+        facts=[{'id':'a','text':'My name is Mira.'},{'id':'b','text':'My favorite color is amber.'}]
+        self.assertEqual(memory_prompt(profile_defaults(),facts),memory_prompt(profile_defaults(),facts[::-1]))

@@ -114,6 +114,7 @@ export class HandsFreeController {
     } else if (event.type === 'resume' && event.turn === this.state.turn && this.probe > 0 && event.probe === this.probe) {
       this.probe = 0; this.emit({ probing: false }); this.callbacks.resume?.();
     } else if ((event.type === 'wake' || event.type === 'interrupt') && event.turn! > this.state.turn) {
+      console.debug('[June voice]', JSON.stringify({event:event.type,at:Date.now(),turn:event.turn,previousPhase:this.state.phase}));
       this.probe = 0;
       this.emit({ turn: event.turn, phase: 'listening', error: '', probing: false }); this.callbacks.wake(event.turn!);
     } else if (event.type === 'state' && event.phase && phases.includes(event.phase)) {

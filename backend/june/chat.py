@@ -10,6 +10,7 @@ from .app_info import CONFIRMATION, application_reply_for_turn
 import re
 
 PROMPT = Path(__file__).with_name('prompt.txt').read_text().strip()
+MODEL_KEEP_ALIVE = '15m'
 CORRECTION = re.compile(r"^\s*(?:no[\s,!.:]+)?(?:i (?:mean|meant)\b|i(?:['’]m| am| was) (?:asking|talking) (?:about|for)\b|i asked (?:about|for)\b|actually\b|correction\b)", re.I)
 
 
@@ -128,7 +129,7 @@ async def stream_chat(client, settings, mode, messages, memory_context=""):
         async with asyncio.timeout(180):
             async with client.stream('POST', settings.ollama + '/api/chat', json={
                 'model': settings.model, 'messages': [{'role': 'system', 'content': prompt_for_turn(inference_messages, identity) + memory_context + correction_focus(messages)}, *inference_messages],
-                'stream': True, 'think': False, 'keep_alive': '5m',
+                'stream': True, 'think': False, 'keep_alive': MODEL_KEEP_ALIVE,
                 'options': {'num_ctx': 4096, 'num_predict': 256, 'temperature': .1},
             }) as response:
                 if response.status_code != 200:

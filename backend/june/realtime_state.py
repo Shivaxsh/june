@@ -186,6 +186,14 @@ class VoiceTurn:
             prefix = words[:2]
             if words[0] in openings and not any(spoken[i:i + len(prefix)] == prefix for i in range(len(spoken))):
                 return False
+            # A short probe may end part-way through a word from the speakers
+            # (the saved failure was "allow" during "allows ..."). Do not
+            # treat that clipped prefix as independent interruption evidence.
+            # Controls and identifiers keep their explicit correction path.
+            if (len(words) == 1 and len(words[0]) >= 4 and words[0].isalpha()
+                    and words[0] not in openings | {'pause', 'hold', 'sorry', 'okay', 'ok'}
+                    and any(word.startswith(words[0]) and len(word)-len(words[0]) <= 3 for word in spoken)):
+                return True
             matcher = SequenceMatcher(None, words, spoken, autojunk=False)
             if matcher.find_longest_match().size / len(words) >= .85:
                 return True

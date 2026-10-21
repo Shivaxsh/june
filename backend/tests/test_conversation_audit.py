@@ -174,7 +174,9 @@ class AuditFollowups(unittest.IsolatedAsyncioTestCase):
             memory=store.add_memory('My name is Mira.')
             async with httpx.AsyncClient(transport=httpx.MockTransport(model)) as client:
                 events=[e async for e in persisted_chat(client,Settings.from_env(),store,Coordinator(),{'conversationId':cid,'turnId':'recall'},'local',[{'role':'user','content':'Can you remember my name?'}])]
-            self.assertIn('My name is Mira.',bodies[0]['messages'][0]['content'])
+            self.assertEqual(bodies,[])  # Exact approved lookup is app data, not paraphrased model output.
+            self.assertEqual(''.join(e.get('text','') for e in events),'Saved memory:\nYour name is Mira.')
+            self.assertEqual(events[-1]['source'],'application')
             self.assertEqual(events[-1]['memoryIds'],[memory['id']])
 
     async def test_old_completed_explicit_turn_can_recover_pending_suggestions(self):

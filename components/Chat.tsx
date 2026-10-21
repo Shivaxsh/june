@@ -77,7 +77,7 @@ export default function Chat() {
     requestId.current++;
     active.current?.abort(); active.current = null;
     busyRef.current = false; setBusy(false);
-    voice.stopVoice();
+    voice.stopVoice("voice-turn-cancelled");
     setMessages(previous => previous.map(message => message.state === "pending" ? { ...message, state: "stopped" } : message));
   }
   const handsFree = useHandsFree({
@@ -101,13 +101,15 @@ export default function Chat() {
   const recordingBusy = voice.recognition.phase !== "idle" || ["listening","transcribing","connecting"].includes(handsFree.state.phase);
   useEffect(() => {
     if (recordingBusy) { cancelExtraction(); return; }
-    if (!suggestAfter || busy || speechBusy || library.temporary) return;
+    // Do not compete with a person's immediate follow-up or replace the
+    // model's reusable chat prefix while the conversation window is open.
+    if (!suggestAfter || busy || speechBusy || library.temporary || handsFree.state.phase === "followup") return;
     const controller=new AbortController(); extraction.current=controller;
     const timer=setTimeout(() => {
       void libraryRequest("extract","POST",suggestAfter,controller.signal).then(() => {if(!controller.signal.aborted) void library.refresh();}).catch(()=>{}).finally(()=>{if(!controller.signal.aborted)setSuggestAfter(null);});
     },700);
     return () => { clearTimeout(timer);controller.abort(); };
-  },[suggestAfter,busy,speechBusy,recordingBusy,library.temporary]);
+  },[suggestAfter,busy,speechBusy,recordingBusy,library.temporary,handsFree.state.phase]);
   useEffect(() => {
     const stop = () => { interrupt(); voice.cancel(); audio.stop(); handsFree.stop(); };
     const hide = () => {if(document.hidden)stop();};

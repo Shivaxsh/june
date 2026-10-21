@@ -57,11 +57,11 @@ The model download is about 986 MB. June's helper stores models in `~/Library/Ap
 
 - **Send** or **Enter** submits once; **Shift+Enter** inserts a newline.
 - **Stop** interrupts a reply. Partial text stays visible and labelled stopped.
-- **New chat** clears the conversation and model context.
+- **New chat** starts a separate conversation and clears active model context; earlier chats remain in Recent chats.
 - **Reconnect** checks the model server after a restart.
 - **Practice demo** is a manually selected learning mode with simulated replies. It is clearly labelled and never selected automatically on failure.
 
-Only completed message/reply pairs become follow-up context. Failed and interrupted turns stay visible but are excluded; on failure your input is restored for retry. Switching reply source starts a new chat. Refreshing clears messages. There is no database, local-storage chat history or cross-session memory.
+Only completed message/reply pairs become follow-up context. Failed and interrupted turns stay visible but are excluded; on failure your input is restored for retry. Switching reply source starts a new chat. Reloading clears the active view, but saved conversations remain in Recent chats for 30 days. Approved memories persist separately in private SQLite storage on this Mac; merely mentioning a fact does not approve it.
 
 Messages are limited to 2,000 characters; a request may contain up to 20 messages and 6,000 characters of conversation text. The app keeps recent whole turns within that request budget and shows a notice when older context is shortened. Older messages stay visible; this is not saved memory. Oversized historical replies are shortened only in the model context, with Unicode characters kept intact. Generation uses a 4,096-token context, a 256-token reply cap, temperature 0.1 and thinking disabled. A small model can answer incorrectly or repeat earlier errors even after a correction; this is not fixed by lowering temperature alone. Long answers can hit the reply cap; these are labelled, and only complete sentences are automatically spoken. See [the reliability audit](docs/reliability-audit.md).
 
@@ -72,7 +72,7 @@ June records the microphone directly, then uses local Whisper **base.en** to tur
 1. Choose and preview June's voice. Known female local English identities are offered; Indian English is preferred when available. This Mac/browser currently offers Samantha (American English) and other female English voices, but no recognised female Indian English voice.
 2. Hold **Hold to talk** with mouse/touch, or hold Space/Enter while it is focused. Release ends recording and starts transcription. Limit: 30 seconds; review appears after processing, not live while you speak. **Start listening / Stop listening** is a toggle alternative for accessibility.
 3. Review and edit the transcript. **Use transcript** appends it to any existing draft; **Send** is deliberately separate. If the combined text exceeds the message limit, shorten it before using it.
-4. Every reply is spoken by default. **Speak replies** saves your mute preference. Voice selection also survives reload; input is English for every accent, and old browser-recognition language settings are no longer used; transcripts and chats do not.
+4. Every reply is spoken by default. **Speak replies** saves your mute preference. Voice selection also survives reload; input is English for every accent, and old browser-recognition language settings are no longer used; transcripts remain temporary; saved chats stay in Recent chats for 30 days.
 5. **Stop** cancels the model, recognition and speech. **Stop voice** clears current and queued speech while allowing text generation to continue. **Hear reply** replays a completed answer even when automatic speech is muted.
 
 Streaming text becomes speech one sentence at a time. Fenced code blocks are excluded; formatting markers are removed, while the full written reply stays visible. Sentence ordering and request identifiers keep cancelled or superseded speech from returning later.
@@ -178,7 +178,7 @@ Both servers bind to loopback. Remote hosting and authentication are later work.
 
 **Slow reply:** the first reply may load the model. Try a short question. Timing below the input reports first text and total duration; Stop cancels. Requests time out after three minutes.
 
-**Conversation too long:** use New chat. Persistent memory is a later phase.
+**Long conversation:** recent completed turns fit a bounded context window; older text stays saved and viewable. The window advances in blocks so ordinary follow-ups can reuse model work. Approve important facts in Memory for recall across new chats. New chat starts fresh inference without deleting saved history.
 
 ## Verify and save changes
 
@@ -195,13 +195,13 @@ Manual checks: empty input, Enter/Shift+Enter, wrapping, safe `<script>` text, g
 
 ## Phase 0 and the public site
 
-The existing `index.html` and `styles.css` are preserved. [GitHub Pages](https://shivaxsh.github.io/june/) still publishes v0.0 from **main / root**. June v0.3.1 is on **codex/june-v0.3-voice-fix**, runs locally and is not the Pages publishing branch. [Source repository](https://github.com/Shivaxsh/june).
+The existing `index.html` and `styles.css` are preserved. [GitHub Pages](https://shivaxsh.github.io/june/) still publishes v0.0 from **main / root**. The published v0.4 source remains on **codex/june-v0.4**; local v0.5 work is on **codex/june-v0.5** and is not the Pages publishing branch. [Source repository](https://github.com/Shivaxsh/june).
 
 Keep `.env.local`, models, screenshots, progress backups and private personality notes out of public Git commits.
 
 ## Basic answer reliability repair
 
-The default is now Qwen2.5 1.5B with temperature 0.1 and a shorter general-knowledge/personal-facts prompt. The older Qwen3 0.6B remains installed for rollback. No answers are substituted by application code. Conversation history remains intact because refusal propagation was not reproduced independently.
+The default is now Qwen2.5 1.5B with temperature 0.1 and a shorter general-knowledge/personal-facts prompt. The older Qwen3 0.6B remains installed for rollback. General knowledge is model-backed. June supplies explicitly labelled application information for her identity, memory rules and unavailable integrations. Conversation history remains intact; this work does not train the model.
 
 See `docs/answer-reliability.md` for the real comparison and limits. Run `node scripts/evaluate-models.mjs qwen2.5:1.5b` for the focused local check. Tests and comparisons use synthetic public questions, not private conversations. This small check is not a guarantee that every answer is correct. The model cannot look up current restaurants, prices or news.
 

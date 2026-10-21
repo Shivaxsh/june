@@ -9,11 +9,22 @@ PREFIX = 'June app information:\n'
 CONFIRMATION = re.compile(r'\s*(?:are you sure(?: about that)?|is that (?:right|correct|true)|really)\s*[?.!]*\s*', re.I)
 
 
+def personal_recall(query):
+    """Recognise recall, including spoken false starts, not future save requests."""
+    q = re.sub(r'[^\w\s]', ' ', query.lower())
+    q = re.sub(r'\s+', ' ', q).strip()
+    q = re.sub(r'^(?:(?:okay|ok|so|please|hey june|june)\s+)+', '', q)
+    subject = r'(?:my (?:name|age|location|city|project|favo(?:u)?rite colou?r)(?: is)?|where i (?:live|work))'
+    return bool(re.fullmatch(
+        r'(?:(?:(?:can|could|will|would|do) you(?: tell me)? )+(?:still )?remember (?:what )?'
+        + subject + r'|what is my (?:name|age|location|city|project|favo(?:u)?rite colou?r))', q))
+
+
 def application_reply(model, query, memory_enabled):
     q = re.sub(r'^(?:(?:okay|ok|so|please|hey june|june)[\s,!.:]*)+', '', query.strip(), flags=re.I)
     if re.fullmatch(r"(?:tell me (?:something |a bit |more )?about (?:you|yourself)|who are you|what can you do(?: for me| today| right now)?|what (?:model|AI) (?:are you(?: using)?|do you use)|who (?:made|created|built) you|are you (?:Claude|ChatGPT))[\s?.!]*", q, re.I):
         return PREFIX + f'I’m June, your locally built assistant, running {model} on this Mac. I can chat, use the voice interface and suggest memories for your approval; browsing, purchasing, payments and device control are not connected yet.'
-    recall = re.fullmatch(r'(?:can|could|will) you (?:still )?remember (?:my (?:name|age|location|city|project|favourite colou?r|favorite colou?r)|where I (?:live|work))[\s?.!]*', q, re.I)
+    recall = personal_recall(q)
     if not recall and (re.search(r'\b(?:can|will) you\b.*\bremember\b', q, re.I)
             or re.match(r'(?:how (?:does|do) (?:your |June.?s )?memory work|do you have (?:a )?(?:memory|saved memories))\b', q, re.I)):
         # Recall questions such as "do you remember where I live" stay model

@@ -235,14 +235,23 @@ PRAGMA user_version=1;
             return bool(changed)
     def context(self,cid):
         chat = self.conversation(cid)
-        turns = [t for t in chat['turns'] if t['status']=='complete' and t['revision']==self.revision()]
+        revision = self.revision()
+        turns = [t for t in chat['turns'] if t['status']=='complete' and t['revision']==revision]
         result=[]; size=0
         for t in reversed(turns):
             pair=[{'role':'user','content':t['user']}, {'role':'assistant','content':t['assistant'][:2000]}]
             count=sum(len(x['content'].encode('utf-16-le'))//2 for x in pair)
             if len(result)>=18 or size+count>4000: break
             result=pair+result;size+=count
-        return result
+        # Sliding one pair on every long-chat request changes the start of the
+        # prompt every time, defeating the CPU model's reusable prefix cache.
+        # Advance in four-turn blocks instead, still within the same hard
+        # message/character limits. Between advances, new turns append to an
+        # unchanged prefix. Saved history is never removed or summarised.
+        earliest = len(turns) - len(result)//2
+        start = ((earliest + 3)//4)*4
+        if start >= len(turns): start = earliest
+        return result[(start-earliest)*2:]
     def snapshot(self, search=''):
         self.cleanup()
         with self.db() as db:

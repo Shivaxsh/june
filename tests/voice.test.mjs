@@ -217,3 +217,50 @@ test('expression changes the next sentence rate while ordinary pitch stays fixed
   assert.equal(utterances[1].rate,.98);
  }finally{controller.dispose();}
 });
+
+test('queued sentences never announce idle or open the follow-up window between sentences', () => {
+ const {controller,utterances,states}=speechEnvironment();
+ try {
+  controller.begin(1,samantha,true,true);controller.push(1,'First sentence. Second sentence. ');controller.finish(1);
+  utterances[0].onstart();const before=states.length;utterances[0].onend();
+  assert.equal(utterances.length,2);
+  assert.ok(states.slice(before).every(s=>s.phase!=='idle'));
+  utterances[1].onstart();utterances[1].onend();assert.equal(states.at(-1).phase,'idle');
+ }finally{controller.dispose();}
+});
+test('a sentence ending while the model is still streaming stays waiting, not complete', () => {
+ const {controller,utterances,states}=speechEnvironment();
+ try {
+  controller.begin(1,samantha,true,true);controller.push(1,'First sentence. ');
+  utterances[0].onstart();utterances[0].onend();assert.equal(states.at(-1).phase,'waiting');
+  controller.push(1,'Second sentence. ');controller.finish(1);utterances[1].onstart();utterances[1].onend();
+  assert.equal(states.at(-1).phase,'idle');
+ }finally{controller.dispose();}
+});
+
+test('playback diagnostics report ownership and timings without recording spoken contents',()=>{
+ const utterances=[],events=[];
+ class Utterance{constructor(text){this.text=text;}}
+ const controller=new SpeechController({speak:u=>utterances.push(u),cancel(){}},Utterance,()=>{},{current:0},e=>events.push(e));
+ try{
+  controller.begin(1,samantha,true);controller.push(1,'A private sentence. ');utterances[0].onstart();
+  utterances[0].onboundary({charIndex:10,charLength:8});utterances[0].onend();
+  controller.push(1,'Another private sentence. ');utterances[1].onstart();controller.stop('voice-turn-cancelled');
+  assert.deepEqual(events.map(e=>e.event),['start','end','start','cancel']);
+  assert.equal(events.at(-1).reason,'voice-turn-cancelled');
+  assert.ok(!JSON.stringify(events).includes('private'));
+  assert.equal(events[1].lastBoundary,18);assert.equal(typeof events[1].elapsedMs,'number');
+ }finally{controller.dispose();}
+});
+
+test('callbacks from an ended utterance cannot revive speech or cancel the waiting stream',()=>{
+ const {controller,utterances,states}=speechEnvironment();
+ try{
+  controller.begin(1,samantha,true);controller.push(1,'First sentence. ');
+  const ended=utterances[0],lateStart=ended.onstart,lateEnd=ended.onend,lateError=ended.onerror,lateBoundary=ended.onboundary;
+  ended.onstart();ended.onend();const before=states.length;
+  lateStart();lateEnd();lateBoundary({charIndex:0,charLength:5});lateError();
+  assert.equal(states.length,before);assert.equal(states.at(-1).phase,'waiting');
+  controller.push(1,'Second sentence. ');controller.finish(1);assert.equal(utterances.length,2);
+ }finally{controller.dispose();}
+});

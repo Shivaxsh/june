@@ -43,9 +43,12 @@ export function useVoice(stopMedia: () => void, onManual: () => void = () => {})
     recognition.current = new LocalRecognitionController(() => new BrowserVoiceCapture(level), transcribeLocally, setRecognitionState);
     if (supportedSpeech) {
       registry.current = new VoiceRegistry(synth, storage.current, state => { selected.current = state.selected; setChoices(state); });
-      speech.current = new SpeechController(synth, window.SpeechSynthesisUtterance, setSpeechState, activity);
+      // Timing/ownership only: no spoken text, transcripts, recordings or
+      // personal facts are written to diagnostics.
+      speech.current = new SpeechController(synth, window.SpeechSynthesisUtterance, setSpeechState, activity,
+        event => console.debug("[June voice]", JSON.stringify(event)));
     } else setChoices({ options: [], selected: "", message: "Speech playback is unavailable in this browser. Replies remain readable." });
-    const stop = () => { recognition.current?.cancel(); speech.current?.stop(); };
+    const stop = () => { recognition.current?.cancel(); speech.current?.stop('page-hidden-or-unloaded'); };
     const hide = () => { if (document.hidden) stop(); };
     window.addEventListener("pagehide", stop); document.addEventListener("visibilitychange", hide);
     return () => {
@@ -59,7 +62,7 @@ export function useVoice(stopMedia: () => void, onManual: () => void = () => {})
   return {
     setExpression: (expression:Expression) => speech.current?.setRate(expressionRates[expression]),
     choices, speech: speechState, recognition: recognitionState, support, speakReplies, engineStatus, refreshSpeech, activity, level,
-    cancel, stopVoice: () => speech.current?.stop(), finishTalk: () => recognition.current?.finish(),
+    cancel, stopVoice: (reason = 'stop-voice') => speech.current?.stop(reason), finishTalk: () => recognition.current?.finish(),
     pauseForInput: () => speech.current?.pauseForInput() ?? false,
     resumeAfterInput: () => speech.current?.resumeAfterInput(),
     startTalk: () => { manual.current(); speech.current?.stop(); stopMedia(); recognition.current?.start(); },
