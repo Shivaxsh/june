@@ -65,6 +65,209 @@ test('cancellation during delayed microphone permission prevents a late socket',
 });
 
 const { RealtimeCapture } = await load('../lib/voice/realtime-capture.ts');
+
+// Mock only browser boundaries: all capture lifecycle/constraint logic runs for real.
+function captureFixture(t, { capabilities = { echoCancellation: [true, false] }, settings = { echoCancellation: true }, apply, media } = {}) {
+  const requests = [], constraints = [], contexts = [], nodes = [], modules = [], packets = [], failures = [];
+  const track = new EventTarget();
+  Object.assign(track, {
+    readyState: 'live', stopped: 0,
+    stop() { this.stopped++; this.readyState = 'ended'; },
+    getCapabilities() { return typeof capabilities === 'function' ? capabilities() : capabilities; },
+    getSettings() { return typeof settings === 'function' ? settings() : settings; },
+    applyConstraints(value) { constraints.push(value); return apply ? apply(value, settings) : Promise.resolve(); },
+  });
+  const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
+  class Context {
+    constructor() {
+      this.state = 'running'; this.closed = false; contexts.push(this);
+      this.audioWorklet = { addModule: async path => { modules.push(path); } };
+    }
+    resume() { return Promise.resolve(); }
+    close() { this.closed = true; this.state = 'closed'; return Promise.resolve(); }
+    createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+  }
+  class Worklet {
+    constructor() {
+      nodes.push(this); this.disconnected = false;
+      this.port = { onmessage: null, closed: false, postMessage() {}, close() { this.closed = true; } };
+    }
+    connect() {}
+    disconnect() { this.disconnected = true; }
+  }
+  const capture = new RealtimeCapture({ current: 0 });
+  const globals = { AudioContext: Context, AudioWorkletNode: Worklet,
+    navigator: { mediaDevices: { getUserMedia: async value => { requests.push(value); return media ? media() : stream; } } } };
+  const originals = Object.fromEntries(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { value, configurable: true });
+  t.after(() => {
+    capture.stop();
+    for (const [key, descriptor] of Object.entries(originals)) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key];
+    }
+  });
+  const start = (signal = new AbortController().signal) => capture.start(signal, data => packets.push(data), message => failures.push(message));
+  return { capture, track, requests, constraints, contexts, nodes, modules, packets, failures, start };
+}
+const flushCapture = () => new Promise(resolve => setImmediate(resolve));
+
+test('capture upgrades only advertised all and reports the actual system-audio setting', async t => {
+  const f = captureFixture(t, { capabilities: { echoCancellation: [true, false, 'all', 'remote-only'] },
+    apply: async (_value, settings) => { settings.echoCancellation = 'all'; } });
+  await f.start();
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0].audio.echoCancellation, true);
+  assert.equal(f.requests[0].audio.noiseSuppression, true);
+  assert.equal(f.requests[0].audio.autoGainControl, true);
+  assert.deepEqual(f.constraints, [{ channelCount: 1, noiseSuppression: true, autoGainControl: true, echoCancellation: { exact: 'all' } }]);
+  assert.equal(f.capture.echoMode, 'system-audio');
+  assert.equal(f.nodes.length, 1);
+  f.capture.stop();
+  assert.equal(f.track.readyState, 'ended');
+  assert.equal(f.contexts[0].closed, true);
+  assert.equal(f.nodes[0].port.closed, true);
+  assert.equal(f.capture.echoMode, 'unknown');
+});
+
+for (const [name, capabilities, settings, want] of [
+  ['boolean capabilities', { echoCancellation: [true, false] }, { echoCancellation: true }, 'browser-managed'],
+  ['remote-only capability', { echoCancellation: [true, 'remote-only'] }, { echoCancellation: 'remote-only' }, 'browser-managed'],
+  ['disabled processing', { echoCancellation: [false] }, { echoCancellation: false }, 'off'],
+  ['missing capabilities and settings', {}, {}, 'unknown'],
+  ['throwing capabilities', () => { throw Error('unavailable'); }, { echoCancellation: true }, 'browser-managed'],
+  ['malformed capability string', { echoCancellation: 'all' }, { echoCancellation: 'unrecognized' }, 'unknown'],
+  ['throwing settings', {}, () => { throw Error('unavailable'); }, 'unknown'],
+]) test(`capture keeps boolean request for ${name} and reports settings honestly`, async t => {
+  const f = captureFixture(t, { capabilities, settings });
+  await f.start();
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0].audio.echoCancellation, true);
+  assert.deepEqual(f.constraints, []);
+  assert.equal(f.capture.echoMode, want);
+  assert.equal(f.nodes.length, 1);
+});
+
+test('successful optional constraint does not imply a reported system-audio setting', async t => {
+  const f = captureFixture(t, { capabilities: { echoCancellation: [true, 'all'] } });
+  await f.start();
+  assert.deepEqual(f.constraints, [{ channelCount: 1, noiseSuppression: true, autoGainControl: true, echoCancellation: { exact: 'all' } }]);
+  assert.equal(f.capture.echoMode, 'browser-managed');
+});
+
+test('AEC upgrade preserves the complete track constraint set under replacement semantics', async t => {
+  const initial = { channelCount: { exact: 1 }, noiseSuppression: { ideal: true }, autoGainControl: true, sampleRate: { ideal: 48000 } };
+  let current = initial;
+  const f = captureFixture(t, { capabilities: { echoCancellation: [true, 'all'] },
+    apply: async value => { current = value; } });
+  f.track.getConstraints = () => current;
+  await f.start();
+  assert.deepEqual(current, { ...initial, echoCancellation: { exact: 'all' } });
+});
+
+for (const synchronous of [false, true]) test(`optional constraint ${synchronous ? 'throw' : 'rejection'} keeps the original capture without permission retry`, async t => {
+  const f = captureFixture(t, { capabilities: { echoCancellation: [true, 'all'] }, apply() {
+    const error = new DOMException('Cannot satisfy all', 'OverconstrainedError');
+    if (synchronous) throw error;
+    return Promise.reject(error);
+  } });
+  await f.start();
+  assert.equal(f.constraints.length, 1);
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.capture.echoMode, 'browser-managed');
+  assert.equal(f.track.readyState, 'live');
+  assert.equal(f.nodes.length, 1);
+  assert.deepEqual(f.failures, []);
+});
+
+test('optional upgrade waits at most 750ms; late settings remain observable without another graph', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let finish;
+  const settings = { echoCancellation: true };
+  const f = captureFixture(t, { capabilities: { echoCancellation: [true, 'all'] }, settings,
+    apply: () => new Promise(resolve => { finish = resolve; }) });
+  const pending = f.start(); void pending.catch(() => {});
+  await flushCapture();
+  assert.equal(f.constraints.length, 1);
+  t.mock.timers.tick(749); await flushCapture();
+  assert.equal(f.nodes.length, 0);
+  t.mock.timers.tick(1); await pending;
+  assert.equal(f.nodes.length, 1);
+  assert.equal(f.capture.echoMode, 'browser-managed');
+  settings.echoCancellation = 'all'; finish(); await flushCapture();
+  assert.equal(f.capture.echoMode, 'system-audio');
+  assert.equal(f.nodes.length, 1);
+  assert.equal(f.requests.length, 1);
+});
+
+for (const action of ['stop', 'abort']) for (const outcome of ['resolve', 'reject']) test(`${action} releases a delayed optional upgrade immediately and late ${outcome} cannot restart it`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let finish, settled = false;
+  const f = captureFixture(t, { capabilities: { echoCancellation: [true, 'all'] },
+    apply: (_value, settings) => new Promise((resolve, reject) => {
+      finish = () => {
+        if (outcome === 'reject') reject(Error('late optional rejection'));
+        else { settings.echoCancellation = 'all'; resolve(); }
+      };
+    }) });
+  const abort = new AbortController();
+  const pending = f.start(abort.signal);
+  void pending.then(() => { settled = true; }, () => { settled = true; });
+  await flushCapture();
+  assert.equal(f.constraints.length, 1);
+  if (action === 'stop') f.capture.stop(); else abort.abort();
+  await flushCapture(); assert.equal(settled, true);
+  await assert.rejects(pending, /cancel|start/i);
+  assert.equal(f.track.readyState, 'ended');
+  assert.equal(f.contexts[0].closed, true);
+  assert.equal(f.capture.echoMode, 'unknown');
+  t.mock.timers.tick(750); finish(); await flushCapture();
+  assert.equal(f.capture.echoMode, 'unknown');
+  assert.equal(f.nodes.length, 0);
+  assert.equal(f.modules.length, 0);
+  assert.deepEqual(f.packets, []);
+  assert.deepEqual(f.failures, []);
+});
+
+test('capture denial never retries permission or applies optional constraints', async t => {
+  const f = captureFixture(t, { media: async () => { throw new DOMException('Denied', 'NotAllowedError'); } });
+  await assert.rejects(f.start(), { name: 'NotAllowedError' });
+  assert.equal(f.requests.length, 1);
+  assert.deepEqual(f.constraints, []);
+  assert.equal(f.contexts[0].closed, true);
+  assert.equal(f.capture.echoMode, 'unknown');
+});
+
+test('controller publishes optional capture mode, refreshes settings, and clears stale mode on stop/restart', async () => {
+  const f = fixture();
+  try {
+    f.input.echoMode = 'system-audio';
+    await f.controller.start('normal');
+    assert.equal(f.states.at(-1).echoMode, 'system-audio');
+    f.ws.readyState = 1; f.ws.onopen(); f.event({ type: 'ready' });
+    f.input.echoMode = 'off'; f.event({ type: 'metrics', vad: .2 });
+    assert.equal(f.states.at(-1).echoMode, 'off');
+    f.controller.stop();
+    assert.equal(f.states.at(-1).echoMode, 'unknown');
+    delete f.input.echoMode;
+    await f.controller.start('normal');
+    assert.equal(f.states.at(-1).echoMode, 'unknown');
+  } finally { f.controller.stop(); }
+});
+
+test('repeated controller start shares the pending microphone and opens only one connection', async () => {
+  const f = fixture(); let release, starts = 0, connects = 0;
+  f.input.start = () => { starts++; return new Promise(resolve => { release = resolve; }); };
+  f.controller.connect = () => { connects++; return f.ws; };
+  try {
+    const pending = f.controller.start('normal');
+    await f.controller.start('normal');
+    assert.equal(starts, 1); assert.equal(connects, 0);
+    release(); await pending;
+    await f.controller.start('normal');
+    assert.equal(starts, 1); assert.equal(connects, 1);
+  } finally { f.controller.stop(); }
+});
+
 test('unsupported capture gives an actionable message without requesting permission', async () => {
   const capture = new RealtimeCapture({ current: 0 });
   await assert.rejects(capture.start(new AbortController().signal, () => {}, () => {}), /unavailable.*browser/i);

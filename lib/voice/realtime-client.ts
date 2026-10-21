@@ -1,6 +1,8 @@
+import type { EchoMode } from './realtime-capture';
+
 export type HandsFreePhase = 'off' | 'requesting' | 'connecting' | 'waiting' | 'listening' | 'transcribing' | 'generating' | 'speaking' | 'followup';
-export type HandsFreeState = { phase: HandsFreePhase; error: string; turn: number; vad: number; transcriptionMs: number; probing?: boolean };
-type Input = { start(signal: AbortSignal, packet: (data: ArrayBuffer) => void, fail: (message: string) => void): Promise<void>; stop(): void };
+export type HandsFreeState = { phase: HandsFreePhase; error: string; turn: number; vad: number; transcriptionMs: number; probing?: boolean; echoMode?: EchoMode };
+type Input = { readonly echoMode?: EchoMode; start(signal: AbortSignal, packet: (data: ArrayBuffer) => void, fail: (message: string) => void): Promise<void>; stop(): void };
 type Config = { state: string; websocketUrl?: string; message?: string };
 type Callbacks = { wake(turn: number): void; transcript(text: string, turn: number): void; cancel(): void; pause?(): boolean | Promise<boolean | null>; resume?(): void };
 const phases = ['waiting', 'listening', 'transcribing', 'generating', 'speaking', 'followup'];
@@ -18,10 +20,13 @@ export class HandsFreeController {
   private incoming = 0;
   private probe = 0;
   private lastProbe = 0;
-  private state: HandsFreeState = { phase: 'off', error: '', turn: 0, vad: 0, transcriptionMs: 0 };
+  private state: HandsFreeState = { phase: 'off', error: '', turn: 0, vad: 0, transcriptionMs: 0, echoMode: 'unknown' };
   constructor(private factory: () => Input, private connect: (url: string) => WebSocket,
     private config: (signal: AbortSignal) => Promise<Config>, private notify: (state: HandsFreeState) => void, private callbacks: Callbacks) {}
-  private emit(change: Partial<HandsFreeState>) { this.state = { ...this.state, ...change }; this.notify(this.state); }
+  private emit(change: Partial<HandsFreeState>) {
+    this.state = { ...this.state, ...change, echoMode: this.input?.echoMode ?? 'unknown' };
+    this.notify(this.state);
+  }
   get active() { return this.state.phase !== 'off'; }
   stop(message = '') {
     const wasActive = this.active;

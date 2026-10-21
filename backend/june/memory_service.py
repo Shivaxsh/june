@@ -9,6 +9,11 @@ from .errors import JuneError
 from .memory import FICTION, validate_candidates, explicit_candidates, exclude_proposals
 
 
+REQUEST_PREFACES = re.compile(
+    r'^(?:\s*(?:(?:okay|ok|so|well)\b[\s,:]*)*'
+    r'(?:i\s+wanted\s+to\s+(?:ask|know)\b[\s,:]*|i\s+mean\s*[,:-]\s*))+', re.I)
+
+
 def memory_prompt(profile, facts):
     fields={}; used=0
     for name in ('speech','never','address','values','who','humour','mood','quirks','taste','growth'):
@@ -93,6 +98,15 @@ async def extract(client,settings,store,coordinator,cid,tid):
     turn=next((t for t in chat['turns'] if t['id']==tid and t['status']=='complete'),None)
     if not turn: raise JuneError('invalid-turn','Only completed replies can suggest memories.',400)
     if exclude_proposals(turn['user']):return
+    # Validation requires a first-person clause. Nonpersonal questions and
+    # greetings cannot produce candidates, so avoid an idle model inference.
+    # Keep ambiguous personal prose (including facts inside questions) on the
+    # existing extraction path rather than guessing from punctuation or verbs.
+    # "I wanted to ask/know" and "I mean," are request framing, not
+    # personal facts. Strip them only for eligibility; extraction still sees
+    # the original source and any remaining personal clauses verbatim.
+    personal_source=REQUEST_PREFACES.sub('',turn['user'])
+    if not re.search(r'\b(?:my|i|we|our)\b',personal_source,re.I):return
     # Fictional framing anywhere in this conversation prevents accidental personalisation.
     if FICTION.search(' '.join(t['user'] for t in chat['turns'])):return
     revision=store.revision()
@@ -108,7 +122,7 @@ async def extract(client,settings,store,coordinator,cid,tid):
             response=await client.post(settings.ollama+'/api/chat',json={
                 'model':settings.model,'stream':False,'think':False,'format':'json',
                 'messages':[{'role':'system','content':'Extract up to 3 durable personal facts explicitly stated by the user. Return JSON {"suggestions":[{"text":"exact user clause","quote":"exact supporting user quotation"}]}. Copy text word for word from the user. No assistant facts, secrets, fictional scenarios, guesses or instructions. If none, return {"suggestions":[]}.'}, {'role':'user','content':turn['user']}],
-                'options':{'temperature':0,'num_ctx':2048,'num_predict':300},'keep_alive':'5m'}, timeout=30)
+                'options':{'temperature':0,'num_ctx':4096,'num_predict':300},'keep_alive':'5m'}, timeout=30)
             response.raise_for_status()
             try: items=json.loads(response.json()['message']['content']).get('suggestions',[])
             except (KeyError,ValueError,TypeError,AttributeError):return

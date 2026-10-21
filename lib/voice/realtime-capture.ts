@@ -1,14 +1,58 @@
 // One continuous microphone graph. It produces silent speaker output and
 // transfers only PCM packets to June's local voice connection.
+export type EchoMode = 'system-audio' | 'browser-managed' | 'off' | 'unknown';
+
 export class RealtimeCapture {
   private context: AudioContext | null = null;
   private stream: MediaStream | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private node: AudioWorkletNode | null = null;
   private cancelled = false;
+  private cancelEchoUpgrade: (() => void) | null = null;
   private signal: AbortSignal | null = null;
   private abort = () => this.stop();
   constructor(private level: { current: number }) {}
+  // Read actual settings, including changes after an optional upgrade timed out.
+  // This describes browser processing, not measured acoustic echo removal.
+  get echoMode(): EchoMode {
+    try {
+      const track = this.stream?.getAudioTracks()[0];
+      if (!track || track.readyState === 'ended') return 'unknown';
+      const mode: unknown = track.getSettings?.().echoCancellation;
+      if (mode === 'all') return 'system-audio';
+      if (mode === true || mode === 'remote-only') return 'browser-managed';
+      if (mode === false) return 'off';
+    } catch { /* Older browsers may not expose processing settings. */ }
+    return 'unknown';
+  }
+  private async upgradeEchoCancellation(track: MediaStreamTrack) {
+    try {
+      const modes: unknown = track.getCapabilities?.().echoCancellation;
+      if (!Array.isArray(modes) || !modes.includes('all') || this.cancelled) return;
+    } catch { return; }
+    await new Promise<void>(resolve => {
+      // Detach the capture/resolve callback when finished, even if the browser's
+      // constraint promise remains pending after timeout or Stop.
+      let complete: (() => void) | null = () => {
+        clearTimeout(timer); this.cancelEchoUpgrade = null; resolve();
+      };
+      const finish = () => { const callback = complete; complete = null; callback?.(); };
+      const timer = setTimeout(finish, 750);
+      this.cancelEchoUpgrade = finish;
+      try {
+        // W3C Media Capture 2025 adds string echo modes; TS 5.9 DOM still
+        // types this constraint as boolean. Cast only this advertised request.
+        // https://www.w3.org/TR/mediacapture-streams/#dom-echocancellationmodeenum
+        // applyConstraints replaces the previous dictionary. Preserve capture
+        // processing and any device-specific constraints during this upgrade.
+        const constraints = { channelCount: 1, noiseSuppression: true, autoGainControl: true,
+          ...track.getConstraints?.(), echoCancellation: { exact: 'all' } } as unknown as MediaTrackConstraints;
+        // applyConstraints has no abort API. Bound our wait; consume either late
+        // outcome without creating resources or retrying capture.
+        void track.applyConstraints(constraints).then(finish, finish);
+      } catch { finish(); }
+    });
+  }
   async start(signal: AbortSignal, packet: (data: ArrayBuffer) => void, failed: (message: string) => void) {
     if (typeof AudioContext === 'undefined' || typeof AudioWorkletNode === 'undefined' || !navigator.mediaDevices?.getUserMedia) throw new Error('Microphone streaming is unavailable in this browser. Try a current browser on June’s local page, or keep typing.');
     this.signal = signal; signal.addEventListener('abort', this.abort, { once: true });
@@ -20,6 +64,9 @@ export class RealtimeCapture {
       if (signal.aborted || this.cancelled) { stream.getTracks().forEach(track => track.stop()); throw new Error('Microphone request cancelled.'); }
       this.stream = stream;
       stream.getAudioTracks().forEach(track => track.addEventListener('ended', () => { if (!this.cancelled) failed('The microphone disconnected. Enable hands-free again.'); }, { once: true }));
+      const track = stream.getAudioTracks()[0];
+      if (track) await this.upgradeEchoCancellation(track);
+      if (signal.aborted || this.cancelled) throw new Error('Microphone request cancelled.');
       await resume; await context.audioWorklet.addModule('/audio/realtime-worklet.js');
       signal.throwIfAborted();
       if (this.cancelled || context.state !== 'running') throw new Error('Microphone audio could not start. Enable hands-free again.');
@@ -40,6 +87,7 @@ export class RealtimeCapture {
   }
   stop() {
     this.cancelled = true; this.signal?.removeEventListener('abort', this.abort);
+    this.cancelEchoUpgrade?.();
     this.stream?.getTracks().forEach(track => track.stop()); this.stream = null;
     this.source?.disconnect(); this.source = null;
     if (this.node) { this.node.port.onmessage = null; this.node.port.postMessage('stop'); this.node.disconnect(); this.node.port.close(); this.node = null; }

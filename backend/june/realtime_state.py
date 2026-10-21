@@ -5,6 +5,7 @@ import re
 import struct
 import time
 from difflib import SequenceMatcher
+from collections import Counter
 
 from .errors import JuneError
 from .speech_text import clean_transcript
@@ -44,6 +45,49 @@ def playback_identity(words, index):
     if suffix == 'ti' and words[index + 2:index + 3] == ['super']:
         suffix = 'ti super'
     return words[index], suffix
+
+
+def echoed_gpu_list(words, spoken, source):
+    """A clipped enumeration can contain one ASR digit insertion/deletion.
+
+    Only bare list fragments qualify, with two unchanged full identities and
+    one near-spelled number. Questions, correction cues, a single identifier
+    and suffix changes keep the normal conservative correction behaviour.
+    This is text evidence, not acoustic echo cancellation.
+    """
+    if len(words) < 6 or words.count('rtx') + words.count('gtx') + words.count('rx') < 2:
+        return False
+    allowed={'rtx','gtx','rx','ti','super','xt','xtx','and','or'}
+    candidate=list(words)
+    # Only an unfinished uppercase consonant fragment can be discarded, not
+    # a short real word such as "why", "how" or "no" that changes intent.
+    trailing=re.findall(r'[a-z0-9]+',source,re.I)[-1:]
+    if (trailing and source.rstrip().endswith('...') and trailing[0].isupper()
+            and candidate[-1] not in {'shh','hmm'}
+            and re.fullmatch(r'[bcdfghjklmnpqrstvwxz]{2,3}',candidate[-1])):
+        candidate.pop()
+    if any(not word.isdigit() and word not in allowed for word in candidate):
+        return False
+    identities=Counter(playback_identity(candidate,i) for i,w in enumerate(candidate) if w.isdigit())
+    reference=Counter(playback_identity(spoken,i) for i,w in enumerate(spoken) if w.isdigit())
+    if sum((identities & reference).values()) < 2:
+        return False
+    differences=list((identities-reference).elements())
+    if len(differences) != 1:
+        return False
+    number,suffix=differences[0]
+    if not any(suffix==s and number!=n and SequenceMatcher(None,number,n).ratio() >= .85 for n,s in reference):
+        return False
+    phrase=' '.join(candidate)
+    starts=[i for i,word in enumerate(spoken) if word==candidate[0]
+            or (word.isdigit() and candidate[0].isdigit() and SequenceMatcher(None,word,candidate[0]).ratio() >= .85)]
+    for size in range(max(1,len(candidate)-1),len(candidate)+3):
+        for start in starts:
+            if start+size > len(spoken):continue
+            window=spoken[start:start+size]
+            if SequenceMatcher(None,phrase,' '.join(window),autojunk=False).ratio() >= .88:
+                return True
+    return False
 
 
 class VoiceTurn:
@@ -124,6 +168,8 @@ class VoiceTurn:
         words = [word for word, _ in playback_tokens(clean_transcript(text))]
         spoken = [word for word, _ in playback_tokens(clean_transcript(reference))]
         if words and spoken:
+            if echoed_gpu_list(words,spoken,text):
+                return True
             if any((word.isdigit() or word in {'ti', 'super', 'xt', 'xtx'}) and word not in spoken for word in words):
                 return False
             # A base model is also a correction to a suffixed model. Do not
