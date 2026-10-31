@@ -47,6 +47,6 @@ Keep `.env.local`, runtime/models and raw local verification artifacts out of Gi
 - Existing user conversation was not cleared or reloaded; browser checks used a temporary tab. Voice/transcript interfaces and roadmap data were untouched. No paid provider or public deployment was added.
 - Real microphone-to-reviewed-transcript behaviour was not re-certified with a new human utterance during this model repair. The previously working local capture/transcription implementation was preserved, and its regression suite passed. No Phase 3 completion checkbox was changed.
 
-The screenshot is stored privately within the project at `.june-work/answer-reliability.png`. Changes are committed locally on codex/june-answer-reliability; the public Pages branch is unchanged.
+The screenshot is stored privately within the project at `.june-work/answer-reliability.png`. Changes are committed locally on june-answer-reliability development branch; the public Pages branch is unchanged.
 
 Additional final checks: a live synthetic conversation containing three repeated refusals followed by a harmless country question returned Indonesia correctly. This more complex recovery case is included in the reusable evaluator. The fresh browser France conversation also answered the follow-up "Which country were we discussing?" with France (1.9s total). These checks use synthetic test history; no private user conversation was saved in the public source. Existing failed replies remain visible in their original conversation, but newly submitted requests use the updated model and prompt.

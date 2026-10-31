@@ -646,7 +646,7 @@ Optional model-learning track. Understand model internals and build a deliberate
 
 ## Phase 10 — June's own brain and voice
 
-Optional adaptation track. Start only when a measured behaviour gap remains after model selection, prompts, RAG and tools. Compare an adapter with the baseline and choose a voice separately. A GPU may support larger models and experiments; it does not guarantee Claude/Codex-level reliability.
+Optional adaptation track. Start only when a measured behaviour gap remains after model selection, prompts, RAG and tools. Compare an adapter with the baseline and choose a voice separately. A GPU may support larger models and experiments; it does not guarantee frontier-model reliability.
 
 ### Learn and practise — same order as the artifact
 

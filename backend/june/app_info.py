@@ -150,7 +150,7 @@ def application_reply(model, query, memory_enabled):
     if nonliteral_request(query):
         return None
     q = re.sub(r'^(?:(?:okay|ok|so|please|hey june|june)[\s,!.:]*)+', '', query.strip(), flags=re.I)
-    if re.fullmatch(r"(?:tell me (?:something |a bit |more )?about (?:you|yourself)|who are you|what can you do(?: for me| today| right now)?|what can you help me with|how can you help me|what are your capabilities|what (?:model|AI) (?:are you(?: using)?|do you use)|who (?:made|created|built) you|are you (?:Claude|ChatGPT))[\s?.!]*", q, re.I):
+    if re.fullmatch(r"(?:tell me (?:something |a bit |more )?about (?:you|yourself)|who are you|what can you do(?: for me| today| right now)?|what can you help me with|how can you help me|what are your capabilities|what (?:model|AI) (?:are you(?: using)?|do you use)|who (?:made|created|built) you|are you (?:another|a different) (?:AI|assistant|chatbot))[\s?.!]*", q, re.I):
         return PREFIX + f'I’m June, your locally built assistant, running {model} on this Mac. ' + CONNECTED_CAPABILITIES
     if not personal_recall(q) and re.match(r'(?:can you |could you |would you )?(?:set (?:a |an )?(?:reminder|alarm)|remind me|open (?:my |the )?calendar|(?:check|update|access) my calendar|browse (?:the )?(?:web|internet)|search (?:the )?(?:web|internet))\b', q, re.I):
         return PREFIX + CONNECTED_CAPABILITIES

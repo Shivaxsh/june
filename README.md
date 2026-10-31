@@ -202,7 +202,7 @@ Manual checks: empty input, Enter/Shift+Enter, wrapping, safe `<script>` text, g
 
 ## Phase 0 and the public site
 
-The existing `index.html` and `styles.css` are preserved. [GitHub Pages](https://shivaxsh.github.io/june/) still publishes v0.0 from **main / root**. The published v0.4 source remains on **codex/june-v0.4**; local v0.5.1 repair is on **codex/june-v0.5.1** and is not the Pages publishing branch. [Source repository](https://github.com/Shivaxsh/june).
+The existing `index.html` and `styles.css` are preserved. [GitHub Pages](https://shivaxsh.github.io/june/) still publishes v0.0 from **main / root**. The published v0.4 source remains on **june-v0.4 development branch**; local v0.5.1 repair is on **june-v0.5.1 development branch** and is not the Pages publishing branch. [Source repository](https://github.com/Shivaxsh/june).
 
 Keep `.env.local`, models, screenshots, progress backups and private personality notes out of public Git commits.
 

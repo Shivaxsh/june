@@ -1,6 +1,6 @@
 # June v0.2 verification
 
-Implementation branch: codex/june-v0.2. Local app: http://127.0.0.1:3001.
+Implementation branch: june-v0.2. development branch Local app: http://127.0.0.1:3001.
 
 ## Passed checks
 

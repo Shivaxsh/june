@@ -13,7 +13,7 @@ Approved scope: explicitly enabled local hands-free conversation, automatic send
 
 ## Defaults and interfaces
 
-- Branch `codex/june-v0.4`; current checkout and local port 3001; backend 8001; Ollama 11434.
+- Branch `june-v0.4 development branch`; current checkout and local port 3001; backend 8001; Ollama 11434.
 - Browser captures PCM16 mono at 16 kHz in 20 ms packets. Maximum binary frame 4096 bytes, queued audio 2 seconds, JSON control 32 KB. A congested/disconnected transport stops visibly rather than dropping a question silently.
 - Voice socket: browser sends `start`, `activity`, `cancel-turn`, `ping`; server sends `ready`, `state`, `wake`, `transcript`, `error`, `pong`, `metrics`. Every turn-bearing event includes the server session identifier and monotonic turn number.
 - Browser remains the source of chat history and calls the unchanged `/api/chat` for accepted transcripts. The Python pipeline owns audio boundaries and transcription; browser playback state feeds the follow-up timer. No second conversation store.

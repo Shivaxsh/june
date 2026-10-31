@@ -607,7 +607,7 @@
     "title": "June's own brain and voice",
     "weeks": "8–10 weeks",
     "jarvis": true,
-    "why": "Optional adaptation track. Start only when a measured behaviour gap remains after model selection, prompts, RAG and tools. Compare an adapter with the baseline and choose a voice separately. A GPU may support larger models and experiments; it does not guarantee Claude/Codex-level reliability.",
+    "why": "Optional adaptation track. Start only when a measured behaviour gap remains after model selection, prompts, RAG and tools. Compare an adapter with the baseline and choose a voice separately. A GPU may support larger models and experiments; it does not guarantee frontier-model reliability.",
     "learn": [
       [
         "Her constitution",

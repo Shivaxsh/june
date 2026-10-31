@@ -1,6 +1,6 @@
 # June v0.3.5 — verification record
 
-Date: 13 October 2026. Machine: the existing Intel MacBook Pro, 8 GB RAM. Branch: `codex/june-v0.3.5`. Model: `qwen2.5:1.5b`; input: whisper.cpp v1.9.5 / `base.en`; browser output: saved Nicky, American English.
+Date: 13 October 2026. Machine: the existing Intel MacBook Pro, 8 GB RAM. Branch: `june-v0.3.5 development branch`. Model: `qwen2.5:1.5b`; input: whisper.cpp v1.9.5 / `base.en`; browser output: saved Nicky, American English.
 
 ## Automated checks
 

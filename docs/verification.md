@@ -66,7 +66,7 @@ context stays in browser memory for the session; no persistent memory is impleme
 
 ## Delivery
 
-Source is saved on codex/june-v0.1; main remains the v0.0 Pages publishing source.
+Source is saved on june-v0.1 development branch; main remains the v0.0 Pages publishing source.
 Screenshots and progress backups are stored outside the public repository.
 Only the Phase 1 build checkbox was changed by this upgrade; existing progress
 and personality answers were compared against the preceding export.

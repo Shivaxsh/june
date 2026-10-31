@@ -1,6 +1,6 @@
 # June v0.3 verification
 
-Branch: codex/june-v0.3. Local application: http://127.0.0.1:3001. Voice studio: /learn/phase-3.
+Branch: june-v0.3. development branch Local application: http://127.0.0.1:3001. Voice studio: /learn/phase-3.
 
 ## Passing checks
 

@@ -12,7 +12,7 @@
 
 ## Global constraints
 
-- Project: `/Users/apple/Documents/June`; branch: `codex/june-v0.3.5`.
+- Project: `/Users/apple/Documents/June`; branch: `june-v0.3.5 development branch`.
 - June's URL remains `http://127.0.0.1:3001`; the Python backend uses `127.0.0.1:8001`.
 - Preserve public GitHub Pages v0.0 and the current local Qwen model, Whisper base.en and selected female voice.
 - Free local tools; no subscriptions, commercial AI requests or hardware purchases.

@@ -1,6 +1,6 @@
 # June v0.4 — verification record
 
-Date: 15 October 2026. Intel Mac, macOS 15.7.9, Python 3.12.5. Branch `codex/june-v0.4`. Public v0.0 site untouched.
+Date: 15 October 2026. Intel Mac, macOS 15.7.9, Python 3.12.5. Branch `june-v0.4 development branch`. Public v0.0 site untouched.
 
 ## Automated checks
 

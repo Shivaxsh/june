@@ -1,6 +1,6 @@
 # June v0.3.1 — local speech repair verification
 
-Date: 13 October 2026 (Asia/Kolkata). Branch: `codex/june-v0.3-voice-fix`. App: http://127.0.0.1:3001.
+Date: 13 October 2026 (Asia/Kolkata). Branch: `june-v0.3-voice-fix development branch`. App: http://127.0.0.1:3001.
 
 ## Root cause and repair
 
