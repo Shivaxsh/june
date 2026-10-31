@@ -1,6 +1,6 @@
 {
   "name": "june",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "scripts": {
     "dev": "node scripts/start.mjs dev",
@@ -16,10 +16,12 @@
     "backend:start": "node scripts/backend.mjs start",
     "backend:check": "node scripts/backend.mjs check",
     "backend:test": "PYTHONPATH=backend backend/.venv/bin/python -m unittest discover -s backend/tests -v",
-    "realtime:setup": "node scripts/realtime.mjs"
+    "realtime:setup": "node scripts/realtime.mjs",
+    "audio:setup": "node scripts/audio.mjs",
+    "speech:worker:setup": "node scripts/speech-worker.mjs"
   },
   "dependencies": {
-    "next": "16.4.0",
+    "next": "16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "three": "^0.186.1"

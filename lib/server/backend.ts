@@ -1,5 +1,5 @@
 // Next.js is a small same-origin bridge. AI processing lives in Python.
-type Kind = "chat" | "model-status" | "speech" | "speech-status" | "health" | "library";
+type Kind = "chat" | "model-status" | "speech" | "speech-status" | "health" | "library" | "voice";
 
 export function backendURL() {
   const url = new URL(process.env.JUNE_BACKEND_URL || "http://127.0.0.1:8001");
@@ -69,7 +69,7 @@ export async function proxyBackend(request: Request, path: string, kind: Kind) {
       body = new Uint8Array(size); let offset = 0;
       for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
     }
-    timer = setTimeout(abort, kind === "chat" ? 185000 : kind === "speech" ? 130000 : kind === "library" ? 35000 : 8000);
+    timer = setTimeout(abort, kind === "voice" ? 185000 : kind === "chat" ? 185000 : kind === "speech" ? 130000 : kind === "library" ? 35000 : 8000);
     const upstream = await fetch(backendURL() + path, {
       method: request.method, body: body as BodyInit | undefined, cache: "no-store", signal: controller.signal, redirect: "error",
       headers: body ? { "Content-Type": kind === "speech" ? "audio/wav" : "application/json" } : undefined,

@@ -5,11 +5,12 @@ from pathlib import Path
 import httpx
 
 from .errors import JuneError
-from .speech_text import ReplyIdentityGuard, model_label
-from .app_info import CONFIRMATION, application_reply_for_turn
+from .speech_text import ReplyIdentityGuard, RepetitionGuard, model_label
+from .app_info import CONFIRMATION, CONNECTED_CAPABILITIES, application_reply_for_turn
 import re
 
-PROMPT = Path(__file__).with_name('prompt.txt').read_text().strip()
+PROMPT = (Path(__file__).with_name('prompt.txt').read_text().strip()
+          + '\nApplication-owned connected capabilities: ' + CONNECTED_CAPABILITIES)
 MODEL_KEEP_ALIVE = '15m'
 CORRECTION = re.compile(r"^\s*(?:no[\s,!.:]+)?(?:i (?:mean|meant)\b|i(?:['’]m| am| was) (?:asking|talking) (?:about|for)\b|i asked (?:about|for)\b|actually\b|correction\b)", re.I)
 
@@ -126,6 +127,7 @@ async def stream_chat(client, settings, mode, messages, memory_context=""):
         reassess = reassessment_index(messages)
         inference_messages = messages[:reassess+1] if reassess is not None else messages
         identity = ReplyIdentityGuard(inference_messages)
+        repetition = RepetitionGuard(inference_messages)
         async with asyncio.timeout(180):
             async with client.stream('POST', settings.ollama + '/api/chat', json={
                 'model': settings.model, 'messages': [{'role': 'system', 'content': prompt_for_turn(inference_messages, identity) + memory_context + correction_focus(messages)}, *inference_messages],
@@ -143,8 +145,14 @@ async def stream_chat(client, settings, mode, messages, memory_context=""):
                         raise ValueError('Invalid model text')
                     if message.get('content'):
                         message['content'].encode('utf-8')
-                        for text in identity.push(message['content']):
+                        safe_text = repetition.push(message['content'])
+                        for text in identity.push(safe_text):
                             yield {'type': 'delta', 'text': text}
+                        if repetition.stopped:
+                            for text in identity.finish():
+                                yield {'type': 'delta', 'text': text}
+                            yield {'type': 'done', 'model': settings.model, 'repetitionStopped': True}
+                            return
                         if identity.rejected:
                             yield {'type': 'done', 'model': settings.model}
                             return

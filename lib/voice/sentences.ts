@@ -2,7 +2,10 @@
 // Keeping incomplete fences out of spoken text prevents a partial code block
 // from being read aloud before its closing marker arrives.
 export function spokenText(raw: string, preserveEnd = false) {
-  const plain = raw.replace(/```[\s\S]*?(?:```|$)/g, " ")
+  // An unfinished link label can still acquire punctuation and a destination.
+  // Hold it back until its display text is stable.
+  const stable = raw.replace(/!?\[[^\]]*(?:\](?:\([^)]*)?)?$/, "");
+  const plain = stable.replace(/```[\s\S]*?(?:```|$)/g, " ")
     .replace(/~~~[\s\S]*?(?:~~~|$)/g, " ")
     .replace(/!?\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/https?:\/\/\S+/g, " ")
@@ -20,9 +23,11 @@ export class SentenceBuffer {
     const sentences: string[] = [];
     let start = 0;
     // A look-ahead space prevents splitting a decimal across network chunks.
-    for (const match of text.matchAll(/[.!?]+["'”’)]*(?=\s|$)/g)) {
+    for (const match of text.matchAll(/[.!?]+["'”’)]*(?=\s|$)|[,;:—](?=\s)/g)) {
       const end = (match.index ?? 0) + match[0].length;
       if (!final && end === text.length) continue;
+      // Short clauses sound clipped. Release only a stable, substantial clause.
+      if (/^[,;:—]$/.test(match[0]) && end - start < 64) continue;
       if (/\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|e\.g|i\.e|U\.S)\.$/i.test(text.slice(start, end))) continue;
       const sentence = text.slice(start, end).trim(); if (sentence) sentences.push(sentence); start = end;
     }

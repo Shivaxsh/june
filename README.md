@@ -1,4 +1,4 @@
-# June v0.5
+# June v0.5.1
 
 A personal assistant, built one phase at a time. June combines a Python backend, local streamed text chat, a Canvas particle orb, local Whisper speech recognition and a local female speaking voice.
 
@@ -30,6 +30,8 @@ npm start
 
 Open <http://127.0.0.1:3001>. The status should show **qwen2.5:1.5b · Ready**. Your Mac and the processes must stay running. Press **Control+C** in each terminal to stop them. June stops only processes it started; a separately started Python backend is left running. Nothing starts automatically at login. Port 3001 is intentional: Mad Realm uses 3000. Python uses local port 8001.
 
+**v0.5.1:** [Local audio and reliability guide](docs/v0.5.1.md) · [verification and remaining limitations](docs/v0.5.1-verification.md). Native Mac capture and Nicky playback share an echo-processing engine; the resident Whisper worker avoids loading the model for each recording. Native microphone permission is separate from the browser permission. Speaker-room acceptance remains a human verification gate.
+
 ## First setup or another Mac
 
 Use a recent Node.js release (22 or 24 LTS recommended; this machine uses Node 23.7). From the project folder:
@@ -47,6 +49,7 @@ Start `npm run model:start`. While it runs, use a second terminal:
 ```sh
 npm run model:pull
 npm run speech:setup
+npm run audio:setup
 npm run build
 npm start
 ```
@@ -195,7 +198,7 @@ Manual checks: empty input, Enter/Shift+Enter, wrapping, safe `<script>` text, g
 
 ## Phase 0 and the public site
 
-The existing `index.html` and `styles.css` are preserved. [GitHub Pages](https://shivaxsh.github.io/june/) still publishes v0.0 from **main / root**. The published v0.4 source remains on **codex/june-v0.4**; local v0.5 work is on **codex/june-v0.5** and is not the Pages publishing branch. [Source repository](https://github.com/Shivaxsh/june).
+The existing `index.html` and `styles.css` are preserved. [GitHub Pages](https://shivaxsh.github.io/june/) still publishes v0.0 from **main / root**. The published v0.4 source remains on **codex/june-v0.4**; local v0.5.1 repair is on **codex/june-v0.5.1** and is not the Pages publishing branch. [Source repository](https://github.com/Shivaxsh/june).
 
 Keep `.env.local`, models, screenshots, progress backups and private personality notes out of public Git commits.
 

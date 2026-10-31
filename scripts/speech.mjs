@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setupWorker, checkWorker } from './speech-worker.mjs';
 if (existsSync('.env.local')) process.loadEnvFile('.env.local');
 export const root = process.env.JUNE_SPEECH_HOME || join(homedir(), 'Library', 'Application Support', 'June', 'speech');
 const source = join(root, 'whisper.cpp');
@@ -25,7 +26,7 @@ export async function check() {
   if (!await exists(binary) || !await exists(model)) throw new Error('Local speech is not installed. Run npm run speech:setup.');
   const manifest = JSON.parse(await readFile(join(root, 'ready.json'), 'utf8'));
   if (manifest.version !== 'v1.9.5' || manifest.model !== 'base.en' || await hash(model) !== manifest.sha256) throw new Error('Speech installation failed its integrity check. Run npm run speech:setup.');
-  await run(binary, ['--help']);
+  await checkWorker({ root });
   console.log('Whisper base.en is installed and verified. Audio stays on this Mac.');
 }
 async function setup() {
@@ -55,8 +56,9 @@ async function setup() {
       await rename(part, model);
     } finally { await rm(part, { force: true }); }
   }
+  await setupWorker({ root });
   const output = join(root, 'smoke');
-  await run(binary, ['-m', model, '-f', join(source, 'samples', 'jfk.wav'), '-t', '2', '-ng', '-l', 'en', '-oj', '-of', output, '-np']);
+  await run(binary, ['-m', model, '-f', join(source, 'samples', 'jfk.wav'), '-t', '4', '-ng', '-bo', '1', '-nf', '-l', 'en', '-oj', '-of', output, '-np'], { stdio: 'ignore' });
   const result = JSON.parse(await readFile(output + '.json', 'utf8'));
   if (!result.transcription?.map(item => item.text).join(' ').toLowerCase().includes('country')) throw new Error('Speech smoke transcription failed. No readiness marker was saved.');
   await rm(output + '.json', { force: true });

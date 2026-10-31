@@ -1,5 +1,8 @@
 """Bounded browser transport and one microphone owner for this local backend."""
 import asyncio
+import statistics
+import logging
+import traceback
 from contextlib import suppress
 import importlib
 import json
@@ -9,6 +12,7 @@ import uuid
 from fastapi import WebSocketDisconnect
 
 from .realtime_state import VoiceTurn, PAUSES
+from .errors import JuneError
 
 
 class VoiceSlots:
@@ -26,7 +30,7 @@ class VoiceSlots:
             self.owner = None
 
 
-async def voice_socket(socket, assets, slots, speech):
+async def voice_socket(socket, assets, slots, speech, native_audio=None, runtime=None):
     await socket.accept()
     owner = slots.claim()
     if owner is None:
@@ -40,6 +44,7 @@ async def voice_socket(socket, assets, slots, speech):
     pending = 0
     alive = True
     startup_receiver = None
+    native_source=False;client_owner=None;native_feeder=None;native_level=0.;noise_floor=.001
 
     async def startup(operation):
         # Keep reading disconnects while imports/model construction run off the
@@ -64,6 +69,8 @@ async def voice_socket(socket, assets, slots, speech):
     async def emit(event):
         if not alive:
             return
+        if native_source and client_owner and type(event.get('turn')) is int:
+            await native_audio.update_turn(client_owner,owner,event['turn'],interrupted=event.get('type') in ('wake','interrupt'))
         async with send_lock:
             await asyncio.wait_for(socket.send_json({**event, 'session': owner}), 3)
 
@@ -78,7 +85,7 @@ async def voice_socket(socket, assets, slots, speech):
         pending = max(0, pending - size)
 
     async def metrics(probability):
-        await emit({'type': 'metrics', 'vad': round(probability, 3)})
+        await emit({'type': 'metrics', 'vad': round(probability, 3), **({'level':min(1,native_level*5),'audioEngine':'mac-native'} if native_source else {})})
 
     async def read_control():
         packet = await asyncio.wait_for(socket.receive(), 15)
@@ -96,6 +103,11 @@ async def voice_socket(socket, assets, slots, speech):
         config = await read_control()
         if config.get('type') != 'start' or config.get('pause', 'normal') not in PAUSES:
             raise ValueError('Invalid voice start')
+        native_source=config.get('audioSource')=='native'
+        if native_source:
+            from .native_audio import identifier
+            client_owner=config.get('ownerId')
+            if native_audio is None or not identifier(client_owner):raise ValueError('Invalid native capture owner')
         startup_receiver = asyncio.create_task(socket.receive())
         status = await startup(assets.status())
         if status['state'] != 'ready':
@@ -106,8 +118,21 @@ async def voice_socket(socket, assets, slots, speech):
             await fail(status['message'])
             return
         engine = await startup(asyncio.to_thread(importlib.import_module, 'june.realtime_engine'))
-        detectors = await startup(asyncio.to_thread(engine.Detectors, assets.model))
-        turn = VoiceTurn(emit, speech.transcribe, config.get('pause', 'normal'))
+        detectors = await startup(runtime.detector(engine) if runtime and native_source else asyncio.to_thread(engine.Detectors, assets.model))
+        native_queue=None
+        if native_source:
+            native_queue=await startup(native_audio.capture(client_owner,owner))
+            # Measure one second of processed room audio before announcing ready.
+            async def calibrate():
+                values=[]
+                for _ in range(50):
+                    packet=await asyncio.wait_for(native_queue.get(),3)
+                    if packet.get('error'):raise ValueError('Capture stopped')
+                    _,_,probability=await asyncio.to_thread(detectors.analyse,packet['pcm'])
+                    if probability<.35:values.append(packet['rms'])
+                return max(.0005,statistics.median(values) if values else .001)
+            noise_floor=await startup(calibrate())
+        turn = VoiceTurn(emit, speech.transcribe, config.get('pause', 'normal'),processed_input=native_source)
         pipeline, runner = engine.make_pipeline(detectors, turn, consumed, fail, ready, metrics)
         runner_task = asyncio.create_task(runner.run(pipeline))
         await startup(ready.wait())
@@ -117,6 +142,22 @@ async def voice_socket(socket, assets, slots, speech):
         startup_receiver = None
         await emit({'type': 'ready', 'turn': 0})
         await turn.state('waiting')
+
+        async def feed_native():
+            nonlocal pending,native_level,noise_floor
+            try:
+                while True:
+                    packet=await asyncio.wait_for(native_queue.get(),3)
+                    if packet.get('error'):
+                        await fail(packet['error']);return
+                    pcm=packet['pcm'];native_level=packet['rms']
+                    if pending+len(pcm)>64000:
+                        await fail('Native speech processing fell behind. Enable hands-free again.');return
+                    pending+=len(pcm)
+                    await pipeline.queue_frame(engine.PCMFrame(pcm,processed=True,rms=native_level,noise_floor=noise_floor))
+            except asyncio.CancelledError:raise
+            except (TimeoutError,JuneError,ValueError):await fail('Native microphone capture stopped. Check the audio device and enable hands-free again.')
+        if native_source:native_feeder=asyncio.create_task(feed_native())
 
         async def watchdog():
             while not failed.is_set():
@@ -137,6 +178,7 @@ async def voice_socket(socket, assets, slots, speech):
                 if packet['type'] == 'websocket.disconnect':
                     break
                 if packet.get('bytes') is not None:
+                    if native_source:raise ValueError('Browser PCM is not accepted during native capture')
                     data = packet['bytes']
                     if not data or len(data) > 4096 or len(data) % 2:
                         raise ValueError('Invalid PCM packet')
@@ -167,19 +209,28 @@ async def voice_socket(socket, assets, slots, speech):
                     else:
                         raise ValueError('Invalid voice control')
         finally:
-            for task in (watcher, receiver, failure_wait):
+            for task in (watcher, receiver, failure_wait, native_feeder):
                 if task is not None:
                     task.cancel()
                     with suppress(asyncio.CancelledError, WebSocketDisconnect):
                         await task
     except (WebSocketDisconnect, asyncio.CancelledError):
         pass
+    except JuneError as error:
+        await fail(error.message)
     except (ValueError, TypeError, KeyError, RecursionError, UnicodeError):
         await fail('The voice connection received an invalid message. Enable hands-free again.')
-    except Exception:
+    except Exception as error:
+        frame=traceback.extract_tb(error.__traceback__)[-1]
+        logging.getLogger('june.voice').warning('Voice startup failure type=%s location=%s:%s session=%s',type(error).__name__,frame.name,frame.lineno,owner)
         await fail('Local hands-free could not start. Run npm run realtime:setup and restart June.')
     finally:
         alive = False
+        if native_source and native_audio is not None:
+            with suppress(Exception):await native_audio.release(owner)
+        if native_feeder:
+            native_feeder.cancel()
+            with suppress(asyncio.CancelledError,Exception):await native_feeder
         try:
             if startup_receiver is not None:
                 startup_receiver.cancel()

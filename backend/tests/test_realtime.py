@@ -193,6 +193,26 @@ class Transport(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(slots.owner)
         self.assertTrue(first.closed)
 
+    async def test_native_startup_error_is_actionable_and_releases_slot(self):
+        from types import SimpleNamespace
+        from june.realtime_socket import VoiceSlots,voice_socket
+        from june.errors import JuneError
+        slots=VoiceSlots();events=[]
+        class Socket:
+            async def accept(self):pass
+            async def receive(self):
+                if not hasattr(self,'started'):
+                    self.started=True
+                    return {'type':'websocket.receive','text':'{"type":"start"}'}
+                await asyncio.Future()
+            async def send_json(self,event):events.append(event)
+            async def close(self,**_):pass
+        async def status():raise JuneError('audio-failed','The audio device could not start voice processing (start, code -10875).',503)
+        await voice_socket(Socket(),SimpleNamespace(status=status),slots,None)
+        self.assertIsNone(slots.owner)
+        self.assertIn('-10875',events[0]['message'])
+        self.assertTrue(events[0]['fatal'])
+
     async def test_missing_assets_release_slot(self):
         from types import SimpleNamespace
         from june.realtime_socket import VoiceSlots, voice_socket

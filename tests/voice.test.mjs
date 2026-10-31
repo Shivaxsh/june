@@ -264,3 +264,19 @@ test('callbacks from an ended utterance cannot revive speech or cancel the waiti
   controller.push(1,'Second sentence. ');controller.finish(1);assert.equal(utterances.length,2);
  }finally{controller.dispose();}
 });
+
+test('long replies release complete clauses early without splitting decimals or word fragments', () => {
+  const buffer = new SentenceBuffer();
+  const clause = 'This carefully buffered clause is long enough to play before the entire response arrives,';
+  assert.deepEqual(buffer.push(clause + ' while the next clause is still arriving'), [clause]);
+  assert.deepEqual(buffer.push(' at 3.'), []);
+  assert.deepEqual(buffer.push('14 units. Next '), ['while the next clause is still arriving at 3.14 units.']);
+  assert.deepEqual(buffer.finish(), ['Next']);
+});
+
+test('unfinished markdown links stay buffered instead of changing text already spoken', () => {
+  const buffer = new SentenceBuffer();
+  assert.deepEqual(buffer.push('Read [the guide. '), []);
+  assert.deepEqual(buffer.push('More](https://example.com). Next '), ['Read the guide.', 'More.']);
+  assert.deepEqual(buffer.finish(), ['Next']);
+});

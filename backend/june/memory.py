@@ -8,6 +8,7 @@ import sqlite3
 import time
 import uuid
 from .errors import JuneError
+from .app_info import recall_field, recall_fields, fact_fields, nonliteral_request
 
 FIELDS = ('who', 'values', 'speech', 'humour', 'quirks', 'taste', 'never', 'address', 'mood', 'growth')
 EXPRESSIONS = {'steady': .98, 'calm': .92, 'bright': 1.04}
@@ -289,8 +290,24 @@ PRAGMA user_version=1;
         with self.db() as db:
             db.execute('DELETE FROM memories WHERE id=?',(mid,));self.reset(db)
     def retrieve(self,query):
-        tokens=set(re.findall(r'\w+',query.casefold()))-{'what','the','my','is','i','a','and','do','you','about','me'}
-        facts=self.snapshot()['memories']
+        field = recall_field(query)
+        # Literal/fictional examples cannot cause personal-data retrieval.
+        if nonliteral_request(query):
+            return []
+        stop = {'what','the','my','is','i','a','an','and','do','you','about','me',
+                'can','could','would','will','please','tell','explain','how','to',
+                'of','in','it','that','this','for','with','have','am','are'}
+        tokens = set(re.findall(r'\w+',query.casefold())) - stop
+        facts = self.snapshot()['memories']
+        if field and field not in ('details', 'source'):
+            requested = set(recall_fields(query))
+            facts = [f for f in facts if requested & fact_fields(f['text'])]
+        elif field != 'details':
+            # Field words in general questions ("name of the capital") are not
+            # personal recall. Other topical facts still use lexical relevance.
+            reserved = {'name','age','location','city','gender','favorite','favourite','color','colour'}
+            tokens -= reserved
+            facts = [f for f in facts if tokens & (set(re.findall(r'\w+',f['text'].casefold())) - stop - reserved)]
         facts.sort(key=lambda x:(bool(x['pinned']),len(tokens & set(re.findall(r'\w+',x['text'].casefold()))),x['created']),reverse=True)
         result=[];size=0
         for f in facts:

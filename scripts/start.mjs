@@ -1,7 +1,7 @@
 // Supervise only the processes created here. Ollama stays in its own terminal.
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
-import { root, health, startBackend, stopChild } from './backend.mjs';
+import { root, health, startBackend, stopChild, version } from './backend.mjs';
 
 let backend, web, stopping = false;
 async function shutdown(code = 0) {
@@ -29,7 +29,7 @@ try {
     }
   }
   if (stopping) throw Error('Startup cancelled.');
-  console.log('June v0.5 · Python backend ready · http://127.0.0.1:3001');
+  console.log(`June v${version} · Python backend ready · http://127.0.0.1:3001`);
   web = spawn(process.execPath, [join(root, 'node_modules/next/dist/bin/next'), process.argv[2] === 'dev' ? 'dev' : 'start',
     '--hostname', '127.0.0.1', '--port', '3001'], { cwd: root, stdio: 'inherit', env: process.env });
   web.on('error', error => { console.error(error.message); void shutdown(1); });

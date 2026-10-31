@@ -2,9 +2,10 @@
 from dataclasses import dataclass
 from pathlib import Path
 import os
+import json
 from urllib.parse import urlsplit
 
-VERSION = '0.5.0'
+VERSION = json.loads((Path(__file__).resolve().parents[2] / 'package.json').read_text())['version']
 
 
 def local_url(value: str) -> str:
@@ -35,6 +36,10 @@ class Settings:
             Path(os.environ.get('JUNE_SPEECH_HOME', str(Path.home() / 'Library/Application Support/June/speech'))).expanduser(),
             local_url(os.environ.get('JUNE_BACKEND_URL', 'http://127.0.0.1:8001')),
         )
+
+    @property
+    def audio_home(self):
+        return Path(os.environ.get('JUNE_AUDIO_HOME', str(Path.home() / 'Library/Application Support/June/audio'))).expanduser()
 
     @property
     def data_home(self):

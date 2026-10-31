@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatEvent, ChatMessage, ChatMode, ModelStatus } from "@/lib/chat-types";
 import { MAX_MESSAGE_LENGTH } from "@/lib/chat-types";
+import { JUNE_VERSION } from "@/lib/version";
 import { readJsonLines } from "@/lib/ndjson";
 import { prepareContext } from "@/lib/context";
 
@@ -14,6 +15,7 @@ import { resolveOrb, type Preview } from "@/lib/orb/state";
 
 import { useVoice } from "./voice/useVoice";
 import VoicePanel from "./voice/VoicePanel";
+import ReplyStatus from "./voice/ReplyStatus";
 import { useHandsFree } from "./voice/useHandsFree";
 import HandsFreePanel, { handsFreeLabels } from "./voice/HandsFreePanel";
 import { mergeTranscript } from "@/lib/voice/sentences";
@@ -22,7 +24,7 @@ import LibraryPanel from "./memory/LibraryPanel";
 import { useLibrary } from "./memory/useLibrary";
 import { libraryRequest, LibraryError, type SavedConversation } from "@/lib/memory-types";
 
-type DisplayMessage = ChatMessage & { id: string; state?: "pending" | "complete" | "stopped" | "failed"; limited?: boolean; memoryIds?: string[] };
+type DisplayMessage = ChatMessage & { id: string; state?: "pending" | "complete" | "stopped" | "failed"; limited?: boolean; repetitionStopped?: boolean; memoryIds?: string[] };
 
 export default function Chat() {
   const audio = useAudio();
@@ -86,6 +88,8 @@ export default function Chat() {
     cancel: interrupt,
     pause: voice.pauseForInput,
     resume: voice.resumeAfterInput,
+    audio: () => ({ audioSource: voice.engine, ownerId: voice.ownerId, voiceId: voice.choices.selected }),
+    status: voice.audioStatus, refresh: voice.refreshAudio,
   });
   manualTakeover.current = () => { cancelExtraction(); handsFree.stop(); };
   useEffect(() => {
@@ -98,9 +102,9 @@ export default function Chat() {
   }, [handsFree.active, handsFree.state.turn, busy, voice.speech.phase, voice.speech.error, voice.speech.caption]);
 
   const speechBusy = voice.speech.phase !== "idle";
-  const recordingBusy = voice.recognition.phase !== "idle" || ["listening","transcribing","connecting"].includes(handsFree.state.phase);
+  const recordingBusy = voice.recognition.phase !== "idle" || ["requesting","preparing","listening","transcribing","connecting"].includes(handsFree.state.phase);
   useEffect(() => {
-    if (recordingBusy) { cancelExtraction(); return; }
+    if (recordingBusy || handsFree.active) { cancelExtraction(); return; }
     // Do not compete with a person's immediate follow-up or replace the
     // model's reusable chat prefix while the conversation window is open.
     if (!suggestAfter || busy || speechBusy || library.temporary || handsFree.state.phase === "followup") return;
@@ -109,7 +113,7 @@ export default function Chat() {
       void libraryRequest("extract","POST",suggestAfter,controller.signal).then(() => {if(!controller.signal.aborted) void library.refresh();}).catch(()=>{}).finally(()=>{if(!controller.signal.aborted)setSuggestAfter(null);});
     },700);
     return () => { clearTimeout(timer);controller.abort(); };
-  },[suggestAfter,busy,speechBusy,recordingBusy,library.temporary,handsFree.state.phase]);
+  },[suggestAfter,busy,speechBusy,recordingBusy,library.temporary,handsFree.state.phase,handsFree.active]);
   useEffect(() => {
     const stop = () => { interrupt(); voice.cancel(); audio.stop(); handsFree.stop(); };
     const hide = () => {if(document.hidden)stop();};
@@ -171,8 +175,11 @@ export default function Chat() {
     composer.current?.focus();
   }
 
-  async function send(input?: { content: string; voiceTurn: number }) {
-    if (!input) handsFree.stop();
+  async function send(input?: { content: string; voiceTurn?: number }) {
+    const automatic = input?.voiceTurn !== undefined;
+    const voiceSessionId = automatic ? handsFree.sessionId() : '';
+    if (automatic && !voiceSessionId) return;
+    if (!automatic) handsFree.stop();
     const content = (input?.content ?? draft).trim();
     if (!content || busyRef.current || voice.recognition.phase !== "idle" || content.length > MAX_MESSAGE_LENGTH) return;
     if ((!library.data || library.error) && !library.temporary) {setError("Private storage is unavailable. Retry storage or explicitly choose temporary chat.");return;}
@@ -184,8 +191,8 @@ export default function Chat() {
     setTiming("");
     if (!input) setDraft("");
     const id = ++requestId.current;
-    spokenTurn.current = input ? { turn: input.voiceTurn, request: id, complete: false } : null;
-    voice.begin(id, !!input);
+    spokenTurn.current = input?.voiceTurn !== undefined ? { turn: input.voiceTurn, request: id, complete: false } : null;
+    voice.begin(id, automatic, automatic ? { voiceSessionId, turnId: input!.voiceTurn! } : undefined);
     const controller = new AbortController();
     active.current = controller;
     const user: ChatMessage = { role: "user", content };
@@ -198,6 +205,8 @@ export default function Chat() {
     let reply = "";
     let complete = false;
     let replyLimited = false;
+    let repetitionStopped = false;
+    const stageTimings: Record<string, number> = {};
     let memoryIds: string[] = [];
     const turnId=crypto.randomUUID();
     let savedConversation=conversationIdRef.current;
@@ -213,7 +222,7 @@ export default function Chat() {
     const update = (state: DisplayMessage["state"]) => {
       if (id !== requestId.current) return;
       setMessages(previous => previous.map(message => message.id === assistantId
-        ? { ...message, content: reply, state, limited: replyLimited, memoryIds } : message));
+        ? { ...message, content: reply, state, limited: replyLimited, repetitionStopped, memoryIds } : message));
     };
     try {
       if (!library.temporary && !savedConversation) {
@@ -245,9 +254,13 @@ export default function Chat() {
         } else if (event.type === "done" && typeof event.model === "string") {
           complete = true;
           replyLimited = event.limited === true;
+          repetitionStopped = event.repetitionStopped === true;
+          if (repetitionStopped) { spokenTurn.current = null; voice.stopVoice('repetition-stopped'); }
           memoryIds = Array.isArray(event.memoryIds) ? event.memoryIds : [];
           if(!library.temporary && event.persistence!=="saved") throw new Error("This reply was not confirmed saved. Check private storage.");
           break;
+        } else if (event.type === 'timing') {
+          if (typeof event.stage === 'string' && /^[a-z][a-z0-9_-]{0,39}$/i.test(event.stage) && typeof event.durationMs === 'number' && Number.isFinite(event.durationMs) && event.durationMs >= 0) stageTimings[event.stage] = event.durationMs;
         } else if (event.type === "error" && typeof event.message === "string") {
           throw new Error(event.message);
         } else throw new Error("June sent an invalid update.");
@@ -256,15 +269,16 @@ export default function Chat() {
       if (id !== requestId.current) return;
       if (!complete || !reply.trim()) throw new Error("The reply ended unexpectedly. Please try again.");
       if (spokenTurn.current?.request === id) spokenTurn.current.complete = true;
-      voice.finish(id, !replyLimited);
-      history.current = [...context, { role: "assistant", content: reply }];
+      if (!repetitionStopped) voice.finish(id, !replyLimited);
+      if (!repetitionStopped) history.current = [...context, { role: "assistant", content: reply }];
       update("complete");
       void library.refresh();
-      if(mode==="local" && !library.temporary && savedConversation) setSuggestAfter({conversationId:savedConversation,turnId});
+      if(!repetitionStopped && mode==="local" && !library.temporary && savedConversation) setSuggestAfter({conversationId:savedConversation,turnId});
       const elapsed = ((performance.now() - started) / 1000).toFixed(1);
       const first = ((firstToken - started) / 1000).toFixed(1);
-      setTiming(`${elapsed}s total · first text in ${first}s`);
-      setAnnouncement(replyLimited ? "June reached the reply length limit. Ask her to continue." : "June’s reply is complete.");
+      setTiming(`${elapsed}s total · first text in ${first}s${Object.entries(stageTimings).map(([stage, ms]) => ` · ${stage} ${(ms / 1000).toFixed(1)}s`).join('')}`);
+      if (repetitionStopped && automatic) handsFree.stop("June stopped a repeated reply. Retry manually when you’re ready.");
+      setAnnouncement(repetitionStopped ? "Repeated reply stopped. The text is preserved; retry manually." : replyLimited ? "June reached the reply length limit. Ask her to continue." : "June’s reply is complete.");
     } catch (failure) {
       if (id !== requestId.current) return;
       voice.stopVoice();
@@ -275,10 +289,10 @@ export default function Chat() {
         update("failed");
         setError(failure instanceof Error ? failure.message : "June could not finish this reply.");
         if (!input) setDraft(content);
-        setAnnouncement(input ? "Voice reply failed. Your typed draft is unchanged." : "Reply failed. Your message is back in the input so you can retry.");
+        setAnnouncement(automatic ? "Voice reply failed. Your typed draft is unchanged." : "Reply failed. Your message is back in the input so you can retry.");
         if (mode === "local") void reconnect();
       }
-      if (input) handsFree.stop(controller.signal.aborted ? "" : "The local reply failed. Check June’s connection, then enable hands-free again.");
+      if (automatic) handsFree.stop(controller.signal.aborted ? "" : "The local reply failed. Check June’s connection, then enable hands-free again.");
     } finally {
       if (id === requestId.current) {
         active.current = null;
@@ -292,7 +306,7 @@ export default function Chat() {
   const voiceActivity = { listening: voice.recognition.phase === "listening", speaking: voice.speech.phase === "speaking", requesting: voice.recognition.phase === "requesting", finishing: voice.recognition.phase === "finishing" };
   const automatic = handsFree.state.phase;
   const orb = handsFree.active ? {
-    mood: handsFree.state.probing ? "listening" as const : voiceActivity.speaking ? "speaking" as const : ["listening", "followup"].includes(automatic) ? "listening" as const : ["generating", "transcribing", "connecting"].includes(automatic) ? "thinking" as const : "idle" as const,
+    mood: handsFree.state.probing ? "listening" as const : voiceActivity.speaking ? "speaking" as const : ["listening", "followup"].includes(automatic) ? "listening" as const : ["generating", "transcribing", "connecting", "preparing", "requesting"].includes(automatic) ? "thinking" as const : "idle" as const,
     label: handsFree.state.probing ? "Checking microphone sound · voice paused" : voiceActivity.speaking ? "June is speaking · speak to interrupt" : handsFreeLabels[automatic],
   } : resolveOrb(busy, mode === "demo", preview, audio.phase, voiceActivity);
   const stopAll = () => { handsFree.stop(); interrupt(); voice.cancel(); audio.stop(); setAnnouncement("Stopped. Microphone off; ready for another message."); };
@@ -306,20 +320,20 @@ export default function Chat() {
     <div className="chat-page">
       <header className="masthead">
         <a className="wordmark" href="/" aria-label="June home"><span className="brand-dot" />june</a>
-        <div className="header-actions"><span className="version">June v0.5</span><button className="quiet-button" onClick={() => newChat()}>New chat</button></div>
+        <div className="header-actions"><span className="version">June v{JUNE_VERSION}</span><button className="quiet-button" onClick={() => newChat()}>New chat</button></div>
       </header>
 
       <main className="chat-shell">
         <section className="face-section" aria-labelledby="june-title">
           <div className="face-copy"><p className="eyebrow">Phase 6 · Memory and personality</p><h1 id="june-title">A little more<br /><em>personal.</em></h1><p className="subtitle">A familiar voice. A memory you approve. A conversation to return to.</p><a className="learn-link" href="/learn/phase-6">Inside memory and personality <span aria-hidden="true">↗</span></a><OrbControls preview={preview} onPreview={setPreview} still={still} onStill={setStill} disabled={busy || handsFree.active} /></div>
-          <Orb expression={library.temporary ? "steady" : library.data?.profile.expression} mood={orb.mood} label={orb.label} level={handsFree.active ? handsFree.level : voice.recognition.phase === "listening" ? voice.level : audio.level} still={still} activity={voice.activity} speechActive={voice.speech.phase === "speaking" && !handsFree.state.probing} />
+          <Orb expression={library.temporary ? "steady" : library.data?.profile.expression} mood={orb.mood} label={orb.label} level={voice.engine === "native" && voice.speech.phase === "speaking" ? voice.activity : handsFree.active ? handsFree.level : voice.recognition.phase === "listening" ? voice.level : audio.level} still={still} activity={voice.engine === "browser" ? voice.activity : undefined} speechActive={voice.engine === "browser" && voice.speech.phase === "speaking" && !handsFree.state.probing} />
         </section>
         <LibraryPanel onDeleteActive={()=>newChat()} library={library} activeId={conversationId} onOpen={openConversation} />
-        <HandsFreePanel controls={handsFree} enabled={!busy && (!!library.data && !library.error || library.temporary) && mode === "local" && status?.state === "ready" && voice.speakReplies && !!voice.choices.selected && voice.support.recognition} onStart={() => { cancelExtraction(); audio.stop(); voice.cancel(); setPreview("auto"); handsFree.start(); }} />
+        <HandsFreePanel controls={handsFree} enabled={voice.engine === 'native' && !!voice.ownerId && !busy && (!!library.data && !library.error || library.temporary) && mode === "local" && status?.state === "ready" && voice.speakReplies && !!voice.choices.selected && voice.support.recognition} onStart={() => { cancelExtraction(); audio.stop(); voice.cancel(); setPreview("auto"); handsFree.start(); }} />
         {handsFree.active && <button className="quiet-button all-stop" onClick={stopAll}>Stop conversation &amp; microphone</button>}
         <VoicePanel voice={voice} busy={busy} onUse={useTranscript} onActivate={() => { cancelExtraction(); setPreview("auto"); }} />
         {(voice.recognition.phase !== "idle" || voice.speech.phase !== "idle") && !busy && <button className="quiet-button all-stop" onClick={stopAll}>Stop all voice activity</button>}
-        <details className="sound-workshop"><summary>Sound &amp; microphone <span>{audio.phase === "listening" ? "Microphone active" : audio.phase === "playing" ? "Audio playing" : audio.phase === "requesting" ? "Permission pending" : audio.phase === "paused" ? "Paused" : "Explore audio reactivity"}</span></summary><AudioPanel audio={audio} disableCapture={busy || voice.recognition.phase !== "idle"} onActivate={() => { cancelExtraction(); handsFree.stop(); voice.cancel(); setPreview("auto"); }} /></details>
+        <details className="sound-workshop"><summary>Sound &amp; microphone <span>{audio.phase === "listening" ? "Microphone active" : audio.phase === "playing" ? "Audio playing" : audio.phase === "requesting" ? "Permission pending" : audio.phase === "paused" ? "Paused" : "Explore audio reactivity"}</span></summary>{voice.engine === "native" && <p className="handsfree-note">Choose browser audio above to use this workshop’s microphone.</p>}<AudioPanel audio={audio} disableCapture={voice.engine !== "browser" || busy || voice.recognition.phase !== "idle"} onActivate={() => { cancelExtraction(); handsFree.stop(); voice.cancel(); setPreview("auto"); }} /></details>
 
         <div className="connection-bar">
           <div className="connection-copy"><span className={`status-dot ${mode === "demo" ? "demo" : status?.state === "ready" ? "ready" : "offline"}`} /><span><strong>{mode === "demo" ? "Simulated demo" : status?.model || "Local AI"}</strong><span className="connection-description">{connection}</span></span></div>
@@ -332,7 +346,11 @@ export default function Chat() {
           if (panel) nearBottom.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 100;
         }}>
           {!messages.length && <div className="empty-state"><span className="empty-label">A BEGINNING, WITH ROOM TO GROW</span><h2>Hello, I’m <em>June.</em></h2><p>Ask a question, explore an idea, or just say hello.</p><div className="suggestions">{["Introduce yourself, June.", "Explain async/await simply."].map(text => <button key={text} onClick={() => { setDraft(text); composer.current?.focus(); }}>{text}<span aria-hidden="true">↗</span></button>)}</div></div>}
-          {messages.map(message => <article key={message.id} className={`message ${message.role}`} aria-label={message.role === "user" ? "Your message" : "June’s message"}><span className="message-label">{message.role === "user" ? "YOU" : "JUNE"}</span><div className="message-text">{message.content || (message.state === "pending" ? <span className="waiting">Thinking<span aria-hidden="true">…</span></span> : message.state === "stopped" ? "Reply stopped." : "No reply yet.")}</div>{message.state === "stopped" && message.content && <span className="message-note">Stopped · partial reply</span>}{message.limited && <span className="message-note">Reply length limit reached · ask June to continue</span>}{message.state === "failed" && <span className="message-note">Not completed · your typed draft is preserved</span>}{message.role === "assistant" && !!message.memoryIds?.length && <details className="used-memories"><summary>Saved memories used ({message.memoryIds.length})</summary>{message.memoryIds.map(mid=><p key={mid}>{library.data?.memories.find(m=>m.id===mid)?.text || "This saved memory has since been removed."}</p>)}</details>}{message.role === "assistant" && message.state === "complete" && <button className="quiet-button hear-reply" disabled={busy || !voice.choices.selected} onClick={() => { setPreview("auto"); voice.replay(message.content); }}>Hear reply</button>}</article>)}
+          {messages.map(message => <article key={message.id} className={`message ${message.role}`} aria-label={message.role === "user" ? "Your message" : "June’s message"}><span className="message-label">{message.role === "user" ? "YOU" : "JUNE"}</span><div className="message-text">{message.content || (message.state === "pending" ? <span className="waiting">Thinking<span aria-hidden="true">…</span></span> : message.state === "stopped" ? "Reply stopped." : "No reply yet.")}</div><ReplyStatus state={message.state} hasContent={!!message.content} limited={message.limited} repetitionStopped={message.repetitionStopped} busy={busy} onRetry={() => {
+            const index = messages.findIndex(item => item.id === message.id);
+            const question = messages[index - 1];
+            if (question?.role === 'user') void send({ content: question.content });
+          }} />{message.role === "assistant" && !!message.memoryIds?.length && <details className="used-memories"><summary>Approved facts provided ({message.memoryIds.length})</summary>{message.memoryIds.map(mid=><p key={mid}>{library.data?.memories.find(m=>m.id===mid)?.text || "This saved memory has since been removed."}</p>)}</details>}{message.role === "assistant" && message.state === "complete" && !message.repetitionStopped && <button className="quiet-button hear-reply" disabled={busy || !voice.choices.selected} onClick={() => { setPreview("auto"); voice.replay(message.content); }}>Hear reply</button>}</article>)}
         </div>
 
         <div className="composer-area">

@@ -18,6 +18,9 @@ from .errors import JuneError
 from .speech import SpeechService, MAX_AUDIO_BYTES
 from .realtime_assets import RealtimeAssets
 from .realtime_socket import VoiceSlots, voice_socket
+from .native_audio import NativeAudioService
+from .voice_api import router as voice_router
+from .voice_runtime import VoiceRuntime
 
 
 @asynccontextmanager
@@ -31,9 +34,12 @@ async def lifespan(app):
     app.state.speech = SpeechService(app.state.settings)
     app.state.voice_assets = RealtimeAssets(app.state.settings)
     app.state.voice_slots = VoiceSlots()
+    app.state.native_audio = NativeAudioService(app.state.settings.audio_home)
     async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=5), trust_env=False,
                                  limits=httpx.Limits(max_connections=6, max_keepalive_connections=3)) as client:
         app.state.client = client
+        app.state.voice_runtime = VoiceRuntime(app.state.settings,client,app.state.speech,app.state.native_audio,app.state.voice_assets,app.state.coordinator,app.state.store)
+        app.state.voice_runtime.start()
         async def sweep():
             while True:
                 await asyncio.sleep(60)
@@ -44,6 +50,9 @@ async def lifespan(app):
         try: yield
         finally:
             sweeper.cancel()
+            await app.state.voice_runtime.close()
+            await app.state.native_audio.close()
+            if hasattr(app.state.speech,'close'):await app.state.speech.close()
             await app.state.coordinator.cancel()
             with suppress(asyncio.CancelledError):await sweeper
 
@@ -98,6 +107,7 @@ class LocalOnly:
 
 app.add_middleware(LocalOnly)
 app.include_router(memory_router)
+app.include_router(voice_router)
 
 
 @app.exception_handler(JuneError)
@@ -164,13 +174,22 @@ async def speech_status(request: Request):
 
 @app.get('/api/voice/status')
 async def realtime_status(request: Request):
-    result = await request.app.state.voice_assets.status()
-    if result['state'] == 'ready':
-        speech = await request.app.state.speech.status()
-        if speech['state'] != 'ready':
-            result = {'state': 'setup-required', 'message': speech['message']}
-    return {**result, 'busy': request.app.state.voice_slots.owner is not None,
-            'wakePhrase': 'Hey June', 'transport': 'local-websocket', 'model': 'Whisper base.en'}
+    state=request.app.state
+    result=await state.voice_assets.status()
+    audio=await state.native_audio.status()
+    speech=await state.speech.status()
+    runtime=state.voice_runtime
+    await runtime.refresh_model()
+    if result['state']=='ready' and speech['state']!='ready':result={'state':'setup-required','message':speech['message']}
+    if result['state']=='ready' and audio['state']!='ready':result={'state':'setup-required','message':audio['message']}
+    whisper_warm=bool(speech.get('warm',getattr(state.speech,'warm_ready',False)))
+    if result['state']=='ready' and runtime.enabled and not (runtime.model_warm and runtime.detectors_warm and whisper_warm and audio.get('voiceWarm')):
+        result={'state':'preparing','message':runtime.message}
+        runtime.retry_preparation()
+    return {**result,'busy':state.voice_slots.owner is not None,'wakePhrase':'Hey June',
+        'transport':'local-websocket','model':'Whisper base.en','audioEngine':'mac-native',
+        'nativeReady':audio.get('nativeReady',False),'permission':audio.get('permission','unknown'),
+        'whisperWarm':whisper_warm,'modelWarm':runtime.model_warm,'voiceWarm':audio.get('voiceWarm',False)}
 
 
 @app.websocket('/ws/voice')
@@ -180,7 +199,7 @@ async def realtime(socket: WebSocket):
         await socket.close(code=1008)
         return
     await socket.app.state.coordinator.cancel('extract')
-    await voice_socket(socket, socket.app.state.voice_assets, socket.app.state.voice_slots, socket.app.state.speech)
+    await voice_socket(socket, socket.app.state.voice_assets, socket.app.state.voice_slots, socket.app.state.speech, socket.app.state.native_audio, socket.app.state.voice_runtime)
 
 
 async def until_disconnect(request, operation):

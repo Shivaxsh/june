@@ -3,6 +3,8 @@ import asyncio
 from dataclasses import dataclass
 import json
 import time
+from functools import lru_cache
+from .signal_gate import ProcessedSignalGate
 
 from loguru import logger
 logger.disable('pipecat')
@@ -17,9 +19,13 @@ from vosk import Model, KaldiRecognizer, SetLogLevel
 SetLogLevel(-1)
 
 
+@lru_cache(maxsize=1)
+def wake_model(path):
+    return Model(str(path))
+
 class Detectors:
     def __init__(self, model):
-        self.model = Model(str(model))
+        self.model = wake_model(str(model))
         self.wake = KaldiRecognizer(self.model, 16000, '["hey june", "[unk]"]')
         self.wake.SetWords(True)
         self.wake.SetPartialWords(True)
@@ -50,6 +56,9 @@ class Detectors:
 @dataclass
 class PCMFrame(DataFrame):
     audio: bytes
+    processed: bool = False
+    rms: float = 0.
+    noise_floor: float = .001
 
 
 @dataclass
@@ -64,12 +73,15 @@ class DetectionProcessor(FrameProcessor):
     def __init__(self, detectors, fail):
         super().__init__()
         self.detectors, self.fail = detectors, fail
+        self.processed_gate = ProcessedSignalGate()
 
     async def process_frame(self, frame, direction):
         await super().process_frame(frame, direction)
         if isinstance(frame, PCMFrame):
             try:
                 voiced, wake, probability = await asyncio.to_thread(self.detectors.analyse, frame.audio)
+                if frame.processed:
+                    voiced,wake = self.processed_gate.accept(len(frame.audio),probability,frame.rms,frame.noise_floor,wake)
                 await self.push_frame(DetectionFrame(frame.audio, voiced, wake, probability), direction)
             except Exception:
                 await self.fail('Local speech detection failed. Disable hands-free and run its setup again.')

@@ -379,3 +379,64 @@ test('nonfinite input becomes silence and clipping remains bounded',()=>{
   resampler.push(Float32Array.from({length:48000},(_,i)=>i%2?NaN:Infinity));
   assert.ok(packets.length>0);assert.ok(packets.every(p=>p.every(x=>x===0)));
 });
+
+test('native session never creates browser capture and forwards owner, voice, mic level and timings', async () => {
+  const sent = [], states = [];
+  const ws = { readyState: 1, send: data => sent.push(JSON.parse(data)), close() {} };
+  const controller = new HandsFreeController(() => { throw Error('Browser microphone must not be requested'); }, () => ws,
+    async () => ({ state: 'ready', websocketUrl: 'ws://127.0.0.1:8001/ws/voice', nativeReady: true, audioEngine: 'mac-native', permission: 'not-determined' }), state => states.push(state),
+    { wake() {}, transcript() {}, cancel() {} });
+  try {
+    await controller.start('short', { audioSource: 'native', ownerId: '123e4567-e89b-42d3-a456-426614174000', voiceId: 'com.apple.ttsbundle.siri_nicky_en-US_compact' });
+    assert.equal(states.at(-1).phase, 'connecting'); ws.onopen();
+    assert.deepEqual(sent[0], { type: 'start', pause: 'short', audioSource: 'native', ownerId: '123e4567-e89b-42d3-a456-426614174000', voiceId: 'com.apple.ttsbundle.siri_nicky_en-US_compact' });
+    const event = data => ws.onmessage({ data: JSON.stringify({ session: 'native-session', ...data }) });
+    event({ type: 'ready', session: 'native-session' });
+    assert.equal(states.at(-1).sessionId, 'native-session'); assert.equal(controller.sessionId, 'native-session');
+    event({ type: 'state', turn: 0, phase: 'requesting', permission: 'requesting' });
+    assert.equal(states.at(-1).phase, 'requesting');
+    event({ type: 'state', turn: 0, phase: 'preparing', permission: 'granted' });
+    assert.equal(states.at(-1).phase, 'preparing');
+    event({ type: 'metrics', level: .42, vad: .7 });
+    assert.equal(states.at(-1).level, .42);
+    event({ type: 'timing', turn: 0, stage: 'whisper', durationMs: 123 });
+    assert.equal(states.at(-1).timings.whisper, 123);
+  } finally { controller.stop(); }
+});
+
+test('native microphone preparation can arrive before ready and never acquires browser capture', async () => {
+  const states = [], ws = { readyState: 1, send() {}, close() {} };
+  const controller = new HandsFreeController(() => { throw Error('must not capture'); }, () => ws,
+    async () => ({ state: 'ready', nativeReady: true, websocketUrl: 'ws://127.0.0.1:8001/ws/voice' }), state => states.push(state), { wake() {}, transcript() {}, cancel() {} });
+  try {
+    await controller.start('short', { audioSource: 'native', ownerId: '123e4567-e89b-42d3-a456-426614174000', voiceId: 'nicky' }); ws.onopen();
+    ws.onmessage({ data: JSON.stringify({ type: 'state', phase: 'requesting', permission: 'requesting' }) });
+    assert.equal(states.at(-1).phase, 'requesting'); assert.equal(states.at(-1).permission, 'requesting');
+    ws.onmessage({ data: JSON.stringify({ type: 'ready', session: '123e4567-e89b-42d3-a456-426614174001' }) });
+    assert.equal(controller.sessionId, '123e4567-e89b-42d3-a456-426614174001');
+  } finally { controller.stop(); }
+});
+
+test('voice status adapter validates readiness while preserving native permission and warming fields', async () => {
+  const { fetchVoiceConfig } = await load('../lib/voice/realtime-client.ts');
+  const data = { state: 'ready', message: 'Native ready', audioEngine: 'mac-native', nativeReady: true, permission: 'not-determined', whisperWarm: false, modelWarm: true };
+  assert.deepEqual(await fetchVoiceConfig(new AbortController().signal, async () => Response.json(data)), data);
+  await assert.rejects(() => fetchVoiceConfig(new AbortController().signal, async () => Response.json({ state: 3 })), /status|unavailable/i);
+});
+
+test('hands-free timings are scoped to the current session and turn rather than mixed with earlier questions', async () => {
+  const f = fixture();
+  try {
+    await f.controller.start('short'); f.ws.readyState = 1; f.ws.onopen(); f.event({ type: 'ready', turn: 0 }); f.event({ type: 'wake', turn: 1 });
+    f.event({ type: 'timing', turn: 1, stage: 'endDetection', durationMs: 800 });
+    f.event({ type: 'timing', turn: 1, stage: 'transcription', durationMs: 230 });
+    assert.deepEqual(f.states.at(-1).timings, { endDetection: 800, transcription: 230 });
+    f.event({ type: 'wake', turn: 2 }); assert.deepEqual(f.states.at(-1).timings, {});
+    f.event({ type: 'timing', turn: 1, stage: 'transcription', durationMs: 999 });
+    f.event({ type: 'timing', session: 'old-session', turn: 2, stage: 'endDetection', durationMs: 999 });
+    f.event({ type: 'timing', turn: 2, stage: 'transcription', durationMs: -1 });
+    assert.deepEqual(f.states.at(-1).timings, {});
+    f.event({ type: 'timing', turn: 2, stage: 'endDetection', durationMs: 0 });
+    assert.deepEqual(f.states.at(-1).timings, { endDetection: 0 });
+  } finally { f.controller.stop(); }
+});

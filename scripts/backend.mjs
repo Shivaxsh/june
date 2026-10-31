@@ -1,13 +1,13 @@
 // A private Python environment, one local worker, and no global pip installs.
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolve, join } from 'node:path';
 
 export const root = fileURLToPath(new URL('../', import.meta.url));
 if (existsSync(join(root, '.env.local'))) process.loadEnvFile(join(root, '.env.local'));
 export const python = join(root, 'backend/.venv/bin/python');
-export const version = '0.5.0';
+export const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
 
 export function address() {
   const url = new URL(process.env.JUNE_BACKEND_URL || 'http://127.0.0.1:8001');
@@ -31,7 +31,7 @@ export function startBackend() {
   const url = address();
   return spawn(python, ['-m', 'uvicorn', 'june.app:app', '--app-dir', 'backend', '--host', url.hostname.replace(/[\[\]]/g, ''),
     '--port', url.port || '80', '--workers', '1', '--ws-max-size', '32768', '--timeout-graceful-shutdown', '5', '--no-access-log'],
-  { cwd: root, stdio: 'inherit', env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONDONTWRITEBYTECODE: '1', LOGURU_LEVEL: 'WARNING' } });
+  { cwd: root, stdio: 'inherit', env: { ...process.env, JUNE_PREWARM: process.env.JUNE_PREWARM || '1', PYTHONUNBUFFERED: '1', PYTHONDONTWRITEBYTECODE: '1', LOGURU_LEVEL: 'WARNING' } });
 }
 
 export async function health() {

@@ -91,8 +91,9 @@ def echoed_gpu_list(words, spoken, source):
 
 
 class VoiceTurn:
-    def __init__(self, emit, transcribe, pause='normal', clock=time.monotonic):
+    def __init__(self, emit, transcribe, pause='normal', clock=time.monotonic, processed_input=False):
         self.emit, self.transcribe, self.clock = emit, transcribe, clock
+        self.processed_input = processed_input
         self.pause = PAUSES[pause]
         self.phase, self.number = 'waiting', 0
         self.buffer, self.preroll = bytearray(), bytearray()
@@ -308,6 +309,13 @@ class VoiceTurn:
         self.probe_job = asyncio.create_task(owned())
 
     async def consider_interruption(self, voiced, duration, now):
+        if self.processed_input:
+            # Only native AEC/NS output reaches this path. Its VAD and adaptive
+            # energy gate run upstream; raw browser sound never uses it.
+            self.interrupt_voiced = self.interrupt_voiced + duration if voiced else 0.
+            if self.interrupt_voiced + 1e-6 >= .18:
+                await self.interrupt()
+            return
         if self.probe:
             probe = self.probe
             paused = probe['paused']
@@ -457,6 +465,7 @@ class VoiceTurn:
         if self.closed:
             return
         number, clip = self.number, pcm_wav(bytes(self.buffer[:960000]))
+        end_detection_ms = round(self.silence * 1000)
         self.buffer.clear()
         self.preroll.clear()
         self.preroll_voice.clear()
@@ -464,6 +473,8 @@ class VoiceTurn:
         self.interrupt_voiced = 0.
         self.deadline = None
         await self.state('transcribing')
+        if not self.closed and number == self.number:
+            await self.emit({'type':'timing','turn':number,'stage':'endDetection','durationMs':end_detection_ms})
         # Socket sends yield to disconnects and newer wake turns. Never create
         # a new engine task after those owners have already cleaned up.
         if self.closed or number != self.number:
@@ -474,6 +485,7 @@ class VoiceTurn:
                 result = await self.transcribe(clip)
                 if self.closed or number != self.number:
                     return
+                await self.emit({'type':'timing','turn':number,'stage':'transcription','durationMs':result['durationMs']})
                 text = remove_wake_phrase(clean_transcript(result['text']))
                 if self.echo_check:
                     text = self.without_playback_prefix(text, ' '.join(self.playback))

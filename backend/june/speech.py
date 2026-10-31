@@ -1,4 +1,4 @@
-"""Strict WAV validation and one cancellable CPU-only Whisper job at a time."""
+"""Strict WAV validation and one supervised resident CPU-only Whisper worker."""
 import asyncio
 import hashlib
 import json
@@ -13,6 +13,7 @@ import time
 
 from .errors import JuneError
 from .speech_text import clean_transcript
+from .whisper_worker import WhisperWorker
 
 MAX_AUDIO_BYTES = 1048576
 
@@ -41,38 +42,107 @@ class SpeechService:
     def __init__(self, settings):
         self.home = settings.speech_home
         self.binary = self.home / 'whisper.cpp/build/bin/whisper-cli'
+        self._default_cli = self.binary
+        self.worker_binary = self.home / 'worker/build/bin/june-whisper-worker'
         self.model = self.home / 'ggml-base.en.bin'
         self.busy = False
         self.verified = None
+        self._verify_lock = asyncio.Lock()
         self.timeout = 120
+        self.worker = WhisperWorker([self.worker_binary, '--model', self.model])
 
     async def status(self):
-        result = {'engine': 'whisper.cpp', 'model': 'base.en'}
-        if not os.access(self.binary, os.X_OK):
+        result = {'engine': 'whisper.cpp', 'model': 'base.en',
+                  'workerReady': self.worker.ready, 'warm': self.worker.ready, 'workerProtocol': 1,
+                  'decoder': 'conservative-beam', 'fastDecoderReleased': False}
+        binary = self.binary if self.binary != self._default_cli else self.worker_binary
+        if not os.access(binary, os.X_OK):
             return {**result, 'state': 'runtime-missing', 'message': 'Local speech needs setup. Run npm run speech:setup, then refresh speech.'}
         if not self.model.is_file():
             return {**result, 'state': 'model-missing', 'message': 'Whisper base.en is missing. Run npm run speech:setup, then refresh speech.'}
         try:
-            ready = json.loads((self.home / 'ready.json').read_text())
-            info = self.model.stat()
-            digest = ready.get('sha256', '')
-            if ready.get('version') != 'v1.9.5' or ready.get('model') != 'base.en' or not re.fullmatch('[a-f0-9]{64}', digest) or info.st_size < 100000000:
-                raise ValueError()
-            identity = (str(self.model), info.st_size, info.st_mtime_ns, digest)
-            if self.verified != identity:
-                actual = await asyncio.to_thread(self._hash)
-                if actual != digest:
-                    raise ValueError()
-                self.verified = identity
+            self._model_identity()
             return {**result, 'state': 'ready', 'message': 'Local English transcription · Whisper base.en · ready on this Mac'}
         except (OSError, ValueError, TypeError, AttributeError):
             return {**result, 'state': 'error', 'message': 'Speech installation has not passed its transcription check. Run npm run speech:setup.'}
+
+    def _model_identity(self):
+        # Status only inspects small metadata. Heavy integrity verification is
+        # cached at warm/transcribe time, never performed by a GET status poll.
+        marker = self.home / 'ready.json'
+        if marker.stat().st_size > 4096:
+            raise ValueError('Invalid readiness marker')
+        ready = json.loads(marker.read_text())
+        info = self.model.stat()
+        digest = ready.get('sha256', '')
+        if (ready.get('version') != 'v1.9.5' or ready.get('model') != 'base.en'
+                or not re.fullmatch('[a-f0-9]{64}', digest) or info.st_size < 100000000):
+            raise ValueError('Invalid speech installation')
+        return (str(self.model), info.st_size, info.st_mtime_ns, digest)
+
+    async def _verify_installation(self):
+        async with self._verify_lock:
+            try:
+                identity = self._model_identity()
+                if self.verified != identity:
+                    if await asyncio.to_thread(self._hash) != identity[-1]:
+                        raise ValueError('Invalid model checksum')
+                    # A replacement during hashing must not become trusted.
+                    if self._model_identity() != identity:
+                        raise ValueError('Model changed during verification')
+                    self.verified = identity
+            except (OSError, ValueError, TypeError, AttributeError) as error:
+                raise JuneError('error', 'Speech integrity check failed. Run npm run speech:setup.') from error
 
     def _hash(self):
         with self.model.open('rb') as file:
             return hashlib.file_digest(file, 'sha256').hexdigest()
 
+    async def warm(self):
+        """Load and retain base.en; parent owns when to warm and close."""
+        status = await self.status()
+        if status['state'] != 'ready':
+            raise JuneError(status['state'], status['message'])
+        await self._verify_installation()
+        await self.worker.warm()
+        return {**status, 'workerReady': self.worker.ready, 'warm': self.worker.ready}
+
+    async def close(self):
+        await self.worker.close()
+
     async def transcribe(self, data):
+        # Preserve explicit legacy CLI binary overrides for downstream diagnostic
+        # callers and CLI lifecycle tests. Normal execution never falls back to
+        # per-WAV spawning when the resident worker fails.
+        if self.binary != self._default_cli:
+            return await self._transcribe_cli(data)
+        validate_wav(data)
+        if self.busy:
+            raise JuneError('busy', 'June is already transcribing another recording. Wait, then try again.', 409)
+        self.busy = True
+        started = time.perf_counter()
+        try:
+            status = await self.status()
+            if status['state'] != 'ready':
+                raise JuneError(status['state'], status['message'])
+            await self._verify_installation()
+            result = await self.worker.transcribe(data, timeout=self.timeout)
+            text = clean_transcript(result['text'])
+            # Token probabilities are decoder confidence, not calibrated word
+            # accuracy. Fail closed on weak or silent output instead of letting
+            # automatic turns turn it into a model prompt.
+            if (not text or result['confidence'] < .35 or result['noSpeechProbability'] > .6
+                    or re.fullmatch(r'\s*[\[(].*[\])]\s*', text)):
+                raise JuneError('no-speech', 'No clear words were recognised. Try a clear, short sentence.', 422)
+            return {'text': text, 'engine': 'whisper.cpp', 'model': 'base.en',
+                    'durationMs': round((time.perf_counter() - started) * 1000),
+                    'confidence': result['confidence'],
+                    'noSpeechProbability': result['noSpeechProbability']}
+        finally:
+            self.busy = False
+
+    async def _transcribe_cli(self, data):
+        """Explicit legacy CLI override only; never used by the resident path."""
         validate_wav(data)
         if self.busy:
             raise JuneError('busy', 'June is already transcribing another recording. Wait, then try again.', 409)
@@ -91,7 +161,7 @@ class SpeechService:
             source.write_bytes(data)
             source.chmod(0o600)
             spawn_task = asyncio.create_task(asyncio.create_subprocess_exec(
-                str(self.binary), '-m', str(self.model), '-f', str(source), '-t', '2', '-ng',
+                str(self.binary), '-m', str(self.model), '-f', str(source), '-t', '4', '-ng', '-bo', '1', '-nf',
                 '-l', 'en', '-oj', '-of', str(output), '-np', '-nt',
                 stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL))
             # Shield creation so cancellation cannot orphan a process before assignment.

@@ -107,3 +107,60 @@ class ReplyIdentityGuard:
         if not self.buffer or self.rejected: return []
         text, self.buffer = self.buffer, ''
         return [self.check(text)]
+
+
+class RepetitionGuard:
+    """Stop unrequested loops across stream chunks, without retracting sent text.
+
+    Keep a bounded suffix for checking word/phrase and joined-character loops.
+    Explicit repetition/copy tasks bypass this guard, not other validation.
+    """
+    def __init__(self, messages):
+        latest = messages[-1]['content'] if messages else ''
+        request = re.sub(r'^\s*(?:(?:please|okay|ok|so)[\s,.!]+)*(?:(?:can|could|would|will) you\s+)?', '', latest, flags=re.I)
+        self.allowed = bool(re.match(r'(?:repeat|copy|quote|transcribe|recite)\b', request, re.I)
+                            or (re.match(r'(?:say|write|print|output|give|list)\b', request, re.I)
+                                and re.search(r'\b(?:verbatim|repeatedly|twice|thrice|(?:\d+|\w+) times)\b', request, re.I)))
+        self.tail = ''
+        self.stopped = False
+
+    def push(self, text):
+        if self.stopped:
+            return ''
+        if self.allowed:
+            return text
+        combined = self.tail + text
+        previous = len(self.tail)
+        tokens = []
+        boundary = None
+        # Scan each new word once. Retokenise only the bounded old suffix so
+        # words split across model chunks are recognised without double counts.
+        for match in re.finditer(r'\w+', combined.casefold()):
+            word = match.group()
+            tokens.append(word)
+            tokens = tokens[-96:]
+            if match.end() <= previous:
+                continue
+            for width in range(1, min(12, len(tokens) // 4) + 1):
+                count = max(4, (12 + width - 1) // width)
+                if len(tokens) >= width * count and tokens[-width:] * count == tokens[-width * count:]:
+                    boundary = match.end()
+                    break
+            # Joined loops need no whitespace. Bound regex work per window,
+            # overlapping enough to detect an eight-copy, 24-character unit.
+            for offset in range(max(0, previous - match.start() - 192), len(word), 256):
+                start = max(0, offset - 192)
+                joined = re.search(r'(\w{2,24})\1{7,}', word[start:offset + 256])
+                if joined:
+                    end = match.start() + start + joined.end()
+                    boundary = min(boundary, end) if boundary else end
+                    break
+            if boundary is not None:
+                break
+        if boundary is not None:
+            self.stopped = True
+            # Never retract old deltas, and do not release the looping suffix
+            # from this frame. The completion flag lets the caller stop speech.
+            return text[:max(0, boundary - previous - 1)]
+        self.tail = combined[-2048:]
+        return text

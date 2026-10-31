@@ -4,7 +4,8 @@ from contextlib import asynccontextmanager, aclosing, suppress
 import json
 import re
 from .chat import stream_chat, MODEL_KEEP_ALIVE
-from .app_info import application_reply_for_turn, personal_recall
+from .app_info import (application_reply_for_turn, personal_recall,
+                       recall_field_for_turn, recall_query_for_turn, recall_fields, request_words, fact_fields, nonliteral_request)
 from .errors import JuneError
 from .memory import FICTION, validate_candidates, explicit_candidates, exclude_proposals
 
@@ -14,23 +15,78 @@ REQUEST_PREFACES = re.compile(
     r'(?:i\s+wanted\s+to\s+(?:ask|know)\b[\s,:]*|i\s+mean\s*[,:-]\s*))+', re.I)
 
 
-def approved_recall(messages, facts):
-    """Read a simple approved fact as app data, never invent or approve one.
+def recent_fact_fields(messages):
+    """A real user assertion blocks only its own saved field; examples do not."""
+    fields = set()
+    patterns = {
+        'name': r"\bmy name (?:is|isn['’]t|was|has changed)\b|\bcall me\s+|\bi go by\s+",
+        'color': r"\bmy favo(?:u)?rite colou?r (?:is|isn['’]t|was|has changed)\b",
+        'age': r"\bmy age (?:is|isn['’]t)\b|\bi (?:am|turned|am not) (?:a |an )?\d{1,3}\b",
+        'location': r"\bmy (?:location|city) (?:is|isn['’]t)\b|\bi (?:live|no longer live|moved|am based|don['’]t live) (?:in|to)\b",
+        'work': r"\bi (?:work|no longer work|don['’]t work) (?:at|in|as)\b",
+        'project': r"\bmy project (?:is|isn['’]t|was)\b",
+        'gender': r"\bmy gender (?:is|isn['’]t)\b|\bi (?:am|identify as) (?:a |an )?(?:\d{1,3}[ -](?:year|years)[ -]old[ -])?(?:man|woman|guy|boy|girl|male|female|non[ -]?binary)\b"
+    }
+    for message in messages:
+        source = message['content']
+        if message['role'] != 'user' or personal_recall(source) or nonliteral_request(source) or FICTION.search(source):
+            continue
+        source = re.sub(r"\bi['’]m\b", 'I am', source, flags=re.I)
+        source = re.sub(r"\bmy name['’]s\b", 'My name is', source, flags=re.I)
+        # Requests about a proposition are not a new personal assertion.
+        if re.match(r'\s*(?:is|was|does|can|could|would|will|do|how|what|why)\b', source, re.I):
+            continue
+        fields.update(field for field, pattern in patterns.items() if re.search(pattern, source, re.I))
+    return fields
 
-    Any earlier non-recall user message keeps the model path: a recent
-    correction, nickname or fictional exercise must take priority over storage.
-    Ambiguous formats and multiple matching facts also remain model requests.
-    """
-    if not messages or not personal_recall(messages[-1]['content']): return None
-    if any(m['role']=='user' and not personal_recall(m['content']) for m in messages[:-1]): return None
-    query=messages[-1]['content']
-    field = 'name' if re.search(r'\bmy name\b',query,re.I) else 'favo(?:u)?rite colou?r' if re.search(r'\bmy favo(?:u)?rite colou?r\b',query,re.I) else None
-    if not field:return None
-    matching=[f for f in facts if re.fullmatch(r'my '+field+r' is [^\n]+',f['text'],re.I)]
-    if len(matching)!=1:return None
-    fact=matching[0]; reply='Your'+fact['text'][2:]
-    if reply[-1] not in '.!?':reply+='.'
-    return 'Saved memory:\n'+reply, fact
+
+def approved_recall(messages, facts):
+    """Answer exact approved data; recent field-specific corrections keep model context."""
+    field = recall_field_for_turn(messages)
+    if field is None:
+        return None
+    changed = recent_fact_fields(messages[:-1])
+    requested = recall_fields(recall_query_for_turn(messages))
+    if set(requested) & changed or (field == 'details' and changed):
+        return None
+    query = messages[-1]['content']
+    source = bool(re.match(r'^(?:how do you know|where did you get|what is (?:your|the) source)',
+                           request_words(query), re.I))
+    if field == 'multiple':
+        selected = []
+        for name in requested:
+            matching = [f for f in facts if name in fact_fields(f['text'])]
+            if len(matching) != 1:
+                return None  # Ambiguous or absent fields are never guessed.
+            if matching[0] not in selected:
+                selected.append(matching[0])
+        lead = ('These come from facts you explicitly approved in Memory:' if source
+                else 'Your approved saved details are:')
+        return ('Saved memory:\n' + lead + '\n' + '\n'.join('“' + f['text'] + '”' for f in selected), selected)
+    if field == 'details':
+        if not facts:
+            return ('Saved memory:\nNo approved facts are saved yet. You can review and approve suggestions in Memory.', [])
+        lead = ('These facts come from explicit approvals in Memory' if source else 'These are approved saved details')
+        return ('Saved memory:\n' + lead + ' (within the recall limit):\n'
+                + '\n'.join('“' + f['text'] + '”' for f in facts), facts)
+    matching = [f for f in facts if field in fact_fields(f['text'])]
+    if field == 'gender' and not matching:
+        return ('Saved memory:\nI do not know your gender from approved memory. I cannot infer it from your name, age or location.', [])
+    if len(matching) != 1:
+        return None
+    fact = matching[0]
+    if source:
+        answer = 'This comes from a fact you explicitly approved in Memory: “' + fact['text'] + '”'
+    elif field in ('age', 'gender'):
+        answer = 'In approved memory, you described yourself as: “' + fact['text'] + '”'
+    else:
+        answer = re.sub(r'^my\b', 'Your', fact['text'], flags=re.I)
+        answer = re.sub(r'^i live\b', 'You live', answer, flags=re.I)
+        answer = re.sub(r'^i work\b', 'You work', answer, flags=re.I)
+        answer = re.sub(r"^i(?:['’]m| am)\b", 'You are', answer, flags=re.I)
+        if answer[-1] not in '.!?':
+            answer += '.'
+    return 'Saved memory:\n' + answer, [fact]
 
 
 def memory_prompt(profile, facts):
@@ -48,7 +104,7 @@ def memory_prompt(profile, facts):
             + ('\nNo approved facts were retrieved. If a personal fact is also absent from recent user messages, say it is not in approved memory yet and direct the user to review Memory. Do not claim you cannot access preferences or use facts awaiting approval.' if not facts else ''))
 
 class Coordinator:
-    """Foreground inference preempts extraction; no detached Ollama jobs."""
+    """Foreground inference preempts extraction and warm-up; no detached jobs."""
     def __init__(self):
         self.lock=asyncio.Lock()
         self.tasks={}
@@ -60,11 +116,17 @@ class Coordinator:
             with suppress(asyncio.CancelledError, Exception):await t
     @asynccontextmanager
     async def slot(self,kind):
-        if kind=='chat': await self.cancel('extract')
-        elif any(k=='chat' for k in self.tasks.values()):
-            raise JuneError('busy','June is answering. Memory suggestions can wait.',409)
+        if kind != 'chat' and any(k == 'chat' for k in self.tasks.values()):
+            message = ('June is answering. Warm-up can wait.' if kind == 'warm'
+                       else 'June is answering. Memory suggestions can wait.')
+            raise JuneError('busy',message,409)
         task=asyncio.current_task();self.tasks[task]=kind
         try:
+            # Register foreground intent before awaiting cancellation, so no new
+            # background task can slip in while another one is releasing work.
+            if kind == 'chat':
+                await self.cancel('extract')
+                await self.cancel('warm')
             async with self.lock:yield
         finally:self.tasks.pop(task,None)
 
@@ -82,14 +144,15 @@ async def persisted_chat(client,settings,store,coordinator,value,mode,messages):
             # Server-owned history prevents old clients or tabs from reintroducing erased facts.
             context=store.context(cid)
             messages=context+[messages[-1]]
-            facts=store.retrieve(messages[-1]['content']) if mode=='local' and application_reply_for_turn(settings.model,messages,True) is None else []
         else:
             # Backward-compatible calls have no persisted thread; after a reset they cannot replay old history.
             if revision:messages=messages[-1:]
-            facts=store.retrieve(messages[-1]['content']) if mode=='local' and application_reply_for_turn(settings.model,messages,True) is None else []
         if mode=='local':
+            if application_reply_for_turn(settings.model,messages,True) is None:
+                query = recall_query_for_turn(messages) or messages[-1]['content']
+                facts = store.retrieve(query)
             recalled=approved_recall(messages,facts)
-            if recalled:saved_answer,fact=recalled;facts=[fact]
+            if recalled:saved_answer,facts=recalled
         if cid:
             store.start_turn(cid,tid,messages[-1]['content'],revision,facts);started=True
     prompt=memory_prompt(store.snapshot()['profile'],facts) if store and not temporary else ''
@@ -111,7 +174,7 @@ async def persisted_chat(client,settings,store,coordinator,value,mode,messages):
                     if event['type']=='delta': reply+=event['text']
                     if event['type']=='error': ending='failed'
                     if event['type']=='done':
-                        ending='complete' if reply.strip() else 'failed'
+                        ending='stopped' if event.get('repetitionStopped') else 'complete' if reply.strip() else 'failed'
                         if started:
                             # Exact explicit clauses need no CPU inference and
                             # must not disappear when the next voice turn starts.
