@@ -35,6 +35,7 @@ export class NativeSpeechController {
   setRate(rate: number) { this.rate = [.98, .92, 1.04].includes(rate) ? rate : .98; }
   stop(_reason = 'stop') {
     const requestId = this.request; this.request = ''; this.streamId = null;
+    if (requestId) console.debug('[June timing]', JSON.stringify({ event: 'speech-stop-request', at: Date.now(), requestId, ...this.context }));
     this.requestAt = this.firstPlaybackAt = undefined; this.timings = {};
     this.context = undefined;
     this.nextOrdinal = 0; this.latestStartedOrdinal = -1;
@@ -129,6 +130,7 @@ export class NativeSpeechController {
             this.firstPlaybackAt = this.now();
             if (this.requestAt !== undefined) this.timings.firstAudioMs = Math.max(0, this.firstPlaybackAt - this.requestAt);
             if (typeof event.firstAudioMs === 'number' && Number.isFinite(event.firstAudioMs) && event.firstAudioMs >= 0) this.timings.nativeFirstAudioMs = event.firstAudioMs;
+            console.debug('[June timing]', JSON.stringify({ event: 'first-playback', at: Date.now(), requestId, ...this.context, durationMs: this.timings.firstAudioMs }));
           }
           segment.started = true; this.playing = segment.id; this.activity.current = 0;
         }
@@ -144,6 +146,7 @@ export class NativeSpeechController {
           if (this.firstPlaybackAt !== undefined) this.timings.playbackMs = Math.max(0, endedAt - this.firstPlaybackAt);
           if (this.requestAt !== undefined) this.timings.totalMs = Math.max(0, endedAt - this.requestAt);
           if (typeof event.playbackMs === 'number' && Number.isFinite(event.playbackMs) && event.playbackMs >= 0) this.timings.nativePlaybackMs = event.playbackMs;
+          console.debug('[June timing]', JSON.stringify({ event: 'segment-end', at: Date.now(), requestId, segmentId: segment.id, ...this.context, durationMs: event.playbackMs }));
           terminal = true; clearTimeout(segment.timer); this.segments.delete(segment.id);
           if (this.playing === segment.id) { this.playing = ''; this.activity.current = 0; }
           if (!this.playing) this.emit({ ...EMPTY_SPEECH, phase: this.queue.length || this.segments.size || this.streamId !== null ? 'waiting' : 'idle' });

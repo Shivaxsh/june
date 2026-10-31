@@ -13,8 +13,12 @@ from .speech_text import clean_transcript
 PAUSES = {'short': .8, 'normal': 1.5, 'patient': 2.5}
 
 
-def remove_wake_phrase(text):
-    return re.sub(r'^\s*hey[\s,;:.!—–-]*june\b[\s,;:.!?—–-]*', '', text, flags=re.I).strip()
+def remove_wake_phrase(text, confirmed=False):
+    # Only a lexical wake already confirmed by Vosk permits ASR homophones.
+    # Ordinary transcripts/names remain untouched. In particular a wake-only
+    # "Hey, Jude" must not become a model turn and discard the buffered question.
+    name = r'(?:june|jun|jude)' if confirmed else 'june'
+    return re.sub(r'^\s*hey[\s,;:.!—–-]*' + name + r'\b[\s,;:.!?—–-]*', '', text, flags=re.I).strip()
 
 
 def pcm_wav(pcm):
@@ -486,7 +490,7 @@ class VoiceTurn:
                 if self.closed or number != self.number:
                     return
                 await self.emit({'type':'timing','turn':number,'stage':'transcription','durationMs':result['durationMs']})
-                text = remove_wake_phrase(clean_transcript(result['text']))
+                text = remove_wake_phrase(clean_transcript(result['text']), confirmed=self.question_deadline is not None)
                 if self.echo_check:
                     text = self.without_playback_prefix(text, ' '.join(self.playback))
                 if self.echo_check and self.playback and text and self.is_playback_echo(text, ' '.join(self.playback)):

@@ -95,6 +95,15 @@ class RecallDomainTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(text.startswith('Saved memory:\n'))
         self.assertEqual(self.calls, [])
 
+    async def test_interruption_and_discourse_prefaces_keep_approved_recall(self):
+        for prefix in ('Wait, ', 'Stop. ', 'Hold on, ', 'Hang on, ', 'Actually, ', 'Sorry, ', 'Okay, wait, '):
+            with self.subTest(prefix=prefix):
+                text, done = await self.ask(prefix + 'what is my approved name?')
+                self.assertEqual(text, 'Saved memory:\nYour name is Mira-X.')
+                self.assertEqual(done['memoryIds'], [self.name['id']])
+                self.assertEqual(done.get('source'), 'application')
+        self.assertEqual(self.calls, [])
+
     async def test_multiple_explicit_recall_fields_do_not_expose_unasked_facts(self):
         for query in ('Can you tell me my name and favourite colour?',
                       'What is my name, and where do I live?',

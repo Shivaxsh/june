@@ -36,3 +36,38 @@ class NativeTurnTests(unittest.IsolatedAsyncioTestCase):
             stages={e['stage']:e['durationMs'] for e in events if e['type']=='timing'}
             self.assertEqual(stages,{'endDetection':820,'transcription':912})
         finally:await turn.close()
+
+    async def test_confirmed_wake_misspelling_preserves_the_buffered_question(self):
+        events=[];release=asyncio.Event();calls=[]
+        async def emit(e):events.append(e)
+        async def decode(data):
+            calls.append(data)
+            if len(calls)==1:
+                await release.wait()
+                return {'text':'Hey, Jude.','durationMs':900}
+            return {'text':'What is a web worker?','durationMs':850}
+        turn=VoiceTurn(emit,decode,pause='short',processed_input=True,clock=lambda:0.)
+        try:
+            await turn.wake()
+            turn.buffer=bytearray(b'\x00\x10'*16000);turn.voiced=.6;turn.silence=.8
+            await turn.finish_capture();await asyncio.sleep(0)
+            # The user begins their question while the wake-only clip decodes.
+            turn.pending_question=bytearray(b'\x00\x20'*20000)
+            turn.pending_started=0.;turn.pending_voiced=.8;turn.pending_silence=.8;turn.pending_finished=True
+            release.set();await turn.flush()
+            self.assertEqual([e['text'] for e in events if e['type']=='transcript'],['What is a web worker?'])
+            self.assertEqual(len(calls),2)
+        finally:await turn.close()
+
+    async def test_unconfirmed_name_or_real_question_is_not_discarded_as_wake(self):
+        for raw in ('Hey, Jude.', 'My name is Jude.', 'Hey Jude, what is a web worker?'):
+            with self.subTest(raw=raw):
+                events=[]
+                async def emit(e):events.append(e)
+                async def decode(data):return {'text':raw,'durationMs':900}
+                turn=VoiceTurn(emit,decode,pause='short',processed_input=True)
+                turn.number=1;turn.phase='listening';turn.buffer=bytearray(b'\x00\x10'*16000)
+                try:
+                    await turn.finish_capture();await turn.flush()
+                    self.assertEqual([e['text'] for e in events if e['type']=='transcript'],[raw])
+                finally:await turn.close()

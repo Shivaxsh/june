@@ -120,6 +120,7 @@ export class HandsFreeController {
     if (event.type === 'timing') {
       if (event.turn !== undefined && event.turn !== this.state.turn) return;
       if (typeof event.stage === 'string' && /^[a-z][a-z0-9_-]{0,39}$/i.test(event.stage) && typeof event.durationMs === 'number' && Number.isFinite(event.durationMs) && event.durationMs >= 0) {
+        console.debug('[June timing]', JSON.stringify({ event: 'input-stage', at: Date.now(), session: this.session, turn: event.turn, stage: event.stage, durationMs: event.durationMs }));
         this.emit({ timings: { ...this.state.timings, [event.stage]: event.durationMs } });
       }
       return;

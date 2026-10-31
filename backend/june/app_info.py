@@ -32,7 +32,7 @@ def request_words(query):
     q = re.sub(r"what['’]s\b", 'what is', query.lower())
     q = re.sub(r'[^\w\s]', ' ', q)
     q = re.sub(r'\s+', ' ', q).strip()
-    return re.sub(r'^(?:(?:okay|ok|so|please|just|hi|hello|hey june|june|but|and|well|uh|um|now|alright)\s+)+', '', q)
+    return re.sub(r'^(?:(?:okay|ok|so|please|just|hi|hello|hey june|june|but|and|well|uh|um|now|alright|wait|stop|hold on|hang on|actually|sorry)\s+)+', '', q)
 
 
 def _single_recall_field(query):

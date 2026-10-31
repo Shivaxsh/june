@@ -40,6 +40,16 @@ function fixture() {
   return { controller, ws, input, states, transcripts, wakes, cancels, event };
 }
 
+test('Stop clears the last measured microphone level as well as the active state', async () => {
+  const f = fixture();
+  await f.controller.start('short'); f.ws.readyState=1; f.ws.onopen();
+  f.event({type:'ready',turn:0});f.event({type:'metrics',level:.4,vad:.8});
+  assert.equal(f.states.at(-1).level,.4);
+  f.controller.stop();
+  assert.equal(f.states.at(-1).phase,'off');
+  assert.equal(f.states.at(-1).level,0);
+});
+
 test('voice transcripts send once and stale sessions/turns cannot interrupt or send', async () => {
   const f = fixture(); await f.controller.start('normal'); f.ws.readyState = 1; f.ws.onopen();
   f.event({ type: 'ready', turn: 0 }); f.event({ type: 'wake', turn: 1 });

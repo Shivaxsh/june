@@ -32,6 +32,10 @@ Open <http://127.0.0.1:3001>. The status should show **qwen2.5:1.5b · Ready**. 
 
 **v0.5.1:** [Local audio and reliability guide](docs/v0.5.1.md) · [verification and remaining limitations](docs/v0.5.1-verification.md). Native Mac capture and Nicky playback share an echo-processing engine; the resident Whisper worker avoids loading the model for each recording. Native microphone permission is separate from the browser permission. Speaker-room acceptance remains a human verification gate.
 
+**Before the next phase:** [Reliability acceptance gate](docs/reliability-gate-2026-10-31.md). The opt-in `PYTHONPATH=backend backend/.venv/bin/python scripts/check-reliability.py` command tests real local Qwen with a private SQLite clone. It never edits the live database or opens a microphone. Its ignored reports contain private reply text; do not publish them.
+
+That standalone Python command uses exported `JUNE_*`/`OLLAMA_BASE_URL` environment variables and the documented default directories. If your private `.env.local` uses overrides, export those same overrides in the terminal before running the check.
+
 ## First setup or another Mac
 
 Use a recent Node.js release (22 or 24 LTS recommended; this machine uses Node 23.7). From the project folder:

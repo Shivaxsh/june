@@ -247,7 +247,10 @@ export default function Chat() {
         if (!unknownEvent || typeof unknownEvent !== "object") throw new Error("June sent an invalid update.");
         const event = unknownEvent as ChatEvent;
         if (event.type === "delta" && typeof event.text === "string") {
-          if (!firstToken) firstToken = performance.now();
+          if (!firstToken) {
+            firstToken = performance.now();
+            console.debug('[June timing]', JSON.stringify({ event: 'first-text', at: Date.now(), ...(automatic ? { voiceSessionId, turnId: input!.voiceTurn! } : {}), durationMs: firstToken - started }));
+          }
           reply += event.text;
           voice.push(id, event.text);
           update("pending");
