@@ -151,3 +151,61 @@ class NumberConfirmation(unittest.TestCase):
         self.assertIn('You said 5060.',prompt)
         self.assertNotIn('You said 3060.',prompt)
         self.assertNotIn('You said 5060.',prompt_for_turn([{'role':'user','content':'What is a graphics card?'}],ReplyIdentityGuard([])))
+
+
+class UnsupportedReleaseClaims(unittest.TestCase):
+    def output(self, messages, reply):
+        guard=ReplyIdentityGuard(messages)
+        return ''.join(guard.push(reply[:17])+guard.push(reply[17:])+guard.finish())
+
+    def test_observed_product_denial_is_not_released_to_speech(self):
+        messages=[{'role':'user','content':'tell me about rtx 5080'}]
+        reply='The RTX 5080 does not exist as of now. NVIDIA has not released or announced a GPU with that model number.'
+        answer=self.output(messages,reply)
+        self.assertIn('cannot verify',answer)
+        self.assertNotIn('does not exist as of now',answer)
+        self.assertNotIn('NVIDIA has not released',answer)
+
+    def test_release_correction_does_not_repeat_old_denial(self):
+        messages=[{'role':'user','content':'tell me about rtx 5080'},
+                  {'role':'assistant','content':'The RTX 5080 does not exist.'},
+                  {'role':'user','content':'it was released in 2025'}]
+        answer=self.output(messages,'As of now, no GPU with the model "RTX 5080" has been released, and there is no official announcement from NVIDIA. Therefore, it does not exist in the current market.')
+        self.assertIn('cannot verify',answer)
+        self.assertNotIn('has been released',answer)
+        self.assertNotIn('it does not exist in the current market',answer)
+
+    def test_generic_unsupported_vendor_denial(self):
+        messages=[{'role':'user','content':'Tell me about RX 9070.'}]
+        self.assertIn('cannot verify',self.output(messages,'AMD has not announced this graphics card. '))
+
+    def test_quote_rewrite_and_hypothetical_tasks_are_preserved(self):
+        for query in ('Rewrite this sentence: "The RTX 9999 does not exist."',
+                      'For a fictional story, say the RTX 9999 does not exist.'):
+            reply='The RTX 9999 does not exist. '
+            self.assertEqual(self.output([{'role':'user','content':query}],reply),reply)
+
+    def test_general_explanation_and_topic_switch_are_untouched(self):
+        for messages,reply in [
+            ([{'role':'user','content':'Explain the difference between a GPU and CPU.'}],'A GPU runs many parallel operations. '),
+            ([{'role':'user','content':'Tell me about RTX 5080.'},{'role':'assistant','content':'I am uncertain.'},{'role':'user','content':'What is a web worker?'}],'A web worker does not have direct DOM access. '),
+        ]:
+            self.assertEqual(self.output(messages,reply),reply)
+
+
+class ReleaseClaimStreaming(unittest.IsolatedAsyncioTestCase):
+    async def test_observed_wrong_answer_never_reaches_stream_or_voice_queue(self):
+        import json
+        import httpx
+        from june.chat import stream_chat
+        from june.config import Settings
+        parts=['The RTX 50','80 does not exist as of now. ',
+               'NVIDIA has not released or announced it.']
+        wire=''.join(json.dumps({'message':{'content':part},'done':False})+'\n' for part in parts)
+        wire+=json.dumps({'message':{'content':''},'done':True})+'\n'
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request:httpx.Response(200,text=wire))) as client:
+            events=[event async for event in stream_chat(client,Settings.from_env(),'local',[{'role':'user','content':'tell me about rtx 5080'}])]
+        answer=''.join(e.get('text','') for e in events)
+        self.assertIn('cannot verify',answer)
+        self.assertNotIn('does not exist as of now',answer)
+        self.assertEqual(events[-1]['type'],'done')

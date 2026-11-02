@@ -33,6 +33,33 @@ def model_label(identity):
     return number + (' ' + {'ti': 'Ti', 'super': 'Super', 'ti super': 'Ti Super', 'xt': 'XT', 'xtx': 'XTX'}[suffix] if suffix else '')
 
 
+GPU_SUBJECT = re.compile(r'\b(?:RTX|GTX|RX)\s*\d{4}(?!\d)(?:\s*(?:Ti|Super|XT|XTX))?\b', re.I)
+RELEASE_DENIAL = re.compile(
+    r"\b(?:RTX|GTX|RX)\s*\d{4}(?:\s+(?:Ti|Super|XT|XTX))?\s+(?:does not|doesn't|doesn’t) exist\b|"
+    r'\b(?:NVIDIA|AMD|Intel)\s+(?:has|have) not (?:released|announced)\b|'
+    r'\bno (?:GPU|graphics card|model|product)\b[^.!?]{0,120}\b(?:released|announced|exists?)\b|'
+    r'\bthere is no official announcement\b|'
+    r"\b(?:this|that|such|the) (?:GPU|graphics card|model|product) (?:does not|doesn't|doesn’t) exist\b",
+    re.I)
+
+
+def product_release_context(messages):
+    """Scope the source check to a named card or its immediate short follow-up.
+
+    A source check is not a fact database. Quotation, fictional and supplied-
+    document tasks remain ordinary model requests rather than product lookups.
+    """
+    latest=messages[-1]['content'] if messages else ''
+    if re.search(r'\b(?:rewrite|translate|quote|fictional|hypothetical|pretend|summari[sz]e|provided|supplied|according to)\b|\b(?:text|source|article)\s*:',latest,re.I):
+        return False
+    if GPU_SUBJECT.search(latest):return True
+    if len(messages)>=3 and len(latest.split())<=25:
+        previous=messages[-3]['content']
+        return bool(GPU_SUBJECT.search(previous) and re.match(
+            r"\s*(?:it\b|that\b|(?:no[, ]+)?(?:it|they) (?:was|were|is|are)\b|are you sure\b|actually\b|i (?:mean|meant)\b)",latest,re.I))
+    return False
+
+
 class ReplyIdentityGuard:
     """Delay GPU sentences until their stated model identity can be checked.
 
@@ -74,19 +101,24 @@ class ReplyIdentityGuard:
                 group.difference_update(excluded)
                 if group.intersection(self.focus):
                     self.focus.update(group)
+        self.product_release = product_release_context(messages)
         self.buffer = ''
         self.rejected = False
 
     def check(self, sentence):
+        if self.product_release and RELEASE_DENIAL.search(sentence):
+            self.rejected = True
+            return ('I cannot verify release information for that exact graphics card here. '
+                    'Missing information is not evidence that the product does not exist.')
         identities = model_ids(sentence, explicit=True)
-        if identities and not identities.intersection(self.focus):
+        if self.focus and identities and not identities.intersection(self.focus):
             self.rejected = True
             target = ', '.join(model_label(identity) for identity in sorted(self.focus))
             return f'You asked about {target}. I cannot verify its specifications or current price, so I should not substitute a different graphics card.'
         return sentence
 
     def push(self, text):
-        if not self.focus: return [text]
+        if not self.focus and not self.product_release: return [text]
         if self.rejected: return []
         self.buffer += text
         output = []

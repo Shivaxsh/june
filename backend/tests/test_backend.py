@@ -302,16 +302,17 @@ class Disconnects(unittest.IsolatedAsyncioTestCase):
         async def send(event):
             if event['type'] == 'http.response.body' and b'first' in event.get('body', b''):
                 await receive_queue.put({'type': 'http.disconnect'})
-        async with app.router.lifespan_context(app):
-            original = app.state.client
-            async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
-                app.state.client = client
-                scope = {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'}, 'http_version': '1.1',
-                         'method': 'POST', 'scheme': 'http', 'path': '/api/chat', 'raw_path': b'/api/chat',
-                         'query_string': b'', 'root_path': '', 'headers': [(b'host', b'127.0.0.1:8001')],
-                         'server': ('127.0.0.1', 8001), 'client': ('127.0.0.1', 1234)}
-                await asyncio.wait_for(app(scope, receive_queue.get, send), 2)
-                app.state.client = original
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'JUNE_DATA_HOME':directory,'JUNE_MODEL':'qwen2.5:1.5b','JUNE_PREWARM':'0'}):
+            async with app.router.lifespan_context(app):
+                original = app.state.client
+                async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
+                    app.state.client = client
+                    scope = {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'}, 'http_version': '1.1',
+                             'method': 'POST', 'scheme': 'http', 'path': '/api/chat', 'raw_path': b'/api/chat',
+                             'query_string': b'', 'root_path': '', 'headers': [(b'host', b'127.0.0.1:8001')],
+                             'server': ('127.0.0.1', 8001), 'client': ('127.0.0.1', 1234)}
+                    await asyncio.wait_for(app(scope, receive_queue.get, send), 2)
+                    app.state.client = original
         self.assertTrue(slow.closed)
 
 
