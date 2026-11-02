@@ -29,7 +29,7 @@ whisper_context * whisper_init_from_file_with_params(const char *, whisper_conte
 void whisper_free(whisper_context * c) { delete c; }
 whisper_full_params whisper_full_default_params(whisper_sampling_strategy) { return {}; }
 int whisper_full(whisper_context *, whisper_full_params p, const float * s, int) {
-    if (p.n_threads!=2 || p.greedy.best_of!=5 || p.beam_search.beam_size!=5 || p.temperature_inc!=.2f || !p.no_context || p.print_realtime) return 2;
+    if (p.n_threads!=4 || p.greedy.best_of!=5 || p.beam_search.beam_size!=5 || p.temperature_inc!=.2f || !p.no_context || p.print_realtime) return 2;
     int count = s[0] > .07f ? 500 : 3;
     for(int i=0;i<count;++i) {
         if(p.abort_callback(p.abort_callback_user_data)) return 1;

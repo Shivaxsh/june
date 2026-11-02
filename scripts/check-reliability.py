@@ -20,12 +20,30 @@ from june.memory import Store
 from june.memory_service import Coordinator, persisted_chat
 
 
+def spoken_async_correct(text):
+    negative=bool(re.search(r'\bno\b|does not|doesn.t|not automatically|not by itself',text,re.I))
+    relevant=bool(re.search(r'main thread|same thread|event loop|(?:not|doesn.t).{0,45}(?:move|create|offload|run)',text,re.I))
+    confused=bool(re.search(r'C#|move control flow between threads|data must be|original data|Array\.copyTo',text,re.I))
+    return negative and relevant and not confused
+
+
+async def require_model(client,settings):
+    response=await client.get(settings.ollama+'/api/tags')
+    response.raise_for_status()
+    models=response.json().get('models',[])
+    if not isinstance(models,list) or not any(isinstance(m,dict) and m.get('name')==settings.model for m in models):
+        raise RuntimeError('Configured local model is not installed; no acceptance score was produced.')
+
+
 async def main():
     settings = Settings.from_env()
+    async with httpx.AsyncClient(timeout=10,trust_env=False) as health:
+        await require_model(health,settings)
     output = Path('.june-work') / ('acceptance-' + datetime.now().strftime('%Y%m%d-%H%M%S'))
     data = output / 'isolated-data'
     data.mkdir(parents=True, mode=0o700)
     output.chmod(0o700)
+    (output / 'run.json').write_text(json.dumps({'model':settings.model,'scope':'isolated real-model acceptance; not an acoustic benchmark'},indent=2))
     with sqlite3.connect(f'file:{settings.data_home / "june.sqlite3"}?mode=ro', uri=True) as source:
         with sqlite3.connect(data / 'june.sqlite3') as target:
             source.backup(target)
@@ -83,8 +101,7 @@ async def main():
         followup_chat = store.create_conversation()['id']
         await ask('What is a web worker?', followup_chat)
         text, good, detail, _ = await ask('Does async move work to another thread?', followup_chat)
-        correct = bool(re.search(r'\bno\b|does not|doesn.t|not automatically|not by itself', text, re.I))
-        record('real spoken async follow-up', good and correct and 'C#' not in text, **detail)
+        record('real spoken async follow-up', good and spoken_async_correct(text), **detail)
 
         cid = store.create_conversation()['id']
         for n in range(14):

@@ -135,7 +135,7 @@ json infer(whisper_context * context, State & state, const std::string & id,
     auto params = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH);
     // The greedy candidate failed the exact-name acceptance gate. Keep the
     // established decoder while retaining resident model and cancellation.
-    params.n_threads = 2;
+    params.n_threads = 4; // Same conservative decoder; measured CPU speedup.
     params.greedy.best_of = 5;
     params.beam_search.beam_size = 5;
     params.temperature = 0;

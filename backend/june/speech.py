@@ -54,7 +54,7 @@ class SpeechService:
     async def status(self):
         result = {'engine': 'whisper.cpp', 'model': 'base.en',
                   'workerReady': self.worker.ready, 'warm': self.worker.ready, 'workerProtocol': 1,
-                  'decoder': 'conservative-beam', 'fastDecoderReleased': False}
+                  'decoder': 'conservative-beam', 'threads': 4, 'fastDecoderReleased': False}
         binary = self.binary if self.binary != self._default_cli else self.worker_binary
         if not os.access(binary, os.X_OK):
             return {**result, 'state': 'runtime-missing', 'message': 'Local speech needs setup. Run npm run speech:setup, then refresh speech.'}

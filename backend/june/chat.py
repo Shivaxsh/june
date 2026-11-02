@@ -57,14 +57,14 @@ def correction_focus(messages):
             'Latest user message: ' + json.dumps(latest))
 
 
-def prompt_for_turn(messages, identity):
+def prompt_for_turn(messages, identity, memory_context=''):
     latest = messages[-1]['content'] if messages else ''
     if len(identity.focus) == 1 and re.search(r'\b(?:repeat|exact (?:model )?number|(?:number|model) (?:I|you) (?:said|named))\b', latest, re.I):
         # The identifier comes from the user's own words, not product knowledge.
         # This still runs the real model; no simulated answer is substituted.
         target = model_label(next(iter(identity.focus)))
-        return PROMPT + f'\nThe latest corrected identifier is {target}, taken from the user’s words. This turn only asks to repeat that identifier. Say: You said {target}. No product specifications are needed.'
-    return PROMPT
+        return PROMPT + memory_context + f'\nThe latest corrected identifier is {target}, taken from the user’s words. This turn only asks to repeat that identifier. Say: You said {target}. No product specifications are needed.'
+    return PROMPT + memory_context
 
 
 def validate_chat(value):
@@ -142,7 +142,7 @@ async def stream_chat(client, settings, mode, messages, memory_context=""):
         repetition = RepetitionGuard(inference_messages)
         async with asyncio.timeout(180):
             async with client.stream('POST', settings.ollama + '/api/chat', json={
-                'model': settings.model, 'messages': [{'role': 'system', 'content': prompt_for_turn(inference_messages, identity) + memory_context + correction_focus(messages)}, *inference_messages],
+                'model': settings.model, 'messages': [{'role': 'system', 'content': prompt_for_turn(inference_messages, identity, memory_context) + correction_focus(messages)}, *inference_messages],
                 'stream': True, 'think': False, 'keep_alive': MODEL_KEEP_ALIVE,
                 'options': {'num_ctx': 4096, 'num_predict': 256, 'temperature': .1},
             }) as response:
