@@ -211,7 +211,7 @@ async def realtime_status(request: Request):
     if result['state']=='ready' and audio['state']!='ready':result={'state':'setup-required','message':audio['message']}
     whisper_warm=bool(speech.get('warm',getattr(state.speech,'warm_ready',False)))
     if result['state']=='ready' and runtime.enabled and not (runtime.model_warm and runtime.detectors_warm and whisper_warm and audio.get('voiceWarm')):
-        result={'state':'preparing','message':runtime.message}
+        result={'state':'preparing','message':runtime.readiness_message(whisper_warm=whisper_warm,voice_warm=bool(audio.get('voiceWarm')))}
         runtime.retry_preparation()
     return {**result,'busy':state.voice_slots.owner is not None,'wakePhrase':'Hey June',
         'transport':'local-websocket','model':'Whisper base.en','audioEngine':'mac-native',

@@ -61,6 +61,16 @@ class VoiceRuntime:
             # will refresh the residency status on the next status request.
             self.model_warm=False
 
+    def readiness_message(self, *, whisper_warm, voice_warm):
+        # Model residency can expire after a successful warm-up. Derive this
+        # label from current readiness, not the last preparation's success text.
+        missing=[]
+        if not self.model_warm:missing.append('the selected language model')
+        if not self.detectors_warm:missing.append('wake and speech detection')
+        if not whisper_warm:missing.append('Whisper transcription')
+        if not voice_warm:missing.append('voice playback')
+        return ('Preparing '+', '.join(missing)+'.') if missing else 'Local voice components are warm.'
+
     async def refresh_model(self):
         try:
             response=await self.client.get(self.settings.ollama+'/api/ps',timeout=3)
