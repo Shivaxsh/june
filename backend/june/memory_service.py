@@ -5,7 +5,7 @@ import json
 import re
 from .chat import stream_chat, MODEL_KEEP_ALIVE
 from .app_info import (application_reply_for_turn, personal_recall,
-                       recall_field_for_turn, recall_query_for_turn, recall_fields, request_words, fact_fields, nonliteral_request)
+                       recall_field_for_turn, recall_query_for_turn, recall_fields, request_words, fact_fields, nonliteral_request, recall_requests_source, memory_check_followup)
 from .errors import JuneError
 from .memory import FICTION, validate_candidates, explicit_candidates, exclude_proposals
 
@@ -44,25 +44,30 @@ def approved_recall(messages, facts):
     """Answer exact approved data; recent field-specific corrections keep model context."""
     field = recall_field_for_turn(messages)
     if field is None:
+        if memory_check_followup(messages[-1]['content']):
+            return ('Saved memory:\nWhich approved detail would you like me to look up? Please name the detail so I do not disclose unrelated saved facts.',[])
         return None
     changed = recent_fact_fields(messages[:-1])
     requested = recall_fields(recall_query_for_turn(messages))
     if set(requested) & changed or (field == 'details' and changed):
         return None
     query = messages[-1]['content']
-    source = bool(re.match(r'^(?:how do you know|where did you get|what is (?:your|the) source)',
-                           request_words(query), re.I))
+    source = recall_requests_source(query) or recall_requests_source(recall_query_for_turn(messages))
+    labels={'name':'name','age':'age','location':'location','color':'favorite color','gender':'gender self-description','project':'project','work':'workplace'}
     if field == 'multiple':
-        selected = []
+        selected=[];unavailable=[]
         for name in requested:
-            matching = [f for f in facts if name in fact_fields(f['text'])]
-            if len(matching) != 1:
-                return None  # Ambiguous or absent fields are never guessed.
-            if matching[0] not in selected:
-                selected.append(matching[0])
-        lead = ('These come from facts you explicitly approved in Memory:' if source
-                else 'Your approved saved details are:')
-        return ('Saved memory:\n' + lead + '\n' + '\n'.join('“' + f['text'] + '”' for f in selected), selected)
+            matching=[f for f in facts if name in fact_fields(f['text'])]
+            if not matching:
+                unavailable.append('Your '+labels[name]+' is not saved in approved memory.')
+            elif len(matching)>1:
+                unavailable.append('More than one approved fact matches your '+labels[name]+'. Please review Memory before choosing one.')
+            elif matching[0] not in selected:selected.append(matching[0])
+        lead=('These come from facts you explicitly approved in Memory:' if source else 'Your approved saved details are:')
+        lines=[lead,*('“'+f['text']+'”' for f in selected),*unavailable]
+        if 'gender' in requested:
+            lines.append('For gender, I quote only your saved self-description; I do not infer it from your name, age or location.')
+        return ('Saved memory:\n'+'\n'.join(lines),selected)
     if field == 'details':
         if not facts:
             return ('Saved memory:\nNo approved facts are saved yet. You can review and approve suggestions in Memory.', [])
@@ -72,8 +77,10 @@ def approved_recall(messages, facts):
     matching = [f for f in facts if field in fact_fields(f['text'])]
     if field == 'gender' and not matching:
         return ('Saved memory:\nI do not know your gender from approved memory. I cannot infer it from your name, age or location.', [])
-    if len(matching) != 1:
-        return None
+    if not matching:
+        return ('Saved memory:\nI do not know your '+labels[field]+' from approved memory; it is not saved.',[])
+    if len(matching)>1:
+        return ('Saved memory:\nMore than one approved fact matches your '+labels[field]+'. Please review Memory before choosing one.',[])
     fact = matching[0]
     if source:
         answer = 'This comes from a fact you explicitly approved in Memory: “' + fact['text'] + '”'

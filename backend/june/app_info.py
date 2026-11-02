@@ -55,9 +55,9 @@ def _single_recall_field(query):
     q = re.sub(r' is$', '', q)
     fields = {
         'name': r'my name', 'color': r'my favo(?:u)?rite colou?r', 'age': r'my age|how old am i',
-        'location': r'my (?:location|city)|where (?:do )?i live',
+        'location': r'my (?:location|city)|(?:my )?(?:place )?where (?:do )?i live',
         'project': r'my project', 'work': r'where (?:do )?i work',
-        'gender': r'my gender|am i (?:a )?(?:boy|man|male) or (?:a )?(?:girl|woman|female)',
+        'gender': r'my gender|am i (?:a )?(?:boy|man|male) or (?:a )?(?:girl|woman|female)|(?:if )?i (?:am|m) (?:a )?(?:boy|man|male) or (?:a )?(?:girl|woman|female)',
         'details': (r'(?:what (?:else )?(?:do you )?)?(?:know|remember)(?: about me)?|'
                     r'what (?:else )?do you (?:know|remember) about me|'
                     r'(?:list|show|tell me)(?: all)? (?:my )?(?:saved|approved) (?:details|facts|memories)|'
@@ -74,30 +74,44 @@ def _single_recall_field(query):
     return None
 
 
-def recall_fields(query):
-    """Accept complete recall clauses; mixed explanation/action requests stay model tasks.
+SOURCE_REASON = re.compile(
+    r'\s+(?:and|plus)\s+explain (?:how you (?:came|come) to (?:that|this|the) conclusion|how you know (?:that|this))$',re.I)
 
-    A conjunction joins only known personal fields, never a free-text tail.
-    This lets retrieval supply exactly the fields asked for instead of exposing
-    every saved fact when a question contains more than one personal field.
+
+def recall_requests_source(query):
+    q=request_words(query)
+    return bool(SOURCE_REASON.search(q) or re.match(r'^(?:how do you know|where did you get|what is (?:your|the) source)',q))
+
+
+def memory_check_followup(query):
+    if nonliteral_request(query):return False
+    q=request_words(query)
+    return bool(re.fullmatch(
+        r'(?:it s|it is|that s|that is) in my (?:saved |approved )?memory (?:please )?(?:check|read) (?:it|that)(?: and)? (?:tell|remind) me|'
+        r'(?:check|read) my (?:saved |approved )?memory(?: and)? (?:tell|remind) me',q))
+
+
+def recall_fields(query):
+    """Parse a list of complete personal-recall clauses, not arbitrary keywords.
+
+    Commas, conjunctions and a source explanation can join known fields.
+    Every substantive clause must parse; unrelated drafting/explanation tasks
+    and quoted scenarios still use the ordinary model path.
     """
-    if nonliteral_request(query):
-        return ()
-    single = _single_recall_field(query)
-    if single:
-        return (single,)
-    clauses = re.split(r'\s+(?:and|also)\s+', request_words(query))
-    if not 2 <= len(clauses) <= 4:
-        return ()
-    fields = []
-    for i, clause in enumerate(clauses):
-        field = _single_recall_field(clause)
-        if field is None and i:
-            field = _single_recall_field('my ' + clause)
-        if field is None or field in ('details', 'source'):
-            return ()
-        if field not in fields:
-            fields.append(field)
+    if nonliteral_request(query):return ()
+    single=_single_recall_field(query)
+    if single:return (single,)
+    q=request_words(re.sub(r',\s*(?:and\s+)?',' and ',query,flags=re.I))
+    q=SOURCE_REASON.sub('',q)
+    q=re.sub(r'^(?:i (?:want|would like) to know|what are)\s+','',q)
+    clauses=[c for c in re.split(r'\s+(?:(?:and|also|plus)\s+)+',q) if c]
+    if not 1<=len(clauses)<=7:return ()
+    fields=[]
+    for i,clause in enumerate(clauses):
+        field=_single_recall_field(clause)
+        if field is None and i:field=_single_recall_field('my '+clause)
+        if field is None or field in ('details','source'):return ()
+        if field not in fields:fields.append(field)
     return tuple(fields)
 
 
@@ -107,17 +121,27 @@ def recall_field(query):
 
 
 def personal_recall(query):
-    return recall_field(query) is not None
+    return memory_check_followup(query) or recall_field(query) is not None
 
 
 def recall_query_for_turn(messages):
-    """Resolve a source follow-up only across application-owned saved answers."""
-    index = len(messages) - 1
-    while index >= 0 and recall_field(messages[index]['content']) == 'source':
-        if index < 2 or not messages[index - 1]['content'].startswith('Saved memory:\n'):
-            return None
-        index -= 2
-    return messages[index]['content'] if index >= 0 else None
+    """Resolve explicit memory checks back to the immediately referenced request.
+
+    A prior incorrect model denial is not authoritative about stored data.
+    Stop at a new topic rather than disclosing facts from an older question.
+    """
+    index=len(messages)-1
+    while index>=0:
+        query=messages[index]['content']
+        check=memory_check_followup(query)
+        source=recall_field(query)=='source'
+        if not check and not source:break
+        if index<2:return None
+        if source and not messages[index-1]['content'].startswith('Saved memory:\n'):return None
+        previous=messages[index-2]['content']
+        if check and not (recall_fields(previous) or memory_check_followup(previous)):return None
+        index-=2
+    return messages[index]['content'] if index>=0 else None
 
 
 def recall_field_for_turn(messages):

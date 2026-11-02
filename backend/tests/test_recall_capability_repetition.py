@@ -287,8 +287,12 @@ class RecallDomainTests(unittest.IsolatedAsyncioTestCase):
     async def test_ambiguous_duplicate_field_values_are_not_resolved_arbitrarily(self):
         other = self.store.add_memory('My favourite colour is amber.')
         text, done = await self.ask('What is my favorite color?')
-        self.assertEqual(text, 'MODEL RESPONSE')
-        self.assertEqual(set(done['memoryIds']), {self.color['id'], other['id']})
+        self.assertIn('More than one approved fact',text)
+        self.assertIn('review Memory',text)
+        self.assertEqual(done.get('source'),'application')
+        self.assertEqual(self.calls,[])
+        self.assertEqual(done['memoryIds'],[])
+        self.assertTrue({self.color['id'],other['id']}.issubset({f['id'] for f in self.store.snapshot()['memories']}))
 
     async def test_details_still_honor_eight_fact_and_character_limits(self):
         for i in range(12):
@@ -313,6 +317,62 @@ class RecallDomainTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(turn['status'], 'stopped')
         self.assertEqual(self.store.context(self.cid), [])
         self.assertEqual(self.store.snapshot()['suggestions'], [])
+
+
+    async def test_real_compound_recall_quotes_all_requested_approved_fields(self):
+        self.store.delete_memory(self.age['id'])
+        age=self.store.add_memory('I am a 29-year-old guy')
+        query="I want to know my age, name and place where i live, plus tell me if i'm a male or female and explain how you came to that conclusion"
+        text,done=await self.ask(query)
+        self.assertEqual(done.get('source'),'application')
+        for fact in (self.name,age,self.location):self.assertIn(fact['text'],text)
+        self.assertNotIn(self.color['text'],text)
+        self.assertIn('approved',text.lower())
+        self.assertIn('not infer',text.lower())
+        self.assertEqual(set(done['memoryIds']),{self.name['id'],age['id'],self.location['id']})
+        self.assertEqual(self.calls,[])
+
+    async def test_memory_check_followup_recovers_even_after_model_denied_memory(self):
+        self.previous('What is my name and where do I live?', 'I do not have access to your personal memory.')
+        text,done=await self.ask("it's in my memory, check it and tell me")
+        self.assertEqual(done.get('source'),'application')
+        self.assertIn('Mira-X',text)
+        self.assertIn('Leeds',text)
+        self.assertNotIn('black',text)
+        self.assertEqual(self.calls,[])
+
+    async def test_partial_saved_details_do_not_erase_the_known_fields(self):
+        self.store.delete_memory(self.age['id'])
+        text,done=await self.ask('Tell me my name, age and location.')
+        self.assertEqual(done.get('source'),'application')
+        self.assertIn('Mira-X',text)
+        self.assertIn('Leeds',text)
+        self.assertIn('age',text.lower())
+        self.assertIn('not saved',text.lower())
+        self.assertEqual(self.calls,[])
+
+    async def test_compound_recall_with_unknown_gender_never_infers_it(self):
+        text,done=await self.ask('Tell me my name, age and gender.')
+        self.assertEqual(done.get('source'),'application')
+        self.assertIn('Mira-X',text)
+        self.assertIn('not infer',text.lower())
+        self.assertEqual(self.calls,[])
+
+    async def test_compound_variations_and_followup_topic_boundary(self):
+        for query in ('I would like to know my name, age, and city.',
+                      'What are my name, age and location?',
+                      'Please tell me my age, my name, and where I live.'):
+            with self.subTest(query=query):
+                text,done=await self.ask(query)
+                self.assertEqual(done.get('source'),'application')
+                self.assertIn('Mira-X',text)
+                self.assertEqual(len(done['memoryIds']),3)
+        self.previous('Explain React.', 'React is a UI library.')
+        text,done=await self.ask("it's in my memory, check it and tell me")
+        self.assertEqual(done.get('source'),'application')
+        self.assertIn('Which approved detail',text)
+        self.assertEqual(done['memoryIds'],[])
+        self.assertNotIn('Mira-X',text)
 
 
 class CapabilityDomainTests(unittest.TestCase):

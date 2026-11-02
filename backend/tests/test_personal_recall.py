@@ -116,11 +116,17 @@ class PersonalRecallEvidenceTests(unittest.IsolatedAsyncioTestCase):
         for i, query in enumerate((NAME_QUERY, COLOR_QUERY)):
             with self.subTest(query=query):
                 cid = self.store.create_conversation()['id']
-                messages, ending = await self.collect(cid, query, tid=f'recall-{i}')
-                self.assertEqual(ending['memoryIds'], [])
-                self.assertEqual(len(messages), 2)
+                def unexpected_model(request):
+                    self.fail('Missing saved facts should be reported without model inference.')
+                async with httpx.AsyncClient(transport=httpx.MockTransport(unexpected_model)) as client:
+                    events=[e async for e in persisted_chat(client,self.settings,self.store,Coordinator(),
+                        {'conversationId':cid,'turnId':f'recall-{i}'},'local',[{'role':'user','content':query}])]
+                answer=''.join(e.get('text','') for e in events)
+                self.assertEqual(events[-1]['memoryIds'],[])
+                self.assertEqual(events[-1].get('source'),'application')
+                self.assertIn('not saved',answer)
                 for fact in ('Mira-X', 'Leeds', 'Lantern', 'amber'):
-                    self.assertNotIn(fact, messages[0]['content'])
+                    self.assertNotIn(fact,answer)
         self.assertEqual(self.store.snapshot()['memories'], [])
         self.assertEqual(self.store.snapshot()['suggestions'], pending)
 
