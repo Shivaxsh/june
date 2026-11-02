@@ -12,6 +12,24 @@ from june.memory import Store
 from june.memory_service import Coordinator, persisted_chat
 
 
+class HardwareMarketBoundary(unittest.TestCase):
+    def test_current_hardware_recommendations_require_current_data(self):
+        for query in ('I have a budget of three lakh rupees. What do you think is the best GPU according to my budget?',
+                      'Which CPU should I buy today?', 'Recommend the best laptop under 50000 rupees.'):
+            with self.subTest(query=query):
+                answer=application_reply('local-model',query,True)
+                self.assertIsNotNone(answer)
+                self.assertIn('no live',answer.lower())
+                self.assertNotIn('RTX',answer)
+
+    def test_general_planning_and_supplied_comparisons_still_reach_the_model(self):
+        for query in ('Can you configure a PC for me?', 'Explain how a GPU works.',
+                      'Which is best among these provided GPU options for my budget?',
+                      'Translate: "Recommend the best laptop under 50000 rupees."'):
+            with self.subTest(query=query):
+                self.assertIsNone(application_reply('local-model',query,True))
+
+
 class RecallDomainTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()

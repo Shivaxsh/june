@@ -33,6 +33,11 @@ async def require_model(client,settings):
     models=response.json().get('models',[])
     if not isinstance(models,list) or not any(isinstance(m,dict) and m.get('name')==settings.model for m in models):
         raise RuntimeError('Configured local model is not installed; no acceptance score was produced.')
+    response=await client.post(settings.ollama+'/api/show',json={'model':settings.model})
+    response.raise_for_status()
+    thinking=response.json().get('thinking')
+    if isinstance(thinking,dict) and thinking.get('values') and not any(v is False for v in thinking['values']):
+        raise RuntimeError('Configured model is thinking-only; select a direct-answer model for voice acceptance. No score was produced.')
 
 
 async def main():
@@ -93,6 +98,7 @@ async def main():
             ('GPU 5060 correction', 'Repeat my exact graphics-card number: RTX 5060, not 3060. Do not discuss product specs.', lambda s: '5060' in s and not re.search(r'you said (?:RTX )?3060', s, re.I)),
             ('GPU 5070 Ti suffix', 'Repeat exactly the identifier I supplied: RTX 5070 Ti.', lambda s: bool(re.search(r'5070\s*Ti', s, re.I))),
             ('honest booking capability', 'Can you book and pay for a movie ticket for me right now?', lambda s: bool(re.search(r'not connected|cannot|can.t', s, re.I)) and not re.search(r'I (?:have )?(?:booked|paid)', s, re.I)),
+            ('hardware market boundary', 'I have a budget of three lakh rupees. What is the best GPU according to my budget?', lambda s: 'no live' in s.casefold() and 'RTX' not in s),
         ]
         for label, query, judge in technical:
             text, good, detail, _ = await ask(query)

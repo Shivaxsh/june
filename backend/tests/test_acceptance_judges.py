@@ -16,6 +16,13 @@ class AcceptanceJudges(unittest.TestCase):
 
 
 class ModelPreflight(unittest.IsolatedAsyncioTestCase):
+    async def test_thinking_only_candidate_is_rejected_before_voice_acceptance(self):
+        def reply(request):
+            return httpx.Response(200,json={'models':[{'name':'candidate'}]} if request.url.path=='/api/tags' else {'thinking':{'values':[True],'default':True}})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(reply)) as client:
+            with self.assertRaisesRegex(RuntimeError,'thinking-only'):
+                await acceptance.require_model(client,SimpleNamespace(ollama='http://127.0.0.1:11434',model='candidate'))
+
     async def test_missing_model_aborts_instead_of_producing_a_misleading_score(self):
         async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r:httpx.Response(200,json={'models':[]}))) as client:
             with self.assertRaisesRegex(RuntimeError,'not installed'):

@@ -166,6 +166,11 @@ def application_reply(model, query, memory_enabled):
         return PREFIX + 'I can help you make a shopping list or draft an order, but June is not connected to checkout or payment services yet. I have not placed or paid for anything.'
     if re.match(r'(?:can you |could you |would you )?book\b.*\b(?:tickets?|movie|flights?|hotels?|appointment)\b', q, re.I):
         return PREFIX + 'I can help plan the details, but booking and payment services are not connected to June yet. I cannot check live availability, reserve a ticket or make a payment.'
+    hardware = re.search(r'\b(?:gpus?|graphics cards?|cpus?|processors?|pcs?|computers?|laptops?)\b',q,re.I)
+    shopping = re.search(r'\b(?:best|recommend\w*|buy|purchase)\b',q,re.I)
+    supplied = re.search(r'\b(?:these|following|provided|supplied|listed)\b',q,re.I)
+    if hardware and shopping and not supplied:
+        return PREFIX + 'I can help compare hardware, but June has no live product or price lookup connected, so I cannot verify the best current purchase. Share a dated shortlist with prices and your workload, and I can compare the information you provide.'
     if re.search(r'\bgdp\b', q, re.I) and re.search(r'\b(?:top|highest|largest|most|rank(?:ing)? (?:of |the )?countries)\b', q, re.I):
         if re.search(r'\b(?:19|20)\d{2}\b', q) and re.search(r'\b(?:nominal|PPP|purchasing.power)\b', q, re.I):
             return PREFIX + 'The year and metric are specified, but I still need a dated source to verify the ranking. June has no web lookup connected; share the relevant dataset or figures for me to interpret.'
