@@ -116,6 +116,8 @@ class Coordinator:
             with suppress(asyncio.CancelledError, Exception):await t
     @asynccontextmanager
     async def slot(self,kind):
+        if any(k == 'model-switch' for k in self.tasks.values()):
+            raise JuneError('busy','June is switching models. Try again when the selection is confirmed.',409)
         if kind != 'chat' and any(k == 'chat' for k in self.tasks.values()):
             message = ('June is answering. Warm-up can wait.' if kind == 'warm'
                        else 'June is answering. Memory suggestions can wait.')
@@ -124,7 +126,7 @@ class Coordinator:
         try:
             # Register foreground intent before awaiting cancellation, so no new
             # background task can slip in while another one is releasing work.
-            if kind == 'chat':
+            if kind in ('chat','model-switch'):
                 await self.cancel('extract')
                 await self.cancel('warm')
             async with self.lock:yield

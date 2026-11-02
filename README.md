@@ -213,3 +213,10 @@ The default is now Qwen2.5 1.5B with temperature 0.1 and a shorter general-knowl
 See `docs/answer-reliability.md` for the real comparison and limits. Run `node scripts/evaluate-models.mjs qwen2.5:1.5b` for the focused local check. Tests and comparisons use synthetic public questions, not private conversations. This small check is not a guarantee that every answer is correct. The model cannot look up current restaurants, prices or news.
 
 To roll back, set `JUNE_MODEL=qwen3:0.6b` in ignored `.env.local`, then restart June. No existing model is deleted.
+
+
+### Try another installed model
+
+Open **Local model** below the connection bar. Choose **Qwen3 4B Instruct** and click **Use this model**. Stop hands-free, playback and generation first, including in other June tabs. No download, account or API key is involved. The selection is shared across tabs and survives restarting June, saved privately in `model-selection.json` beside the local database (outside Git). It overrides `JUNE_MODEL` until another selection is made; delete only that preference file to return to the environment default.
+
+The installed `qwen3:4b-instruct-2507-q4_K_M` is an experimental accuracy option for this Intel Mac. It answered our threading examples correctly, but initial responses took over 30 seconds and one long-chat request timed out. It has not passed the room-audio latency gate. Choose **Qwen2.5 1.5B** to switch back to the lighter model. A selected model is installed, not necessarily loaded into RAM; its first reply may take longer. Switching preserves chat history, approved memories, voice and appearance. Use **New chat** when comparing models so the earlier model's answers do not influence the comparison.

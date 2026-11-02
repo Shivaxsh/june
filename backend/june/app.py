@@ -1,5 +1,6 @@
 """FastAPI owns local model HTTP connections and speech subprocess lifetimes."""
 import asyncio
+from dataclasses import replace
 from contextlib import aclosing, asynccontextmanager, suppress
 import json
 from urllib.parse import urlsplit
@@ -21,11 +22,16 @@ from .realtime_socket import VoiceSlots, voice_socket
 from .native_audio import NativeAudioService
 from .voice_api import router as voice_router
 from .voice_runtime import VoiceRuntime
+from .model_selection import ModelSelection
 
 
 @asynccontextmanager
 async def lifespan(app):
     app.state.settings = Settings.from_env()
+    app.state.model_selection = ModelSelection(app.state.settings.data_home)
+    saved_model = app.state.model_selection.saved_model()
+    if saved_model:
+        app.state.settings = replace(app.state.settings,model=saved_model)
     app.state.coordinator = Coordinator()
     try:
         app.state.store = Store(app.state.settings.data_home)
@@ -97,6 +103,11 @@ class LocalOnly:
             response = JSONResponse({'error': error} if '/speech/' in scope['path'] else {'message': error['message']}, status_code=403)
             return await response(scope, receive, send)
 
+        if (scope['method'] not in ('GET','HEAD') and scope['path'] != '/api/models'
+                and 'model-switch' in scope['app'].state.coordinator.tasks.values()
+                and scope['path'] in ('/api/chat','/api/voice/speak')):
+            return await JSONResponse({'message':'June is switching models. Try again shortly.'},status_code=409)(scope,receive,send)
+
         async def safe_send(message):
             if message['type'] == 'http.response.start':
                 headers = [(key, value) for key, value in message.get('headers', []) if key not in (b'cache-control', b'x-content-type-options')]
@@ -139,6 +150,22 @@ async def health():
 @app.get('/api/status')
 async def status(request: Request):
     return await model_status(request.app.state.client, request.app.state.settings)
+
+
+@app.get('/api/models')
+async def models(request: Request):
+    return await request.app.state.model_selection.catalog(request.app.state)
+
+
+@app.post('/api/models')
+async def select_model(request: Request):
+    try:
+        value=json.loads(await bounded_body(request,1024))
+    except (ValueError,UnicodeError,RecursionError):
+        raise JuneError('invalid-model','Choose an installed local model.',400)
+    if not isinstance(value,dict) or set(value)!={'model'}:
+        raise JuneError('invalid-model','Choose an installed local model.',400)
+    return await request.app.state.model_selection.select(request.app.state,value['model'])
 
 
 @app.post('/api/chat')
@@ -198,6 +225,9 @@ async def realtime(socket: WebSocket):
     if not local_host(socket.headers.get('host', ''), settings) or socket.headers.get('origin') not in settings.web_origins:
         await socket.close(code=1008)
         return
+    if 'model-switch' in socket.app.state.coordinator.tasks.values():
+        await socket.close(code=1013,reason='Model change in progress. Retry shortly.')
+        return
     await socket.app.state.coordinator.cancel('extract')
     await voice_socket(socket, socket.app.state.voice_assets, socket.app.state.voice_slots, socket.app.state.speech, socket.app.state.native_audio, socket.app.state.voice_runtime)
 
@@ -251,6 +281,7 @@ async def socket_chat(socket: WebSocket):
             await socket.send_json(event)
 
     async def generate(mode, messages, value):
+        settings = socket.app.state.settings
         if mode == 'local' and not value.get('conversationId'):
             available = await model_status(socket.app.state.client, settings)
             if available['state'] != 'ready':

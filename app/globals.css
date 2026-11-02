@@ -307,3 +307,13 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--inset); 
 .used-memories { margin:12px 0; }
 .used-memories p { font-size:12px; color:var(--muted); white-space:pre-wrap; }
 @media(max-width:600px) { .profile-grid { grid-template-columns:1fr; } .library-body { padding:16px; } .library-heading h2 { font-size:26px; } .storage-label { margin-left:0; width:100%; } .library-actions button { white-space:normal; text-align:left; } }
+
+/* Model selection shares June's charcoal surfaces and wraps on narrow screens. */
+.model-picker { border: 1px solid var(--line); border-top: 0; background: var(--background); }
+.model-picker summary { cursor: pointer; padding: 13px 16px; font-size: 12px; color: var(--text); }
+.model-picker summary span { color: var(--muted); margin-left: 12px; }
+.model-picker-body { padding: 0 16px 16px; font-size: 12px; }
+.model-picker-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0 12px; }
+.model-picker-actions select { flex: 1 1 220px; min-width: 0; max-width: 100%; font-size: 12px; min-height: 38px; color: var(--text); }
+.model-picker-body p { line-height: 1.7; overflow-wrap: anywhere; }
+.model-picker-hint { color: var(--muted); }

@@ -20,6 +20,7 @@ import { useHandsFree } from "./voice/useHandsFree";
 import HandsFreePanel, { handsFreeLabels } from "./voice/HandsFreePanel";
 import { mergeTranscript } from "@/lib/voice/sentences";
 
+import ModelPicker from "./ModelPicker";
 import LibraryPanel from "./memory/LibraryPanel";
 import { useLibrary } from "./memory/useLibrary";
 import { libraryRequest, LibraryError, type SavedConversation } from "@/lib/memory-types";
@@ -37,6 +38,8 @@ export default function Chat() {
   const [mode, setMode] = useState<ChatMode>("local");
   const [status, setStatus] = useState<ModelStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [modelChanging, setModelChanging] = useState(false);
+  const modelChangingRef = useRef(false);
   const [error, setError] = useState("");
   const [timing, setTiming] = useState("");
   const [announcement, setAnnouncement] = useState("");
@@ -181,7 +184,7 @@ export default function Chat() {
     if (automatic && !voiceSessionId) return;
     if (!automatic) handsFree.stop();
     const content = (input?.content ?? draft).trim();
-    if (!content || busyRef.current || voice.recognition.phase !== "idle" || content.length > MAX_MESSAGE_LENGTH) return;
+    if (!content || modelChangingRef.current || busyRef.current || voice.recognition.phase !== "idle" || content.length > MAX_MESSAGE_LENGTH) return;
     if ((!library.data || library.error) && !library.temporary) {setError("Private storage is unavailable. Retry storage or explicitly choose temporary chat.");return;}
     cancelExtraction();
     setPreview("auto");
@@ -331,17 +334,23 @@ export default function Chat() {
           <div className="face-copy"><p className="eyebrow">Phase 6 · Memory and personality</p><h1 id="june-title">A little more<br /><em>personal.</em></h1><p className="subtitle">A familiar voice. A memory you approve. A conversation to return to.</p><a className="learn-link" href="/learn/phase-6">Inside memory and personality <span aria-hidden="true">↗</span></a><OrbControls preview={preview} onPreview={setPreview} still={still} onStill={setStill} disabled={busy || handsFree.active} /></div>
           <Orb expression={library.temporary ? "steady" : library.data?.profile.expression} mood={orb.mood} label={orb.label} level={voice.engine === "native" && voice.speech.phase === "speaking" ? voice.activity : handsFree.active ? handsFree.level : voice.recognition.phase === "listening" ? voice.level : audio.level} still={still} activity={voice.engine === "browser" ? voice.activity : undefined} speechActive={voice.engine === "browser" && voice.speech.phase === "speaking" && !handsFree.state.probing} />
         </section>
+        <div inert={modelChanging}>
         <LibraryPanel onDeleteActive={()=>newChat()} library={library} activeId={conversationId} onOpen={openConversation} />
-        <HandsFreePanel controls={handsFree} enabled={voice.engine === 'native' && !!voice.ownerId && !busy && (!!library.data && !library.error || library.temporary) && mode === "local" && status?.state === "ready" && voice.speakReplies && !!voice.choices.selected && voice.support.recognition} onStart={() => { cancelExtraction(); audio.stop(); voice.cancel(); setPreview("auto"); handsFree.start(); }} />
+        <HandsFreePanel controls={handsFree} enabled={voice.engine === 'native' && !!voice.ownerId && !busy && !modelChanging && (!!library.data && !library.error || library.temporary) && mode === "local" && status?.state === "ready" && voice.speakReplies && !!voice.choices.selected && voice.support.recognition} onStart={() => { cancelExtraction(); audio.stop(); voice.cancel(); setPreview("auto"); handsFree.start(); }} />
         {handsFree.active && <button className="quiet-button all-stop" onClick={stopAll}>Stop conversation &amp; microphone</button>}
-        <VoicePanel voice={voice} busy={busy} onUse={useTranscript} onActivate={() => { cancelExtraction(); setPreview("auto"); }} />
+        <VoicePanel voice={voice} busy={busy || modelChanging} onUse={useTranscript} onActivate={() => { cancelExtraction(); setPreview("auto"); }} />
         {(voice.recognition.phase !== "idle" || voice.speech.phase !== "idle") && !busy && <button className="quiet-button all-stop" onClick={stopAll}>Stop all voice activity</button>}
         <details className="sound-workshop"><summary>Sound &amp; microphone <span>{audio.phase === "listening" ? "Microphone active" : audio.phase === "playing" ? "Audio playing" : audio.phase === "requesting" ? "Permission pending" : audio.phase === "paused" ? "Paused" : "Explore audio reactivity"}</span></summary>{voice.engine === "native" && <p className="handsfree-note">Choose browser audio above to use this workshop’s microphone.</p>}<AudioPanel audio={audio} disableCapture={voice.engine !== "browser" || busy || voice.recognition.phase !== "idle"} onActivate={() => { cancelExtraction(); handsFree.stop(); voice.cancel(); setPreview("auto"); }} /></details>
 
+        </div>
         <div className="connection-bar">
           <div className="connection-copy"><span className={`status-dot ${mode === "demo" ? "demo" : status?.state === "ready" ? "ready" : "offline"}`} /><span><strong>{mode === "demo" ? "Simulated demo" : status?.model || "Local AI"}</strong><span className="connection-description">{connection}</span></span></div>
           <div className="connection-actions"><label className="sr-only" htmlFor="mode">Reply source</label><select id="mode" value={mode} disabled={busy} onChange={event => newChat(event.target.value as ChatMode)}><option value="local">Local AI</option><option value="demo">Practice demo</option></select>{mode === "local" && <button className="quiet-button" disabled={busy} onClick={() => void reconnect()}>Reconnect</button>}</div>
         </div>
+        {mode === "local" && <ModelPicker activeModel={status?.model} changing={modelChanging}
+          disabled={busy || handsFree.active || speechBusy || recordingBusy || audio.phase !== "idle"}
+          onChanging={value => { modelChangingRef.current=value; setModelChanging(value); if(value) cancelExtraction(); }}
+          onChanged={() => { cancelExtraction(); voice.cancel(); audio.stop(); setTiming(""); void reconnect(); }} />}
         {mode === "demo" && <p className="demo-notice">Practice demo: these replies are simulated. Choose Local AI for real model answers.</p>}
 
         <div ref={conversation} className="conversation" role="log" aria-label="Conversation with June" aria-live="off" onScroll={() => {
@@ -364,7 +373,7 @@ export default function Chat() {
             <textarea ref={composer} id="message" value={draft} maxLength={MAX_MESSAGE_LENGTH} rows={2} placeholder="What’s on your mind?" disabled={busy || ((!library.data || !!library.error) && !library.temporary)} onChange={event => setDraft(event.target.value)} onKeyDown={event => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
             }} />
-            {busy ? <button className="send-button stop-button" type="button" onClick={stopAll}><span aria-hidden="true">■</span> Stop</button> : <button className="send-button" type="submit" disabled={!draft.trim() || voice.recognition.phase !== "idle" || ((!library.data || !!library.error) && !library.temporary)}><span>Send</span><span aria-hidden="true">↑</span></button>}
+            {busy ? <button className="send-button stop-button" type="button" onClick={stopAll}><span aria-hidden="true">■</span> Stop</button> : <button className="send-button" type="submit" disabled={modelChanging || !draft.trim() || voice.recognition.phase !== "idle" || ((!library.data || !!library.error) && !library.temporary)}><span>Send</span><span aria-hidden="true">↑</span></button>}
           </form>
           <div className="composer-notes"><span>Enter to send · Shift + Enter for a new line</span><span>{timing || `${draft.length}/${MAX_MESSAGE_LENGTH}`}</span></div>
         </div>
