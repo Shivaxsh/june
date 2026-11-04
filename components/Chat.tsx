@@ -340,7 +340,7 @@ export default function Chat() {
         {handsFree.active && <button className="quiet-button all-stop" onClick={stopAll}>Stop conversation &amp; microphone</button>}
         <VoicePanel voice={voice} busy={busy || modelChanging} onUse={useTranscript} onActivate={() => { cancelExtraction(); setPreview("auto"); }} />
         {(voice.recognition.phase !== "idle" || voice.speech.phase !== "idle") && !busy && <button className="quiet-button all-stop" onClick={stopAll}>Stop all voice activity</button>}
-        <details className="sound-workshop"><summary>Sound &amp; microphone <span>{audio.phase === "listening" ? "Microphone active" : audio.phase === "playing" ? "Audio playing" : audio.phase === "requesting" ? "Permission pending" : audio.phase === "paused" ? "Paused" : "Explore audio reactivity"}</span></summary>{voice.engine === "native" && <p className="handsfree-note">Choose browser audio above to use this workshop’s microphone.</p>}<AudioPanel audio={audio} disableCapture={voice.engine !== "browser" || busy || voice.recognition.phase !== "idle"} onActivate={() => { cancelExtraction(); handsFree.stop(); voice.cancel(); setPreview("auto"); }} /></details>
+        <details className="sound-workshop"><summary>Sound &amp; microphone <span>{audio.phase === "listening" ? "Microphone active" : audio.phase === "playing" ? "Audio playing" : audio.phase === "requesting" ? "Permission pending" : audio.phase === "paused" ? "Paused" : "Explore audio reactivity"}</span></summary>{voice.engine === "native" && <p className="handsfree-note">Enable manual browser recording above to use this workshop’s microphone.</p>}<AudioPanel audio={audio} disableCapture={!voice.browserCapture || busy || voice.recognition.phase !== "idle"} onActivate={() => { cancelExtraction(); handsFree.stop(); voice.cancel(); setPreview("auto"); }} /></details>
 
         </div>
         <div className="connection-bar">
@@ -379,7 +379,7 @@ export default function Chat() {
         </div>
       </main>
 
-      <footer className="footer"><p>Local wake phrase · Whisper &amp; Qwen · your selected system voice.</p><p>Approved memories only. June can make mistakes.</p></footer>
+      <footer className="footer"><p>Local wake phrase · Whisper &amp; Qwen · June’s ElevenLabs voice.</p><p>Approved memories only. June can make mistakes.</p></footer>
       <span className="sr-only" role="status" aria-live="polite">{announcement}</span>
     </div>
   );

@@ -3,6 +3,7 @@ import asyncio
 from dataclasses import replace
 from contextlib import aclosing, asynccontextmanager, suppress
 import json
+import os
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -22,6 +23,7 @@ from .realtime_socket import VoiceSlots, voice_socket
 from .native_audio import NativeAudioService
 from .voice_api import router as voice_router
 from .voice_runtime import VoiceRuntime
+from .elevenlabs_voice import ElevenLabsVoice
 from .model_selection import ModelSelection
 
 
@@ -42,8 +44,11 @@ async def lifespan(app):
     app.state.voice_slots = VoiceSlots()
     app.state.native_audio = NativeAudioService(app.state.settings.audio_home)
     async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=5), trust_env=False,
-                                 limits=httpx.Limits(max_connections=6, max_keepalive_connections=3)) as client:
+                                 limits=httpx.Limits(max_connections=6, max_keepalive_connections=3)) as client, httpx.AsyncClient(
+                                     timeout=httpx.Timeout(60,connect=10),trust_env=False,follow_redirects=False,
+                                     limits=httpx.Limits(max_connections=4,max_keepalive_connections=2)) as voice_client:
         app.state.client = client
+        app.state.voice_provider = ElevenLabsVoice(voice_client,app.state.settings.data_home,os.environ.get('ELEVENLABS_API_KEY',''),app.state.native_audio)
         app.state.voice_runtime = VoiceRuntime(app.state.settings,client,app.state.speech,app.state.native_audio,app.state.voice_assets,app.state.coordinator,app.state.store)
         app.state.voice_runtime.start()
         async def sweep():
@@ -205,6 +210,7 @@ async def realtime_status(request: Request):
     result=await state.voice_assets.status()
     audio=await state.native_audio.status()
     speech=await state.speech.status()
+    provider=await state.voice_provider.status()
     runtime=state.voice_runtime
     await runtime.refresh_model()
     if result['state']=='ready' and speech['state']!='ready':result={'state':'setup-required','message':speech['message']}
@@ -213,10 +219,13 @@ async def realtime_status(request: Request):
     if result['state']=='ready' and runtime.enabled and not (runtime.model_warm and runtime.detectors_warm and whisper_warm and audio.get('voiceWarm')):
         result={'state':'preparing','message':runtime.readiness_message(whisper_warm=whisper_warm,voice_warm=bool(audio.get('voiceWarm')))}
         runtime.retry_preparation()
+    if result['state']=='ready' and provider['state']!='ready':result={'state':provider['state'],'message':provider['message']}
     return {**result,'busy':state.voice_slots.owner is not None,'wakePhrase':'Hey June',
         'transport':'local-websocket','model':'Whisper base.en','audioEngine':'mac-native',
         'nativeReady':audio.get('nativeReady',False),'permission':audio.get('permission','unknown'),
-        'whisperWarm':whisper_warm,'modelWarm':runtime.model_warm,'voiceWarm':audio.get('voiceWarm',False)}
+        'whisperWarm':whisper_warm,'modelWarm':runtime.model_warm,'voiceWarm':audio.get('voiceWarm',False),
+        'provider':provider['provider'],'voiceId':provider['voiceId'],'voiceName':provider['voiceName'],'ttsModel':provider['ttsModel'],
+        'providerState':provider['state'],'providerMessage':provider['message'],**({'quota':provider['quota']} if 'quota' in provider else {})}
 
 
 @app.websocket('/ws/voice')
@@ -227,6 +236,12 @@ async def realtime(socket: WebSocket):
         return
     if 'model-switch' in socket.app.state.coordinator.tasks.values():
         await socket.close(code=1013,reason='Model change in progress. Retry shortly.')
+        return
+    provider=await socket.app.state.voice_provider.status()
+    if provider['state']!='ready':
+        await socket.accept()
+        await socket.send_json({'type':'error','fatal':True,'message':provider['message']})
+        await socket.close(code=1008)
         return
     await socket.app.state.coordinator.cancel('extract')
     await voice_socket(socket, socket.app.state.voice_assets, socket.app.state.voice_slots, socket.app.state.speech, socket.app.state.native_audio, socket.app.state.voice_runtime)

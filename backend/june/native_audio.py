@@ -227,7 +227,7 @@ class NativeAudioService:
     async def warm(self):
         await self.ensure_started()
         if not self.voice_warm:
-            await self.command('prepare',timeout=20,voiceId=NICKY)
+            await self.command('prepare-output',timeout=20)
             self.voice_warm=True
 
     async def capture(self,owner,session):
@@ -288,6 +288,8 @@ class NativeAudioService:
             if process is not None:await self.terminate(process,ready)
         finally:
             for sid,job in jobs:
+                producer=job.get('producer')
+                if producer and producer is not asyncio.current_task() and not producer.done():producer.cancel()
                 if self.jobs.get(sid) is job:
                     self.jobs.pop(sid,None);self.offer(job['queue'],{'type':'cancelled'})
 
@@ -336,6 +338,81 @@ class NativeAudioService:
             if not completed and self.jobs.get(sid) is job:
                 await finish_cleanup(self._stop_request(owner,request,process,ready))
             if self.jobs.get(sid) is job:self.jobs.pop(sid,None)
+
+    async def _pcm_command(self,kind,sid,**values):
+        await self.ensure_started()
+        uid=uuid.uuid4().hex
+        future=asyncio.get_running_loop().create_future();self.commands[uid]=future
+        process,ready=self.process,self.ready
+        try:
+            await self.send({'type':kind,'id':sid,'commandId':uid,**values})
+            result=await asyncio.wait_for(asyncio.shield(future),5)
+            if result.get('error'):raise JuneError('audio-pcm','Native audio rejected the speech stream. Refresh audio and retry.',503)
+            return result
+        except TimeoutError:
+            if process is not None:await self.terminate(process,ready)
+            raise JuneError('audio-pcm','Native playback stopped acknowledging audio. Refresh audio before retrying.',503) from None
+        finally:
+            self.commands.pop(uid,None)
+            if not future.done():future.cancel()
+            if not future.cancelled():future.exception()
+
+    async def speak_pcm(self,value,source):
+        # Validate the fixed provider identity before sending native PCM commands.
+        from .elevenlabs_voice import JUNE_VOICE
+        await self.ensure_started();value=validate_speak(value,[JUNE_VOICE])
+        owner,request,sid=value['ownerId'],value['requestId'],value['segmentId']
+        if self.capture_owner is not None and self.capture_owner!=owner:
+            raise JuneError('voice-stale','Another tab owns the audio.',409)
+        if 'voiceSessionId' not in value and not self.capture_released.is_set():
+            try:await asyncio.wait_for(self.capture_released.wait(),RELEASE_WAIT_SECONDS)
+            except TimeoutError:raise JuneError('audio-busy','Native capture is still releasing. Retry playback.',409) from None
+            await self.ensure_started()
+        if ((owner,request) in self.revoked or (self.capture_owner is not None and self.capture_owner!=owner)
+                or not self.capture_released.is_set() and 'voiceSessionId' not in value
+                or any(j['owner']!=owner for j in self.jobs.values())):
+            raise JuneError('voice-stale','This speech request is cancelled or another tab owns audio.',409)
+        if 'voiceSessionId' in value and (value['voiceSessionId']!=self.capture_session or value.get('turnId')!=self.capture_turn):
+            raise JuneError('voice-stale','That voice turn is no longer active.',409)
+        if sid in self.jobs or len(self.jobs)>=2:raise JuneError('audio-busy','Two speech segments are already queued.',409)
+        queue=asyncio.Queue(128)
+        job={'owner':owner,'request':request,'queue':queue,'voiceSessionId':value.get('voiceSessionId')}
+        self.jobs[sid]=job
+        process,ready=self.process,self.ready
+        completed=False;producer=None
+        async def pump():
+            try:
+                async for data in source:
+                    if self.jobs.get(sid) is not job or (owner,request) in self.revoked:raise asyncio.CancelledError
+                    if not isinstance(data,bytes) or not data or len(data)>8192:raise JuneError('audio-pcm','Invalid cloud audio packet.',503)
+                    await self._pcm_command('pcm-chunk',sid,audio=base64.b64encode(data).decode('ascii'))
+                if self.jobs.get(sid) is job:await self._pcm_command('pcm-end',sid)
+            except asyncio.CancelledError:raise
+            except (JuneError,OSError,ValueError) as error:
+                self.offer(queue,{'type':'error','message':error.message if isinstance(error,JuneError) else 'Cloud audio playback failed. Refresh audio and retry.'})
+            finally:
+                if hasattr(source,'aclose'):await source.aclose()
+        try:
+            await self._pcm_command('pcm-start',sid,**{k:v for k,v in value.items() if k!='segmentId'})
+            producer=asyncio.create_task(pump());job['producer']=producer
+            yield {'type':'accepted'}
+            async with asyncio.timeout(180):
+                while True:
+                    event=await queue.get()
+                    completed=event['type']=='end' or event['type']=='cancelled'
+                    yield event
+                    if event['type'] in ('end','cancelled','error'):break
+        except TimeoutError:yield {'type':'error','message':'June voice playback timed out. Retry a shorter reply manually.'}
+        finally:
+            async def cleanup_pcm():
+                if producer:
+                    producer.cancel()
+                    with suppress(asyncio.CancelledError,JuneError):await producer
+                elif hasattr(source,'aclose'):await source.aclose()
+                if not completed and self.jobs.get(sid) is job:
+                    await self._stop_request(owner,request,process,ready)
+                if self.jobs.get(sid) is job:self.jobs.pop(sid,None)
+            await finish_cleanup(cleanup_pcm())
 
     @staticmethod
     async def _reap(process):

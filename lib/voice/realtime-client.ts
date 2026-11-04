@@ -2,7 +2,7 @@ import type { EchoMode } from './realtime-capture';
 
 export type HandsFreePhase = 'off' | 'requesting' | 'connecting' | 'preparing' | 'waiting' | 'listening' | 'transcribing' | 'generating' | 'speaking' | 'followup';
 export type NativePermission = 'not-determined' | 'requesting' | 'granted' | 'denied' | 'restricted' | string;
-export type VoiceConfig = { state: string; websocketUrl?: string; message?: string; audioEngine?: string; nativeReady?: boolean; permission?: NativePermission; whisperWarm?: boolean; modelWarm?: boolean };
+export type VoiceConfig = { state: string; websocketUrl?: string; message?: string; audioEngine?: string; nativeReady?: boolean; permission?: NativePermission; whisperWarm?: boolean; modelWarm?: boolean; provider?: 'elevenlabs'; voiceId?: string; voiceName?: 'June'; ttsModel?: 'eleven_v4'; providerState?: 'ready' | 'setup-required' | 'quota-exhausted' | 'error'; providerMessage?: string; quota?: { remaining?: number | null; limit?: number | null; used?: number | null; resetAt?: string | number | null } };
 export type AudioSourceOptions = { audioSource: 'native' | 'browser'; ownerId?: string; voiceId?: string };
 export type HandsFreeState = { phase: HandsFreePhase; error: string; turn: number; vad: number; transcriptionMs: number; probing?: boolean; echoMode?: EchoMode; sessionId?: string; audioSource?: 'native' | 'browser'; permission?: NativePermission; level?: number; timings?: Record<string, number> };
 type Input = { readonly echoMode?: EchoMode; start(signal: AbortSignal, packet: (data: ArrayBuffer) => void, fail: (message: string) => void): Promise<void>; stop(): void };

@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from .errors import JuneError
 from .memory_api import body
 from .native_audio import identifier,validate_speak
+from .elevenlabs_voice import JUNE_VOICE
 
 router=APIRouter(prefix='/api/voice')
 class NativeStream(StreamingResponse):
@@ -16,7 +17,7 @@ class NativeStream(StreamingResponse):
 
 @router.get('/voices')
 async def voices(request:Request):
-    return await request.app.state.native_audio.voices()
+    return await request.app.state.voice_provider.voices()
 
 @router.post('/stop')
 async def stop(request:Request):
@@ -28,9 +29,10 @@ async def stop(request:Request):
 @router.post('/speak')
 async def speak(request:Request):
     value=await body(request,32000)
-    service=request.app.state.native_audio
-    await service.ensure_started()
-    value=validate_speak(value,service.available_voices)
+    service=request.app.state.voice_provider
+    value=validate_speak(value,[JUNE_VOICE])
+    state=await service.status()
+    if state['state']!='ready':raise JuneError('voice-unavailable',state['message'],503)
     async def events():
         try:
             async with aclosing(service.speak(value)) as source:

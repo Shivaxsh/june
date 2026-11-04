@@ -3,9 +3,12 @@ import AppKit
 import AVFoundation
 import Foundation
 import Darwin
+import CoreFoundation
 
+let selfTesting = CommandLine.arguments.contains("--self-test")
 let writer = DispatchQueue(label: "local.june.audio.stdout")
 func emit(_ value: [String: Any]) {
+    if selfTesting { return } // Offline validation writes its own single summary.
     guard let bytes = try? JSONSerialization.data(withJSONObject: value), bytes.count < 1_048_576 else { return }
     writer.async { FileHandle.standardOutput.write(bytes + Data([10])) }
 }
@@ -45,6 +48,11 @@ final class SpeechJob {
     let id: String, owner: String, request: String, text: String, voice: String
     let rate: Float
     let silent: Bool
+    let pcm: Bool
+    let voiceSessionId: String?
+    let turnId: NSNumber?
+    var carry = Data()
+    var inputBytes = 0
     var buffers: [AVAudioPCMBuffer] = []
     var envelope: [(AVAudioFramePosition, AVAudioFramePosition, Double)] = []
     var converter: AVAudioConverter?
@@ -53,7 +61,7 @@ final class SpeechJob {
     var complete = false, cancelled = false, started = false
     var prepareStart = Date()
     var playbackStart: Date?
-    init(_ v: [String: Any], silent: Bool = false) {
+    init(_ v: [String: Any], silent: Bool = false, pcm: Bool = false) {
         id = v["id"] as? String ?? UUID().uuidString
         owner = v["ownerId"] as? String ?? "warm"
         request = v["requestId"] as? String ?? "warm"
@@ -61,6 +69,9 @@ final class SpeechJob {
         voice = v["voiceId"] as? String ?? "com.apple.ttsbundle.siri_nicky_en-US_compact"
         rate = Float(v["rate"] as? Double ?? 0.98)
         self.silent = silent
+        self.pcm = pcm
+        voiceSessionId = v["voiceSessionId"] as? String
+        turnId = v["turnId"] as? NSNumber
     }
 }
 // The render callback never shares mutable capture state with the main queue.
@@ -80,7 +91,7 @@ final class JuneAudio {
     var engine = AVAudioEngine()
     var player = AVAudioPlayerNode()
     let playFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
-    var synth = AVSpeechSynthesizer()
+    lazy var synth = AVSpeechSynthesizer()
     var jobs: [String: SpeechJob] = [:], outputOrder: [String] = [], synthOrder: [String] = []
     var synthesizing: SpeechJob?, playing: SpeechJob?
     var requestedSession: String?, captureSession: String?
@@ -98,7 +109,10 @@ final class JuneAudio {
     func result(_ id: String, _ fields: [String: Any] = [:]) { emit(fields.merging(["type": "result", "id": id]) { _, new in new }) }
     func event(_ job: SpeechJob, _ phase: String, _ extra: [String: Any] = [:]) {
         guard !job.silent else { return }
-        emit(extra.merging(["type": "playback", "id": job.id, "phase": phase]) { _, new in new })
+        var fields: [String: Any] = ["type": "playback", "id": job.id, "phase": phase]
+        if let session = job.voiceSessionId { fields["voiceSessionId"] = session }
+        if let turn = job.turnId { fields["turnId"] = turn }
+        emit(extra.merging(fields) { _, new in new })
     }
     func setupGraph(capture: Bool) throws {
         configuring = true; defer { configuring = false }
@@ -120,7 +134,7 @@ final class JuneAudio {
         engine.connect(player, to: engine.mainMixerNode, format: playFormat)
         if capture {
             // AVAudioIONode requires equal client formats on both voice I/O
-            // sides. The mixer converts Nicky's 48 kHz mono playback to this
+            // sides. The mixer converts 48 kHz mono playback to this
             // route format; the microphone tap stays outside the output path.
             let ioFormat = engine.inputNode.outputFormat(forBus:0)
             engine.connect(engine.mainMixerNode,to:engine.outputNode,format:ioFormat)
@@ -171,7 +185,7 @@ final class JuneAudio {
                     }
                     self.tapInstalled = true
                     captureStage = "start"
-                    try self.engine.start()
+                    try self.startEngine()
                     self.result(id, ["permission": permission(), "capturing": true])
                 } catch {
                     self.releaseCapture(session)
@@ -222,6 +236,133 @@ final class JuneAudio {
         if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
         if engine.isRunning { engine.stop() }
         captureSession = nil; captureConverter = nil; graphReady = false
+        cancelAll()
+    }
+    // PCM is always signed little-endian int16, mono, 24 kHz. rate is
+    // descriptive metadata: the producer has already applied the voice rate.
+    let pcmFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 24000, channels: 1, interleaved: false)!
+    static let audioByteLimit = 16 * 1024 * 1024
+    static let chunkByteLimit = 8192
+    func pcmReply(_ command: [String: Any], _ error: String? = nil) {
+        let ack = command["commandId"] as? String
+        // Successful start/end ACKs are optional; chunk ACKs are mandatory.
+        guard let id = ack ?? (error == nil ? nil : command["id"] as? String) else { return }
+        if let error { result(id, ["error": error]) }
+        else { result(id, ["accepted": true]) }
+    }
+    func rejectPCM(_ command: [String: Any], _ message: String) {
+        let id = command["id"] as? String ?? ""
+        if let job = jobs[id], job.pcm {
+            event(job, "error", ["error": message]); cancel(job)
+        } else { emit(["type": "playback", "id": id, "phase": "error", "error": message]) }
+        pcmReply(command, message)
+    }
+    func pcmStart(_ command: [String: Any]) {
+        let required = ["id", "ownerId", "requestId", "voiceId"]
+        let validIDs = required.allSatisfy { key in
+            guard let value = command[key] as? String else { return false }
+            return !value.isEmpty && value.utf8.count <= 256
+        }
+        let optionalIDs = ["commandId", "voiceSessionId", "segmentId"].allSatisfy { key in
+            guard let value = command[key] else { return true }
+            guard let string = value as? String else { return false }
+            return !string.isEmpty && string.utf8.count <= 256
+        }
+        let validTurn: Bool
+        if let value = command["turnId"] {
+            if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
+                let turn = number.doubleValue
+                validTurn = turn.isFinite && turn >= 0 && turn.rounded(.towardZero) == turn
+            } else { validTurn = false }
+        } else { validTurn = true }
+        // id is the segment identifier. Accept the duplicate field when sent,
+        // but never allow it to name a different job.
+        let matchingSegment = command["segmentId"] == nil || command["id"] as? String == command["segmentId"] as? String
+        guard validIDs, optionalIDs, validTurn, matchingSegment,
+              let text = command["text"] as? String, !text.isEmpty, text.utf16.count <= 2000,
+              let rate = command["rate"] as? NSNumber, CFGetTypeID(rate) != CFBooleanGetTypeID(),
+              rate.doubleValue.isFinite, rate.doubleValue > 0, rate.doubleValue <= 4 else {
+            rejectPCM(command, "Invalid PCM job metadata."); return
+        }
+        let job = SpeechJob(command, pcm: true)
+        guard jobs[job.id] == nil, jobs.count < 3 else {
+            rejectPCM(command, "Duplicate PCM ID or audio job queue is full."); return
+        }
+        jobs[job.id] = job; outputOrder.append(job.id)
+        pcmReply(command)
+    }
+    func pcmJob(_ command: [String: Any]) -> SpeechJob? {
+        guard let id = command["id"] as? String, let job = jobs[id], job.pcm, !job.cancelled, !job.complete else {
+            rejectPCM(command, "Stale or unknown PCM job."); return nil
+        }
+        if let ack = command["commandId"] {
+            guard let string = ack as? String, !string.isEmpty, string.utf8.count <= 256 else {
+                rejectPCM(command, "Invalid PCM commandId."); return nil
+            }
+        }
+        return job
+    }
+    func pcmChunk(_ command: [String: Any]) {
+        guard let job = pcmJob(command) else { return }
+        guard let ack = command["commandId"] as? String, !ack.isEmpty else {
+            rejectPCM(command, "PCM chunks require a commandId for backpressure."); return
+        }
+        guard let encoded = command["audio"] as? String, !encoded.isEmpty,
+              encoded.utf8.count <= ((Self.chunkByteLimit + 2) / 3) * 4,
+              let bytes = Data(base64Encoded: encoded), !bytes.isEmpty, bytes.count <= Self.chunkByteLimit,
+              job.inputBytes + bytes.count <= Self.audioByteLimit else {
+            rejectPCM(command, "Invalid, oversized, or over-budget PCM chunk."); return
+        }
+        job.inputBytes += bytes.count
+        var joined = job.carry; joined.append(bytes)
+        let byteCount = joined.count & ~1
+        job.carry = Data(joined.suffix(joined.count - byteCount))
+        if byteCount > 0 {
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: pcmFormat, frameCapacity: AVAudioFrameCount(byteCount / 2)),
+                  let samples = buffer.int16ChannelData?[0] else {
+                rejectPCM(command, "Could not allocate PCM input."); return
+            }
+            buffer.frameLength = AVAudioFrameCount(byteCount / 2)
+            // Decode explicitly: neither Data alignment nor host endianness is assumed.
+            joined.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                for i in 0..<(byteCount / 2) {
+                    samples[i] = Int16(bitPattern: UInt16(raw[2*i]) | UInt16(raw[2*i+1]) << 8)
+                }
+            }
+            prepared(buffer, job)
+        }
+        guard jobs[job.id] === job, !job.cancelled else {
+            pcmReply(command, "PCM conversion or audio budget failed."); return
+        }
+        pcmReply(command)
+    }
+    func pcmEnd(_ command: [String: Any]) {
+        guard let job = pcmJob(command) else { return }
+        guard job.carry.isEmpty, job.inputBytes > 0 else {
+            rejectPCM(command, "PCM stream is empty or ends with an incomplete int16 sample."); return
+        }
+        guard flush(job), jobs[job.id] === job, !job.cancelled else {
+            pcmReply(command, "PCM end-of-stream conversion failed."); return
+        }
+        job.complete = true
+        pcmReply(command)
+        pumpOutput(); finishIfPlayed(job)
+    }
+    func prepareOutput(_ command: [String: Any]) {
+        let id = command["id"] as? String ?? ""
+        do {
+            if !graphReady { try setupGraph(capture: captureSession != nil) }
+            try startEngine()
+            result(id, ["prepared": true])
+        } catch { result(id, ["error": "The Mac audio output could not start."]) }
+    }
+    func startEngine() throws {
+        // Only capture explicitly requests permission. Output-only graphs never
+        // access inputNode, and an existing capture graph requires prior consent.
+        if captureSession != nil && AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
+            throw NSError(domain: "JuneAudio", code: 2)
+        }
+        if !engine.isRunning { try engine.start() }
     }
     func speak(_ command: [String: Any], silent: Bool = false) {
         let job = SpeechJob(command, silent: silent)
@@ -248,7 +389,7 @@ final class JuneAudio {
                 DispatchQueue.main.async {
                     guard let self, let job, self.jobs[job.id] === job, !job.cancelled else { return }
                     if pcm.frameLength == 0 {
-                        self.flush(job)
+                        guard self.flush(job) else { return }
                         job.complete = true
                         if self.synthesizing === job { self.synthesizing = nil }
                         if job.silent { self.jobs.removeValue(forKey: job.id); self.result(job.id, ["prepared": true]) }
@@ -265,28 +406,35 @@ final class JuneAudio {
         guard let converter = job.converter, let pcm = AVAudioPCMBuffer(pcmFormat: playFormat,
             frameCapacity: AVAudioFrameCount(ceil(Double(buffer.frameLength) * 48000 / buffer.format.sampleRate)) + 64) else { cancel(job); return }
         var supplied = false, error: NSError?
-        converter.convert(to: pcm, error: &error) { _, status in
+        let conversionStatus = converter.convert(to: pcm, error: &error) { _, status in
             if supplied { status.pointee = .noDataNow; return nil }
             supplied = true; status.pointee = .haveData; return buffer
         }
-        guard error == nil else { event(job,"error"); cancel(job); return }
+        guard error == nil, conversionStatus != .error else { event(job,"error"); cancel(job); return }
         accept(pcm,job)
     }
-    func flush(_ job: SpeechJob) {
-        guard !job.silent, let converter = job.converter else { return }
-        for _ in 0..<8 {
-            guard let pcm = AVAudioPCMBuffer(pcmFormat:playFormat,frameCapacity:512) else { return }
+    @discardableResult
+    func flush(_ job: SpeechJob) -> Bool {
+        guard !job.silent, let converter = job.converter else { return true }
+        // Drain delayed resampler frames on the same converter. A finite bound
+        // also prevents a malfunctioning converter from blocking the IPC reader.
+        for _ in 0..<64 {
+            guard let pcm = AVAudioPCMBuffer(pcmFormat:playFormat,frameCapacity:512) else { break }
             var error: NSError?
             let status = converter.convert(to:pcm,error:&error) { _, input in input.pointee = .endOfStream; return nil }
-            if error != nil { return }
+            if error != nil || status == .error { break }
             if pcm.frameLength > 0 { accept(pcm,job) }
-            if status == .endOfStream || pcm.frameLength == 0 { return }
+            if job.cancelled { return false }
+            if status == .endOfStream { return true }
         }
+        event(job, "error", ["error": "Audio converter did not finish."]); cancel(job)
+        return false
     }
     func accept(_ pcm: AVAudioPCMBuffer, _ job: SpeechJob) {
         guard jobs[job.id] === job, !job.cancelled else { return }
+        guard pcm.frameLength > 0 else { return }
         job.bytes += Int(pcm.frameLength) * 4
-        guard job.bytes <= 16 * 1024 * 1024 else { event(job,"error"); cancel(job); return }
+        guard job.bytes <= Self.audioByteLimit else { event(job,"error"); cancel(job); return }
         var energy = 0.0
         if let samples = pcm.floatChannelData?[0] {
             for i in 0..<Int(pcm.frameLength) { energy += Double(samples[i] * samples[i]) }
@@ -306,7 +454,7 @@ final class JuneAudio {
             }
             do {
                 if !graphReady { try setupGraph(capture: captureSession != nil) }
-                if !engine.isRunning { try engine.start() }
+                try startEngine()
                 player.stop(); playing = job
                 for buffer in job.buffers { schedule(buffer,job) }; job.buffers = []
                 player.play(); return
@@ -333,6 +481,7 @@ final class JuneAudio {
     func cancel(_ job: SpeechJob) {
         guard !job.cancelled else { return }
         job.cancelled = true; event(job,"cancelled")
+        job.buffers.removeAll(); job.envelope.removeAll(); job.carry.removeAll(); job.converter = nil
         if playing === job { player.stop(); playing = nil }
         if synthesizing === job { synth.stopSpeaking(at:.immediate); synth = AVSpeechSynthesizer(); synthesizing = nil }
         jobs.removeValue(forKey:job.id); outputOrder.removeAll { $0 == job.id }; synthOrder.removeAll { $0 == job.id }
@@ -373,6 +522,10 @@ final class JuneAudio {
         case "status": result(id,["permission":permission(),"capturing":captureSession != nil])
         case "capture": startCapture(value)
         case "release": if let session = value["session"] as? String { releaseCapture(session) }
+        case "prepare-output": prepareOutput(value)
+        case "pcm-start": pcmStart(value)
+        case "pcm-chunk": pcmChunk(value)
+        case "pcm-end": pcmEnd(value)
         case "prepare": speak(value,silent:true)
         case "speak": speak(value)
         case "cancel": if let job = jobs[id] { cancel(job) }
@@ -386,7 +539,7 @@ final class JuneAudio {
         }
     }
 }
-if CommandLine.arguments.contains("--self-test") {
+if selfTesting {
     func fail(_ stage:String) -> Never { print("{\"passed\":false,\"stage\":\""+stage+"\"}");exit(1) }
     guard let layout=AVAudioChannelLayout(layoutTag:kAudioChannelLayoutTag_DiscreteInOrder | 7) else {fail("input-layout")}
     let input=AVAudioFormat(standardFormatWithSampleRate:48000,channelLayout:layout)
@@ -408,7 +561,67 @@ if CommandLine.arguments.contains("--self-test") {
     // A single streaming block retains the resampler priming tail; the
     // following block normally supplies it. Test signal preservation here.
     let passed=error==nil && target.frameLength>=1200 && target.frameLength<=1600 && rms>0.1
-    let result:[String:Any]=["passed":passed,"frames":target.frameLength,"rms":rms,"channels":7,"microphoneOpened":false]
+    // Exercise real PCM commands and the shared converter/accept path without
+    // putting a job in the hardware playback queue while supplying its audio.
+    let helper = JuneAudio()
+    func offlineJob(_ id: String) -> SpeechJob {
+        helper.pcmStart(["id":id,"segmentId":id,"ownerId":"validation","requestId":"validation",
+                         "text":"June validation.","voiceId":"saved-june","rate":1.0])
+        guard let job = helper.jobs[id], helper.outputOrder == [id], helper.synthOrder.isEmpty,
+              helper.synthesizing == nil else { fail("pcm-registration") }
+        helper.outputOrder.removeAll()
+        return job
+    }
+    var signal = Data()
+    for i in 0..<4800 {
+        let sample = UInt16(bitPattern: Int16(sin(Double(i) * 0.07) * 12000))
+        signal.append(UInt8(sample & 255)); signal.append(UInt8(sample >> 8))
+    }
+    func stream(_ id: String, _ sizes: [Int], _ input: Data? = nil) -> [Float] {
+        let signal = input ?? signal
+        let job = offlineJob(id)
+        var offset = 0
+        for size in sizes {
+            let packet = signal.subdata(in: offset..<(offset + size)); offset += size
+            helper.pcmChunk(["id":id,"commandId":"chunk","audio":packet.base64EncodedString()])
+            guard helper.jobs[id] === job, job.carry.count == offset % 2 else { fail("pcm-carry") }
+        }
+        guard offset == signal.count else { fail("pcm-test-input") }
+        let beforeFlush = job.total
+        helper.pcmEnd(["id":id,"commandId":"end"])
+        guard job.complete, !job.cancelled, job.total == signal.count, job.total > beforeFlush else { fail("pcm-flush") }
+        let samples = job.buffers.flatMap { buffer -> [Float] in
+            guard let channel = buffer.floatChannelData?[0] else { return [] }
+            return Array(UnsafeBufferPointer(start:channel,count:Int(buffer.frameLength)))
+        }
+        helper.cancel(job)
+        guard job.buffers.isEmpty, job.converter == nil, job.carry.isEmpty else { fail("pcm-cancel-release") }
+        return samples
+    }
+    let whole = stream("whole", [8192, 1408])
+    let split = stream("split", [1, 1, 3, 8191, 1403, 1])
+    guard whole.count == split.count, zip(whole,split).allSatisfy({ abs($0 - $1) < 0.000001 }),
+          whole.contains(where: { $0 > 0.3 }), whole.contains(where: { $0 < -0.3 }) else { fail("pcm-continuity") }
+    let tiny = stream("tiny", [1, 1], Data([0, 64]))
+    guard tiny.count == 2 else { fail("pcm-short-stream") }
+    // A constant little-endian 0x4000 signal settles at exactly half scale.
+    var constantInput = Data()
+    for _ in 0..<4096 { constantInput.append(0); constantInput.append(64) }
+    let constant = stream("endian", [8192], constantInput)
+    guard abs(constant[2000] - 0.5) < 0.001 else { fail("pcm-little-endian") }
+    let overBudget = offlineJob("budget")
+    overBudget.bytes = JuneAudio.audioByteLimit
+    helper.pcmChunk(["id":"budget","commandId":"budget-chunk","audio":signal.prefix(8192).base64EncodedString()])
+    guard overBudget.cancelled, helper.jobs["budget"] == nil else { fail("pcm-budget") }
+    let invalid = offlineJob("invalid")
+    helper.pcmChunk(["id":"invalid","commandId":"invalid-chunk","audio":"%%%"])
+    guard invalid.cancelled, helper.jobs["invalid"] == nil else { fail("pcm-invalid") }
+    let released = offlineJob("release")
+    helper.requestedSession = "pending-validation"
+    helper.releaseCapture("pending-validation")
+    guard released.cancelled, helper.jobs.isEmpty, helper.captureSession == nil,
+          !helper.graphReady, !helper.engine.isRunning else { fail("pcm-release") }
+    let result:[String:Any]=["passed":passed,"frames":target.frameLength,"rms":rms,"channels":7,"pcmFrames":whole.count,"pcmValidation":true,"microphoneOpened":false,"outputOpened":false]
     let data=try! JSONSerialization.data(withJSONObject:result)
     FileHandle.standardOutput.write(data+Data([10]));exit(passed ? 0 : 1)
 }
@@ -428,7 +641,9 @@ DispatchQueue.global(qos:.userInitiated).async {
         while let newline = pending.firstIndex(of:10) {
             let line = Data(pending[..<newline]); pending.removeSubrange(...newline)
             guard let object = try? JSONSerialization.jsonObject(with:line) as? [String:Any] else { continue }
-            DispatchQueue.main.async { audio.command(object) }
+            // One in-flight command, including conversion, regardless of whether
+            // a producer obeys ACK backpressure. The pipe supplies the outer bound.
+            DispatchQueue.main.sync { audio.command(object) }
         }
     }
     DispatchQueue.main.async { audio.failDevice(); exit(0) }

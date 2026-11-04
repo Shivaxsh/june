@@ -77,7 +77,7 @@ export default function ModelPicker({ activeModel, disabled, changing, onChangin
         <button className="quiet-button" onClick={() => void refresh()} disabled={changing || loading}>Refresh models</button>
       </div>
       <p id="model-choice-note">{choice?.description || "Only models already installed on this Mac appear here."}</p>
-      <p className="model-picker-hint">Stop voice, hands-free and replies before switching. This choice applies to all June tabs and is saved on this Mac. Chats, approved memories and Nicky stay unchanged. For a fresh comparison, start a New chat.</p>
+      <p className="model-picker-hint">Stop voice, hands-free and replies before switching. This choice applies to all June tabs and is saved on this Mac. Chats, approved memories and June’s saved voice stay unchanged. For a fresh comparison, start a New chat.</p>
       {error && <p className="error-message" role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
     </div>

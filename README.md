@@ -1,6 +1,6 @@
 # June v0.5.1
 
-A personal assistant, built one phase at a time. June combines a Python backend, local streamed text chat, a Canvas particle orb, local Whisper speech recognition and a local female speaking voice.
+A personal assistant, built one phase at a time. June combines a Python backend, local streamed text chat, a Canvas particle orb, local Whisper speech recognition and her saved ElevenLabs speaking voice (online synthesis within the verified Free allowance).
 
 **Phase 6:** [Memory and personality walkthrough](docs/phase-6.md) · [learning studio](http://127.0.0.1:3001/learn/phase-6). Private SQLite history (30 days), approved facts, editable character profile and reviewed JSON import/export. This is application memory, not model training.
 
@@ -11,6 +11,8 @@ A personal assistant, built one phase at a time. June combines a Python backend,
 **Open locally:** <http://127.0.0.1:3001>
 
 Qwen2.5 1.5B is an existing pretrained model running through Ollama on your Intel Mac's CPU. This phase builds the assistant around it; it does not train a new model. Memory and personality are available locally with approval controls. Computer/account actions follow later phases.
+
+**Saved June voice:** [setup, limits and verification](docs/elevenlabs-voice.md). Only the saved June voice speaks. Missing credentials, unavailable Free access or exhausted quota leave text available, with no automatic fallback.
 
 ## Start and stop June
 
@@ -30,7 +32,7 @@ npm start
 
 Open <http://127.0.0.1:3001>. The status should show **qwen2.5:1.5b · Ready**. Your Mac and the processes must stay running. Press **Control+C** in each terminal to stop them. June stops only processes it started; a separately started Python backend is left running. Nothing starts automatically at login. Port 3001 is intentional: Mad Realm uses 3000. Python uses local port 8001.
 
-**v0.5.1:** [Local audio and reliability guide](docs/v0.5.1.md) · [verification and remaining limitations](docs/v0.5.1-verification.md). Native Mac capture and Nicky playback share an echo-processing engine; the resident Whisper worker avoids loading the model for each recording. Native microphone permission is separate from the browser permission. Speaker-room acceptance remains a human verification gate.
+**v0.5.1:** [Local audio and reliability guide](docs/v0.5.1.md) · [verification and remaining limitations](docs/v0.5.1-verification.md). Native Mac capture and June’s streamed voice playback share an echo-processing engine; the resident Whisper worker avoids loading the model for each recording. Native microphone permission is separate from the browser permission. Speaker-room acceptance remains a human verification gate.
 
 **Before the next phase:** [Reliability acceptance gate](docs/reliability-gate-2026-10-31.md). The opt-in `PYTHONPATH=backend backend/.venv/bin/python scripts/check-reliability.py` command tests real local Qwen with a private SQLite clone. It never edits the live database or opens a microphone. Its ignored reports contain private reply text; do not publish them.
 
