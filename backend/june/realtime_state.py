@@ -119,6 +119,8 @@ class VoiceTurn:
         self.playback = []
         self.audio_time = 0.
         self.echo_check = False
+        self.generation_candidate = None
+        self.generation_job = None
 
     async def clear_probe(self, resume=True):
         number = self.number
@@ -147,12 +149,13 @@ class VoiceTurn:
     async def interrupt(self):
         # The owned candidate retains the user's first word during decoding.
         # The browser invalidates its request on confirmed interruption.
+        candidate, self.generation_candidate = self.generation_candidate, None
         probe = self.probe
         seconds = self.interrupt_voiced
         # Quantise to whole PCM16 samples; wall-clock jitter can produce an odd
         # byte count, which would shift every sample and invalidate the WAV.
         size = min(len(self.preroll), int((seconds + .2) * 16000) * 2)
-        clip = bytes(probe['audio']) if probe else bytes(self.preroll[-size:])
+        clip = bytes(candidate['audio']) if candidate else bytes(probe['audio']) if probe else bytes(self.preroll[-size:])
         self.number += 1
         number = self.number
         await self.emit({'type': 'interrupt', 'turn': number})
@@ -312,7 +315,60 @@ class VoiceTurn:
                     self.probe_job = None
         self.probe_job = asyncio.create_task(owned())
 
-    async def consider_interruption(self, voiced, duration, now):
+    async def capture_generation_candidate(self, pcm, voiced, duration):
+        # There is no output to stop during model thinking. Validate a whole
+        # utterance before cancelling it; a short VAD spike is not a new turn.
+        if self.generation_job is not None:
+            return
+        candidate = self.generation_candidate
+        if candidate is None:
+            if not voiced:
+                return
+            candidate = self.generation_candidate = {'audio': bytearray(self.preroll[:-len(pcm)][-6400:]), 'voiced': 0., 'silence': 0.}
+        candidate['audio'].extend(pcm)
+        candidate['voiced'] += duration if voiced else 0.
+        candidate['silence'] = 0. if voiced else candidate['silence'] + duration
+        if len(candidate['audio']) < 960000 and candidate['silence'] + 1e-6 < self.pause:
+            return
+        self.generation_candidate = None
+        if candidate['voiced'] + 1e-6 < .24:
+            return
+        number = self.number
+        async def confirm():
+            try:
+                result = await self.transcribe(pcm_wav(bytes(candidate['audio'][:960000])))
+                if self.closed or number != self.number:
+                    return
+                text = remove_wake_phrase(clean_transcript(result['text']))
+                if not text or (self.playback and self.is_playback_echo(text, ' '.join(self.playback))):
+                    return
+                if len(text.encode('utf-16-le')) // 2 > 2000:
+                    return
+                # The validated replacement owns a fresh turn. The browser
+                # cancels only the previous request, then submits this text.
+                self.number += 1
+                accepted = self.number
+                await self.emit({'type': 'interrupt', 'turn': accepted})
+                await self.cancel_job()
+                if self.closed or accepted != self.number:
+                    return
+                self.preroll.clear(); self.preroll_voice.clear()
+                self.interrupt_voiced = 0.
+                self.deadline = self.question_deadline = None
+                await self.state('generating')
+                await self.emit({'type': 'transcript', 'turn': accepted, 'text': text, 'durationMs': result['durationMs']})
+            except (JuneError, ValueError, KeyError, TypeError, UnicodeError):
+                # Uncertain/no-speech input never destroys the pending answer.
+                pass
+            finally:
+                if self.generation_job is asyncio.current_task():
+                    self.generation_job = None
+        self.generation_job = asyncio.create_task(confirm())
+
+    async def consider_interruption(self, voiced, duration, now, pcm=b''):
+        if self.processed_input and self.phase == 'generating':
+            await self.capture_generation_candidate(pcm, voiced, duration)
+            return
         if self.processed_input:
             # Only native AEC/NS output reaches this path. Its VAD and adaptive
             # energy gate run upstream; raw browser sound never uses it.
@@ -386,6 +442,14 @@ class VoiceTurn:
         await self.emit({'type': 'state', 'phase': phase, 'turn': self.number})
 
     async def cancel_job(self):
+        self.generation_candidate = None
+        candidate_job = self.generation_job
+        if candidate_job is not None and candidate_job is not asyncio.current_task():
+            candidate_job.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await candidate_job
+            if self.generation_job is candidate_job:
+                self.generation_job = None
         if self.job is not None:
             self.job.cancel()
             with suppress(asyncio.CancelledError, Exception):
@@ -435,7 +499,7 @@ class VoiceTurn:
             await self.wake()
             return
         if self.phase in ('generating', 'speaking') or self.probe:
-            await self.consider_interruption(voiced, duration, now)
+            await self.consider_interruption(voiced, duration, now, pcm)
             return
         if self.phase == 'followup' and voiced:
             self.number += 1
@@ -544,6 +608,11 @@ class VoiceTurn:
             self.deadline = None
             await self.state('waiting')
         elif self.phase in ('generating', 'speaking'):
+            if phase == 'speaking' and self.generation_candidate is not None:
+                if self.generation_candidate['voiced'] + 1e-6 >= .18:
+                    await self.interrupt()
+                    return
+                self.generation_candidate = None
             if phase == 'speaking' and spoken:
                 self.spoken = spoken[:4000]
                 if not self.playback or self.playback[-1] != self.spoken:
@@ -568,6 +637,7 @@ class VoiceTurn:
                     self.interrupt_voiced = 0.
                 await self.state(phase)
             elif phase == 'complete':
+                self.generation_candidate = None
                 await self.clear_probe()
                 if self.closed or number != self.number:
                     return
@@ -593,6 +663,8 @@ class VoiceTurn:
                 await self.state('waiting')
 
     async def flush(self):
+        if self.generation_job is not None:
+            await self.generation_job
         while self.probe_job is not None:
             job = self.probe_job
             with suppress(asyncio.CancelledError):
@@ -608,6 +680,12 @@ class VoiceTurn:
     async def close(self):
         self.closed = True
         self.number += 1
+        self.generation_candidate = None
+        if self.generation_job is not None:
+            self.generation_job.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await self.generation_job
+            self.generation_job = None
         await self.clear_probe(resume=False)
         await self.cancel_job()
         self.buffer.clear()
