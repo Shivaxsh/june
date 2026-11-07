@@ -3,7 +3,7 @@ import asyncio
 from pathlib import Path
 import unittest
 from june.native_audio import NativeAudioService
-from june.elevenlabs_voice import JUNE_VOICE_ID
+from june.voice_identity import JUNE_VOICE_ID
 from june.errors import JuneError
 
 VALUE={'ownerId':'owner','requestId':'request','segmentId':'segment','voiceId':JUNE_VOICE_ID,'rate':.98,'text':'Hello June.'}

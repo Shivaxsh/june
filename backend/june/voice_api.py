@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from .errors import JuneError
 from .memory_api import body
 from .native_audio import identifier,validate_speak
-from .elevenlabs_voice import JUNE_VOICE
+from .voice_identity import JUNE_VOICE
 
 router=APIRouter(prefix='/api/voice')
 class NativeStream(StreamingResponse):

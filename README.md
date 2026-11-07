@@ -1,6 +1,6 @@
 # June v0.5.1
 
-A personal assistant, built one phase at a time. June combines a Python backend, local streamed text chat, a Canvas particle orb, local Whisper speech recognition and her saved ElevenLabs speaking voice (online synthesis within the verified Free allowance).
+A personal assistant, built one phase at a time. June combines a Python backend, local streamed text chat, a Canvas particle orb, local Whisper speech recognition and the approved local Heart speaking voice. Speech uses no API credits.
 
 **Phase 6:** [Memory and personality walkthrough](docs/phase-6.md) · [learning studio](http://127.0.0.1:3001/learn/phase-6). Private SQLite history (30 days), approved facts, editable character profile and reviewed JSON import/export. This is application memory, not model training.
 
@@ -12,7 +12,7 @@ A personal assistant, built one phase at a time. June combines a Python backend,
 
 Qwen2.5 1.5B is an existing pretrained model running through Ollama on your Intel Mac's CPU. This phase builds the assistant around it; it does not train a new model. Memory and personality are available locally with approval controls. Computer/account actions follow later phases.
 
-**Saved June voice:** [setup, limits and verification](docs/elevenlabs-voice.md). Only the saved June voice speaks. Missing credentials, unavailable Free access or exhausted quota leave text available, with no automatic fallback.
+**June’s Heart voice:** [local setup and recovery](docs/local-heart-voice.md). Run `npm run voice:setup` once. Preview, replies and replay use Heart locally; the previous ElevenLabs integration is inactive. Missing files leave text available with clear recovery instructions.
 
 ## Start and stop June
 

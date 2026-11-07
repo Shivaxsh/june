@@ -22,7 +22,7 @@ async function moduleUrl(url) {
   const result = dataUrl(outputText); modules.set(url.href, result); return result;
 }
 const { useVoice } = await import(await moduleUrl(new URL('../components/voice/useVoice.ts', import.meta.url)));
-const june = { id: 'ZYufQennDT5PFsid8v3E', name: 'June', lang: 'en', gender: 'female', localService: false, provider: 'elevenlabs' };
+const june = { id: 'kokoro-af-heart', name: 'June', lang: 'en-US', gender: 'female', localService: true, provider: 'kokoro' };
 const tick = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
 function fixture(speak = 'true') {
   const slots = [], pending = [], cleanups = [], requests = [];
@@ -49,7 +49,7 @@ function fixture(speak = 'true') {
   setGlobal('navigator', { mediaDevices: {} });
   setGlobal('fetch', async (path, options) => {
     if (path === '/api/voice/voices') return Response.json({ state: api.voices, voices: [june], message: api.voices });
-    if (path === '/api/voice/status') return Response.json({ state: api.status, nativeReady: true, provider: 'elevenlabs', providerState: api.provider, voiceId: june.id, whisperWarm: false, modelWarm: false, message: api.status });
+    if (path === '/api/voice/status') return Response.json({ state: api.status, nativeReady: true, provider: 'kokoro', providerState: api.provider, voiceId: june.id, whisperWarm: false, modelWarm: false, message: api.status });
     if (path === '/api/speech/status') return Response.json({ state: 'ready', message: 'Local transcription ready' });
     requests.push({ path, body: JSON.parse(options.body) });
     if (path.endsWith('/stop')) return Response.json({ stopped: true });

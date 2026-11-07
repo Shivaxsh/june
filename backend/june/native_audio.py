@@ -359,7 +359,7 @@ class NativeAudioService:
 
     async def speak_pcm(self,value,source):
         # Validate the fixed provider identity before sending native PCM commands.
-        from .elevenlabs_voice import JUNE_VOICE
+        from .voice_identity import JUNE_VOICE
         await self.ensure_started();value=validate_speak(value,[JUNE_VOICE])
         owner,request,sid=value['ownerId'],value['requestId'],value['segmentId']
         if self.capture_owner is not None and self.capture_owner!=owner:
@@ -384,12 +384,12 @@ class NativeAudioService:
             try:
                 async for data in source:
                     if self.jobs.get(sid) is not job or (owner,request) in self.revoked:raise asyncio.CancelledError
-                    if not isinstance(data,bytes) or not data or len(data)>8192:raise JuneError('audio-pcm','Invalid cloud audio packet.',503)
+                    if not isinstance(data,bytes) or not data or len(data)>8192:raise JuneError('audio-pcm','Invalid speech audio packet.',503)
                     await self._pcm_command('pcm-chunk',sid,audio=base64.b64encode(data).decode('ascii'))
                 if self.jobs.get(sid) is job:await self._pcm_command('pcm-end',sid)
             except asyncio.CancelledError:raise
             except (JuneError,OSError,ValueError) as error:
-                self.offer(queue,{'type':'error','message':error.message if isinstance(error,JuneError) else 'Cloud audio playback failed. Refresh audio and retry.'})
+                self.offer(queue,{'type':'error','message':error.message if isinstance(error,JuneError) else 'Local audio playback failed. Refresh audio and retry.'})
             finally:
                 if hasattr(source,'aclose'):await source.aclose()
         try:

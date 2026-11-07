@@ -18,6 +18,7 @@
     "backend:test": "PYTHONPATH=backend backend/.venv/bin/python -m unittest discover -s backend/tests -v",
     "realtime:setup": "node scripts/realtime.mjs",
     "audio:setup": "node scripts/audio.mjs",
+    "voice:setup": "node scripts/heart-voice.mjs",
     "speech:worker:setup": "node scripts/speech-worker.mjs"
   },
   "dependencies": {

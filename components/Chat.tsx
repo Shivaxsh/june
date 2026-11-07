@@ -379,7 +379,7 @@ export default function Chat() {
         </div>
       </main>
 
-      <footer className="footer"><p>Local wake phrase · Whisper &amp; Qwen · June’s ElevenLabs voice.</p><p>Approved memories only. June can make mistakes.</p></footer>
+      <footer className="footer"><p>Local wake phrase · Whisper &amp; Qwen · June’s local Heart voice.</p><p>Approved memories only. June can make mistakes.</p></footer>
       <span className="sr-only" role="status" aria-live="polite">{announcement}</span>
     </div>
   );

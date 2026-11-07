@@ -122,10 +122,21 @@ class Coordinator:
         for t in tasks:
             with suppress(asyncio.CancelledError, Exception):await t
     @asynccontextmanager
+    async def voice_slot(self):
+        if 'model-switch' in self.tasks.values():
+            raise JuneError('busy','June is switching models. Retry speech shortly.',409)
+        task=asyncio.current_task();self.tasks[task]='voice'
+        try:
+            await self.cancel('warm')
+            await self.cancel('extract')
+            yield
+        finally:self.tasks.pop(task,None)
+
+    @asynccontextmanager
     async def slot(self,kind):
         if any(k == 'model-switch' for k in self.tasks.values()):
             raise JuneError('busy','June is switching models. Try again when the selection is confirmed.',409)
-        if kind != 'chat' and any(k == 'chat' for k in self.tasks.values()):
+        if kind not in ('chat','model-switch') and any(k in ('chat','voice') for k in self.tasks.values()):
             message = ('June is answering. Warm-up can wait.' if kind == 'warm'
                        else 'June is answering. Memory suggestions can wait.')
             raise JuneError('busy',message,409)

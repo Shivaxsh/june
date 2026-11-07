@@ -3,13 +3,13 @@ import { SentenceBuffer, spokenText } from './sentences';
 import { EMPTY_SPEECH, type SpeechState, type SpeechTimings } from './types';
 import type { VoiceState } from './voices';
 
-export const JUNE_VOICE_ID = 'ZYufQennDT5PFsid8v3E';
-export const JUNE_VOICE = Object.freeze({ id: JUNE_VOICE_ID, name: 'June', lang: 'en', gender: 'female', localService: false, provider: 'elevenlabs' } as const);
+export const JUNE_VOICE_ID = 'kokoro-af-heart';
+export const JUNE_VOICE = Object.freeze({ id: JUNE_VOICE_ID, name: 'June', lang: 'en-US', gender: 'female', localService: true, provider: 'kokoro' } as const);
 export type NativeVoice = typeof JUNE_VOICE;
 export type ProviderState = 'checking' | 'ready' | 'setup-required' | 'quota-exhausted' | 'error';
 export type NativeVoiceState = VoiceState & { state: ProviderState };
-export const JUNE_VOICE_OPTION = Object.freeze({ id: JUNE_VOICE_ID, name: 'June', lang: 'en', accent: 'English' });
-const isJune = (voice: SpeechSynthesisVoice | undefined) => voice?.voiceURI === JUNE_VOICE_ID && voice.name === 'June' && voice.lang === 'en' && voice.localService === false;
+export const JUNE_VOICE_OPTION = Object.freeze({ id: JUNE_VOICE_ID, name: 'June', lang: 'en-US', accent: 'American English' });
+const isJune = (voice: SpeechSynthesisVoice | undefined) => voice?.voiceURI === JUNE_VOICE_ID && voice.name === 'June' && voice.lang === 'en-US' && voice.localService === true;
 export type NativePlaybackContext = { voiceSessionId: string; turnId: number };
 export type AudioEngine = 'native' | 'browser';
 export const AUDIO_ENGINE_KEY = 'june-audio-engine-v1';
@@ -62,7 +62,7 @@ export class NativeSpeechController {
     this.stop('new-request');
     if (!enabled) return;
     if (handsFree && (!context?.voiceSessionId || !Number.isSafeInteger(context.turnId) || context.turnId < 1)) { this.fail('The native capture session ended. Enable hands-free again before speaking.'); return; }
-    if (!isJune(voice)) { this.fail('June’s ElevenLabs voice is unavailable. Refresh audio; your reply remains readable.'); return; }
+    if (!isJune(voice)) { this.fail('June’s local Heart voice is unavailable. Refresh audio; your reply remains readable.'); return; }
     this.requestAt = this.now(); this.request = crypto.randomUUID(); this.streamId = id; this.voiceId = JUNE_VOICE_ID; this.handsFree = handsFree; this.context = context ? { ...context } : undefined;
     this.emit({ ...EMPTY_SPEECH, phase: 'waiting' });
   }
@@ -73,7 +73,7 @@ export class NativeSpeechController {
   }
   replay(text: string, voice: SpeechSynthesisVoice | undefined) {
     this.stop('replay');
-    if (!isJune(voice)) { this.fail('June’s ElevenLabs voice is unavailable. Refresh audio; your reply remains readable.'); return; }
+    if (!isJune(voice)) { this.fail('June’s local Heart voice is unavailable. Refresh audio; your reply remains readable.'); return; }
     const clean = spokenText(text);
     if (!clean) { this.fail('This reply contains no readable speech text.'); return; }
     this.requestAt = this.now(); this.request = crypto.randomUUID(); this.voiceId = JUNE_VOICE_ID; this.handsFree = false;
@@ -82,7 +82,7 @@ export class NativeSpeechController {
   private enqueue(units: string[]) {
     for (let text of units) {
       if (this.handsFree) text = text.replace(/\bhey[\s,!.?—-]+june\b/gi, 'my wake phrase');
-      // Keep cloud work bounded below the server’s 2000-character wire ceiling,
+      // Keep local synthesis bounded below the server’s 2000-character ceiling,
       // including replay. Prefer word boundaries and preserve surrogate pairs.
       while (text.length > 600) {
         let end = text.lastIndexOf(' ', 600);
@@ -170,7 +170,7 @@ export class NativeSpeechController {
 
 // This shape preserves the playback interface without invoking browser synthesis.
 function playbackVoice(): SpeechSynthesisVoice {
-  return { name: JUNE_VOICE.name, lang: JUNE_VOICE.lang, localService: false, default: false, voiceURI: JUNE_VOICE_ID };
+  return { name: JUNE_VOICE.name, lang: JUNE_VOICE.lang, localService: true, default: false, voiceURI: JUNE_VOICE_ID };
 }
 export class NativeVoiceRegistry {
   private state: ProviderState = 'checking';
@@ -179,20 +179,20 @@ export class NativeVoiceRegistry {
   constructor(_storage: Storage | undefined, private notify: (state: NativeVoiceState) => void, private http: typeof fetch = fetch) {}
   refresh = async () => {
     this.abort?.abort(); const abort = new AbortController(); this.abort = abort;
-    this.state = 'checking'; this.publish('Checking June’s ElevenLabs voice…');
+    this.state = 'checking'; this.publish('Checking June’s local Heart voice…');
     try {
       const response = await this.http.call(globalThis, '/api/voice/voices', { cache: 'no-store', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(10000)]) });
       const data = await response.json();
-      if (!response.ok || !['ready', 'setup-required', 'quota-exhausted', 'error'].includes(data?.state) || !Array.isArray(data.voices)) throw new Error('June’s ElevenLabs voice is unavailable. Refresh audio; replies remain readable.');
+      if (!response.ok || !['ready', 'setup-required', 'quota-exhausted', 'error'].includes(data?.state) || !Array.isArray(data.voices)) throw new Error('June’s local Heart voice is unavailable. Refresh audio; replies remain readable.');
       if (abort.signal.aborted || this.disposed) return;
       const fixedJune = data.voices.some((voice: Partial<NativeVoice> | null) => voice
         && Object.entries(JUNE_VOICE).every(([key, value]) => voice[key as keyof NativeVoice] === value));
       this.state = data.state === 'ready' && !fixedJune ? 'error' : data.state;
-      this.publish(!fixedJune && data.state === 'ready' ? 'June’s fixed ElevenLabs voice was not returned. Replies remain readable.'
-        : typeof data.message === 'string' ? data.message : this.state === 'ready' ? 'June · ElevenLabs · ready' : 'June’s ElevenLabs voice needs setup. Replies remain readable.');
+      this.publish(!fixedJune && data.state === 'ready' ? 'June’s fixed Heart voice was not returned. Replies remain readable.'
+        : typeof data.message === 'string' ? data.message : this.state === 'ready' ? 'June · Heart · local voice ready' : 'June’s local Heart voice needs setup. Replies remain readable.');
     } catch (error) {
       if (!abort.signal.aborted && !this.disposed) {
-        this.state = 'error'; this.publish(error instanceof Error ? error.message : 'Could not load June’s ElevenLabs voice.');
+        this.state = 'error'; this.publish(error instanceof Error ? error.message : 'Could not load June’s local Heart voice.');
       }
     }
   };

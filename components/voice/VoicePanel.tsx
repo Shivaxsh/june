@@ -18,13 +18,14 @@ export default function VoicePanel({ voice, busy = false, onUse, onActivate }: {
   const start = () => { onActivate(); voice.startTalk(); };
   return <section className="voice-panel" aria-label="June voice controls">
     <div className="voice-heading"><strong>A conversation you can hear</strong><label className="motion-option"><input type="checkbox" checked={voice.speakReplies} onChange={event => voice.setSpeakReplies(event.target.checked)} /> Speak replies</label></div>
-    <div className="voice-settings"><p><strong>June</strong> · ElevenLabs · English · native playback</p><button className="quiet-button" disabled={busy || !voice.support.speech} onClick={() => { onActivate(); voice.preview(); }}>Preview voice</button><button className="quiet-button" disabled={busy} onClick={voice.refresh}>Refresh audio</button><button className="quiet-button" disabled={voice.speech.phase === "idle"} onClick={() => voice.stopVoice()}>Stop voice</button></div>
+    <div className="voice-settings"><p><strong>June</strong> · Heart · American English · local playback</p><button className="quiet-button" disabled={busy || !voice.support.speech} onClick={() => { onActivate(); voice.preview(); }}>Preview voice</button><button className="quiet-button" disabled={busy} onClick={voice.refresh}>Refresh audio</button><button className="quiet-button" disabled={voice.speech.phase === "idle"} onClick={() => voice.stopVoice()}>Stop voice</button></div>
     <p className="voice-description" role="status">{voice.choices.message}</p>
     <p className="voice-description" role="status">{voice.audioStatus.providerMessage || voice.audioStatus.message}</p>
-    <p className="recognition-notice">June’s voice uses ElevenLabs cloud speech and consumes credits. Reply text, including personal replies, is sent online to ElevenLabs for speech. Raw microphone audio stays on this Mac for local transcription.</p>
-    <p className="voice-description">{quotaNotice(voice.audioStatus.quota)} The account allowance may exceed the separately restricted API-key limit.</p>
+    {voice.speech.phase === 'waiting' && <p className="voice-status" role="status">Preparing Heart speech on this Mac…</p>}
+    <p className="recognition-notice">Heart generates June’s voice entirely on this Mac. No speech API, account, internet connection or credits are needed after setup. Reply text and microphone audio stay local.</p>
+    <p className="voice-description">Steady uses the sample C pace. Calm is slower; Bright is slightly faster. These are pacing presets, not guaranteed emotional acting.</p>
     <label className="motion-option"><input type="checkbox" checked={voice.browserCapture} disabled={busy || active || !voice.browserCaptureSupported} onChange={event => { onActivate(); voice.setBrowserCapture(event.target.checked); }} /> Use browser microphone for manual recording only</label>
-    <p className="voice-description">Native hands-free uses this Mac’s microphone. Manual browser recording is capture only; June’s replies always use her ElevenLabs voice through native playback.</p>
+    <p className="voice-description">Native hands-free uses this Mac’s microphone. Manual browser recording is capture only; June’s replies always use her local Heart voice through native playback.</p>
     <p className="recognition-notice">Local English transcription · Whisper base.en. Your recording is processed only on this Mac, then deleted. Stop listening to transcribe; review the words before sending. Maximum 30 seconds.</p>
     <div className="talk-controls"><button className={`talk-button ${phase === "listening" ? "is-listening" : ""}`} disabled={blocked || transcribing} onPointerDown={event => {
       if (event.button !== 0) return; event.currentTarget.setPointerCapture(event.pointerId); start();
@@ -44,15 +45,4 @@ export default function VoicePanel({ voice, busy = false, onUse, onActivate }: {
     {voice.speech.timings?.firstAudioMs !== undefined && <p className="handsfree-note">Request timings are observed in this page. Playback elapsed includes gaps between speech segments.</p>}
     {(voice.recognition.error || voice.speech.error) && <div className="error-notice" role="alert">{voice.recognition.error && <p>{voice.recognition.error}</p>}{voice.speech.error && <p>{voice.speech.error}</p>}</div>}
   </section>;
-}
-
-function quotaNotice(quota: VoiceControls['audioStatus']['quota']) {
-  const credits = (value: number | null | undefined) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value.toLocaleString('en-US') : undefined;
-  const remaining = credits(quota?.remaining), limit = credits(quota?.limit), used = credits(quota?.used);
-  const parts = [remaining !== undefined ? `${remaining} credits remaining` : '', limit !== undefined ? `${limit} credit limit` : '', used !== undefined ? `${used} credits used` : ''].filter(Boolean);
-  if (quota?.resetAt != null) {
-    const reset = new Date(typeof quota.resetAt === 'number' && quota.resetAt < 1e12 ? quota.resetAt * 1000 : quota.resetAt);
-    if (Number.isFinite(reset.getTime())) parts.push(`resets ${reset.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}`);
-  }
-  return parts.length ? `ElevenLabs: ${parts.join(' · ')}.` : 'ElevenLabs credit balance is unavailable. Cloud speech still uses credits.';
 }

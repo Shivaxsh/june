@@ -3,7 +3,6 @@ import asyncio
 from dataclasses import replace
 from contextlib import aclosing, asynccontextmanager, suppress
 import json
-import os
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -23,7 +22,7 @@ from .realtime_socket import VoiceSlots, voice_socket
 from .native_audio import NativeAudioService
 from .voice_api import router as voice_router
 from .voice_runtime import VoiceRuntime
-from .elevenlabs_voice import ElevenLabsVoice
+from .heart_voice import HeartVoice
 from .model_selection import ModelSelection
 
 
@@ -44,11 +43,9 @@ async def lifespan(app):
     app.state.voice_slots = VoiceSlots()
     app.state.native_audio = NativeAudioService(app.state.settings.audio_home)
     async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=5), trust_env=False,
-                                 limits=httpx.Limits(max_connections=6, max_keepalive_connections=3)) as client, httpx.AsyncClient(
-                                     timeout=httpx.Timeout(60,connect=10),trust_env=False,follow_redirects=False,
-                                     limits=httpx.Limits(max_connections=4,max_keepalive_connections=2)) as voice_client:
+                                 limits=httpx.Limits(max_connections=6, max_keepalive_connections=3)) as client:
         app.state.client = client
-        app.state.voice_provider = ElevenLabsVoice(voice_client,app.state.settings.data_home,os.environ.get('ELEVENLABS_API_KEY',''),app.state.native_audio)
+        app.state.voice_provider = HeartVoice(app.state.native_audio,coordinator=app.state.coordinator)
         app.state.voice_runtime = VoiceRuntime(app.state.settings,client,app.state.speech,app.state.native_audio,app.state.voice_assets,app.state.coordinator,app.state.store)
         app.state.voice_runtime.start()
         async def sweep():
@@ -62,6 +59,7 @@ async def lifespan(app):
         finally:
             sweeper.cancel()
             await app.state.voice_runtime.close()
+            await app.state.voice_provider.close()
             await app.state.native_audio.close()
             if hasattr(app.state.speech,'close'):await app.state.speech.close()
             await app.state.coordinator.cancel()

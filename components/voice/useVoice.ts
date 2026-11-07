@@ -42,7 +42,7 @@ export function useVoice(stopMedia: () => void, onManual: () => void = () => {})
   const enabled = useRef(true);
   const rate = useRef(.98);
   const storage = useRef<Storage | undefined>(undefined);
-  const [choices, setChoices] = useState<NativeVoiceState>({ options: [{ ...JUNE_VOICE_OPTION }], selected: "", state: "checking", message: "Checking June’s ElevenLabs voice…" });
+  const [choices, setChoices] = useState<NativeVoiceState>({ options: [{ ...JUNE_VOICE_OPTION }], selected: "", state: "checking", message: "Checking June’s local Heart voice…" });
   const [speechState, setSpeechState] = useState<SpeechState>({ ...EMPTY_SPEECH });
   const [recognitionState, setRecognitionState] = useState<RecognitionState>({ phase: "idle", transcript: "", error: "" });
   const [speakReplies, setSpeakReplies] = useState(true);
@@ -98,7 +98,7 @@ export function useVoice(stopMedia: () => void, onManual: () => void = () => {})
   }, [audioStatus.state]);
   const outputReady = audioStatus.nativeReady === true && audioStatus.providerState === 'ready' && choices.state === 'ready';
   const support = {
-    // Native hands-free requires both capture and June’s cloud output.
+    // Native hands-free requires both capture and June’s local output.
     recognition: outputReady && audioStatus.state === 'ready',
     speech: outputReady,
     checked: audioStatus.state !== 'checking' && choices.state !== 'checking',

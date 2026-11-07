@@ -100,7 +100,7 @@ test('fixed June ignores old browser and Nicky preferences and cannot be switche
       await registry.refresh(); registry.choose(nicky.id);
       assert.equal(states.at(-1).selected, june.id); assert.equal(states.at(-1).state, 'ready');
       assert.deepEqual(states.at(-1).options.map(v => v.id), [june.id]);
-      assert.equal(registry.get(june.id).localService, false); assert.equal(registry.get(nicky.id), undefined);
+      assert.equal(registry.get(june.id).localService, true); assert.equal(registry.get(nicky.id), undefined);
       assert.equal(values.get('june-voice-v1'), preference);
     } finally { registry.dispose(); }
   }
@@ -137,7 +137,7 @@ test('provider setup, outage, and malformed records retain June identity but rev
       { state: 'error', voices: [june, nicky], message: 'Provider unavailable' },
       { state: 'quota-exhausted', voices: [june], message: 'Credits exhausted' },
       { state: 'ready', voices: [nicky], message: 'Local voice ready' },
-      ...['id', 'name', 'lang', 'gender', 'localService', 'provider'].map(field => ({ state: 'ready', voices: [{ ...june, [field]: field === 'localService' ? true : 'other' }], message: 'Wrong identity' })),
+      ...['id', 'name', 'lang', 'gender', 'localService', 'provider'].map(field => ({ state: 'ready', voices: [{ ...june, [field]: field === 'localService' ? false : 'other' }], message: 'Wrong identity' })),
       new Error('Provider offline'),
     ]) {
       result = unavailable; await registry.refresh();
