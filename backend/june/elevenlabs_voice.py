@@ -117,7 +117,14 @@ class ElevenLabsVoice:
                 async with self.client.stream('POST',API+'/v1/text-to-speech/'+JUNE_VOICE_ID+'/stream',
                     params={'output_format':'pcm_24000'},headers={'xi-api-key':self.key},
                     json={'text':text,'model_id':TTS_MODEL},timeout=httpx.Timeout(60,connect=10)) as response:
-                    if response.status_code in (401,403):raise JuneError('voice-auth','ElevenLabs did not authorise synthesis with June’s saved voice and this model. Check access; no fallback voice was used.',503)
+                    if response.status_code in (401,403):
+                        try:
+                            detail=json.loads((await response.aread()).decode('utf-8')).get('detail',{})
+                        except (UnicodeDecodeError, json.JSONDecodeError, AttributeError, TypeError):
+                            detail={}
+                        if isinstance(detail,dict) and detail.get('code')=='quota_exceeded':
+                            raise JuneError('voice-key-quota','This ElevenLabs API key reached its separate API-key quota. Increase the key’s allowed quota or replace it with another restricted key, then restart June. Your account allowance is separate; no fallback voice was used.',429)
+                        raise JuneError('voice-auth','ElevenLabs did not authorise synthesis with June’s saved voice and this model. Check the key’s Text to Speech permission; no fallback voice was used.',503)
                     if response.status_code in (402,429):raise JuneError('voice-quota','ElevenLabs refused the free speech request. Check allowance and rate limits; text remains available.',429)
                     if response.status_code!=200:raise JuneError('voice-provider','ElevenLabs could not generate this segment. Retry manually; no credits are automatically purchased and no other voice is used.',503)
                     total=0

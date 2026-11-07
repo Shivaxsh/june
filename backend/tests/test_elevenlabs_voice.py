@@ -124,3 +124,19 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
         self.used=10000
         for _ in range(2):
             self.assertEqual((await self.service.status())['state'],'quota-exhausted')
+
+    async def test_key_quota_rejection_is_not_reported_as_bad_authorization(self):
+        def respond(request):
+            if request.method=='POST':
+                return httpx.Response(401,json={'detail':{'code':'quota_exceeded','message':'Key quota exhausted'}})
+            if request.url.path=='/v1/user/subscription':
+                return httpx.Response(200,json={'tier':'free','character_count':1,'character_limit':10000,'can_extend_character_limit':False,'allowed_to_extend_character_limit':False,'next_character_count_reset_unix':9999999999})
+            if request.url.path=='/v1/models':
+                return httpx.Response(200,json=[{'model_id':'eleven_v4','can_do_text_to_speech':True,'model_rates':{'character_cost_multiplier':1}}])
+            return httpx.Response(200,json={'voice_id':JUNE_VOICE_ID,'category':'generated'})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            service=ElevenLabsVoice(client,Path(self.temp.name),'private-key')
+            with self.assertRaises(JuneError) as raised:
+                async for _ in service.pcm(self.value):pass
+            self.assertEqual(raised.exception.code,'voice-key-quota')
+            self.assertIn('API-key quota',raised.exception.message)
