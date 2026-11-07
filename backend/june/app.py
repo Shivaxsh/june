@@ -223,7 +223,7 @@ async def realtime_status(request: Request):
         'nativeReady':audio.get('nativeReady',False),'permission':audio.get('permission','unknown'),
         'whisperWarm':whisper_warm,'modelWarm':runtime.model_warm,'voiceWarm':audio.get('voiceWarm',False),
         'provider':provider['provider'],'voiceId':provider['voiceId'],'voiceName':provider['voiceName'],'ttsModel':provider['ttsModel'],
-        'providerState':provider['state'],'providerMessage':provider['message'],**({'quota':provider['quota']} if 'quota' in provider else {})}
+        'providerState':provider['state'],'providerMessage':provider['message']}
 
 
 @app.websocket('/ws/voice')

@@ -133,9 +133,8 @@ test('provider setup, outage, and malformed records retain June identity but rev
   try {
     await registry.refresh(); assert.equal(registry.get(june.id).name, 'June');
     for (const unavailable of [
-      { state: 'setup-required', voices: [june], message: 'Add your ElevenLabs key' },
+      { state: 'setup-required', voices: [june], message: 'Install the local voice files' },
       { state: 'error', voices: [june, nicky], message: 'Provider unavailable' },
-      { state: 'quota-exhausted', voices: [june], message: 'Credits exhausted' },
       { state: 'ready', voices: [nicky], message: 'Local voice ready' },
       ...['id', 'name', 'lang', 'gender', 'localService', 'provider'].map(field => ({ state: 'ready', voices: [{ ...june, [field]: field === 'localService' ? false : 'other' }], message: 'Wrong identity' })),
       new Error('Provider offline'),

@@ -676,7 +676,7 @@ Optional adaptation track. Start only when a measured behaviour gap remains afte
 
 #### 10.5 Her own voice
 
-**Learn:** an original voice designed in ElevenLabs, or an open voice model like Kokoro or Piper that you run yourself.
+**Learn:** an open voice model such as Kokoro Heart or Piper that you run yourself.
 
 **Practice:** Evaluate a licensed female voice independently of the language-model adapter. An original voice or a commercial service is an optional later choice; use a voice only with appropriate rights.
 

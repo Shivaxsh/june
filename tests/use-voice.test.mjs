@@ -86,7 +86,7 @@ test('voice-list and provider status must both be ready for playback and native 
   try {
     f.render(); await tick(); assert.equal(f.render().support.speech, true);
     for (const [status, provider, voices] of [
-      ['setup-required', 'setup-required', 'setup-required'], ['quota-exhausted', 'quota-exhausted', 'error'],
+      ['setup-required', 'setup-required', 'setup-required'],
       ['error', 'error', 'ready'], ['ready', 'error', 'ready'], ['ready', 'ready', 'setup-required'],
     ]) {
       Object.assign(f.api, { status, provider, voices }); f.render().refresh(); await tick();

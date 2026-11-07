@@ -10,9 +10,9 @@ A personal assistant, built one phase at a time. June combines a Python backend,
 
 **Open locally:** <http://127.0.0.1:3001>
 
-Qwen2.5 1.5B is an existing pretrained model running through Ollama on your Intel Mac's CPU. This phase builds the assistant around it; it does not train a new model. Memory and personality are available locally with approval controls. Computer/account actions follow later phases.
+June currently uses the existing pretrained Qwen3 4B model through Ollama on your Intel Mac's CPU. This phase builds the assistant around it; it does not train a new model. Memory and personality are available locally with approval controls. Computer/account actions follow later phases.
 
-**June’s Heart voice:** [local setup and recovery](docs/local-heart-voice.md). Run `npm run voice:setup` once. Preview, replies and replay use Heart locally; the previous ElevenLabs integration is inactive. Missing files leave text available with clear recovery instructions.
+**June’s Heart voice:** [local setup and recovery](docs/local-heart-voice.md). Run `npm run voice:setup` once. Preview, replies and replay use Heart locally. Missing files leave text available with clear recovery instructions.
 
 ## Start and stop June
 
@@ -30,7 +30,7 @@ cd /Users/apple/Documents/June
 npm start
 ```
 
-Open <http://127.0.0.1:3001>. The status should show **qwen2.5:1.5b · Ready**. Your Mac and the processes must stay running. Press **Control+C** in each terminal to stop them. June stops only processes it started; a separately started Python backend is left running. Nothing starts automatically at login. Port 3001 is intentional: Mad Realm uses 3000. Python uses local port 8001.
+Open <http://127.0.0.1:3001>. The status should show **qwen3:4b-instruct-2507-q4_K_M · Ready**. Your Mac and the processes must stay running. Press **Control+C** in each terminal to stop them. June stops only processes it started; a separately started Python backend is left running. Nothing starts automatically at login. Port 3001 is intentional: Mad Realm uses 3000. Python uses local port 8001.
 
 **v0.5.1:** [Local audio and reliability guide](docs/v0.5.1.md) · [verification and remaining limitations](docs/v0.5.1-verification.md). Native Mac capture and June’s streamed voice playback share an echo-processing engine; the resident Whisper worker avoids loading the model for each recording. Native microphone permission is separate from the browser permission. Speaker-room acceptance remains a human verification gate.
 
@@ -60,7 +60,7 @@ npm run build
 npm start
 ```
 
-The model download is about 986 MB. June's helper stores models in `~/Library/Application Support/June/models`, disables Ollama cloud inference and binds the server to the local computer. No API key, account, GPU purchase or paid service is needed. Internet is needed for downloads; inference runs locally after setup.
+The configured model download is about 2.5 GB. June's helper stores models in `~/Library/Application Support/June/models`, disables Ollama cloud inference and binds the server to the local computer. No API key, account, GPU purchase or paid service is needed. Internet is needed for downloads; inference runs locally after setup.
 
 ## Chat controls and limits
 

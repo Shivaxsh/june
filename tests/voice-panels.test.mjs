@@ -41,7 +41,7 @@ test('June panel has fixed identity and explicit capture-only controls with no v
   assert.match(browser, /replies always use her local Heart voice through native playback/);
 });
 test('provider outage retains June identity, disables preview, and permits refresh and saved speech preference changes', () => {
-  for (const state of ['setup-required', 'quota-exhausted', 'error']) {
+  for (const state of ['setup-required', 'error']) {
     const html = render(VoicePanel, { voice: { ...voice, support: { ...voice.support, speech: false }, choices: { ...voice.choices, selected: '', state }, recognition: { ...voice.recognition, transcript: 'Manual transcript remains available' }, audioStatus: { providerState: state, providerMessage: 'Add key or refresh' } }, onUse: noop, onActivate: noop });
     assert.match(html, /<strong>June<\/strong> · Heart/);
     assert.match(html, /Add key or refresh/);
@@ -54,11 +54,11 @@ test('provider outage retains June identity, disables preview, and permits refre
   }
 });
 test('local notice explains Heart privacy and has no credit meter or cloud provider', () => {
-  const html = render(VoicePanel, { voice: { ...voice, audioStatus: { ...voice.audioStatus, quota: { remaining: 0, limit: 1000, used: 1000, resetAt: '2026-12-01T12:00:00Z' } } }, onUse: noop, onActivate: noop });
+  const html = render(VoicePanel, { voice, onUse: noop, onActivate: noop });
   assert.match(html, /Heart generates June’s voice entirely on this Mac/);
   assert.match(html, /Reply text and microphone audio stay local/);
   assert.match(html, /pacing presets, not guaranteed emotional acting/);
-  assert.doesNotMatch(html, /ElevenLabs|credits remaining|credit limit|account allowance|sent online/);
+  assert.doesNotMatch(html, /credits remaining|credit limit|account allowance|sent online/);
 });
 test('native permission and preparation states never claim that the microphone is on', () => {
   for (const phase of ['requesting', 'preparing', 'connecting']) {
@@ -100,7 +100,7 @@ test('speech timing readout remains visible after playback ends and never invent
 
 
 test('manual browser recording remains available regardless of cloud readiness', () => {
-  for (const state of ['setup-required', 'quota-exhausted', 'error']) {
+  for (const state of ['setup-required', 'error']) {
     const html = render(VoicePanel, { voice: {
       ...voice, browserCapture: true, support: { ...voice.support, recognition: false, speech: false },
       audioStatus: { state, providerState: state, message: 'Cloud unavailable' },

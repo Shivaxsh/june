@@ -6,7 +6,7 @@ import type { VoiceState } from './voices';
 export const JUNE_VOICE_ID = 'kokoro-af-heart';
 export const JUNE_VOICE = Object.freeze({ id: JUNE_VOICE_ID, name: 'June', lang: 'en-US', gender: 'female', localService: true, provider: 'kokoro' } as const);
 export type NativeVoice = typeof JUNE_VOICE;
-export type ProviderState = 'checking' | 'ready' | 'setup-required' | 'quota-exhausted' | 'error';
+export type ProviderState = 'checking' | 'ready' | 'setup-required' | 'error';
 export type NativeVoiceState = VoiceState & { state: ProviderState };
 export const JUNE_VOICE_OPTION = Object.freeze({ id: JUNE_VOICE_ID, name: 'June', lang: 'en-US', accent: 'American English' });
 const isJune = (voice: SpeechSynthesisVoice | undefined) => voice?.voiceURI === JUNE_VOICE_ID && voice.name === 'June' && voice.lang === 'en-US' && voice.localService === true;
@@ -183,7 +183,7 @@ export class NativeVoiceRegistry {
     try {
       const response = await this.http.call(globalThis, '/api/voice/voices', { cache: 'no-store', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(10000)]) });
       const data = await response.json();
-      if (!response.ok || !['ready', 'setup-required', 'quota-exhausted', 'error'].includes(data?.state) || !Array.isArray(data.voices)) throw new Error('June’s local Heart voice is unavailable. Refresh audio; replies remain readable.');
+      if (!response.ok || !['ready', 'setup-required', 'error'].includes(data?.state) || !Array.isArray(data.voices)) throw new Error('June’s local Heart voice is unavailable. Refresh audio; replies remain readable.');
       if (abort.signal.aborted || this.disposed) return;
       const fixedJune = data.voices.some((voice: Partial<NativeVoice> | null) => voice
         && Object.entries(JUNE_VOICE).every(([key, value]) => voice[key as keyof NativeVoice] === value));

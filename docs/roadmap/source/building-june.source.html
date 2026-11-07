@@ -480,7 +480,7 @@ button:disabled,select:disabled{opacity:.55;cursor:not-allowed}
           <li><h4>Give her opinions</h4><p>An assistant with no opinions sounds like a search engine. Let June have favourites, disagree politely and say what she would do.</p></li>
           <li><h4>Keep her consistent</h4><p>Same values, same tone and same running jokes in every chat. Test for this in Phase 11.</p></li>
           <li><h4>Write for the ear</h4><p>Spoken June uses short sentences, no bullet lists, no emoji and no "Here are five points". Read every reply out loud.</p></li>
-          <li><h4>A voice of her own</h4><p>Design an original voice in ElevenLabs or train one in Phase 10. Never clone a celebrity or a real person's voice without their consent.</p></li>
+          <li><h4>A voice of her own</h4><p>Use the local Heart voice, explore another open voice model, or train an original voice in Phase 10. Never clone a celebrity or a real person's voice without their consent.</p></li>
           <li><h4>Let her remember</h4><p>Bringing up something you said last week does more for "she feels real" than any feature.</p></li>
           <li><h4>Show her mood</h4><p>Her orb's colour and movement, and the speed and warmth of her voice, should match how she feels.</p></li>
         </ul>
@@ -738,7 +738,7 @@ const PHASES = [
     ["Training data","reviewed June conversations, cleaned and deduplicated, with separate validation and test sets; see the training guide"],
     ["LoRA fine-tuning","training a small add-on to a free model (Qwen or Llama) with Unsloth or Hugging Face TRL"],
     ["DPO","teaching June to prefer replies that sound like her"],
-    ["Her own voice","an original voice designed in ElevenLabs, or an open voice model like Kokoro or Piper that you run yourself"],
+    ["Her own voice","an open voice model such as Kokoro Heart or Piper that you run yourself"],
     ["Offline June","evaluate a small local brain, speech recognition and a licensed female voice on suitable hardware; offline performance must be measured"]],
   build:["June v1.0","June uses an evaluated adapter and a separately chosen voice. Test offline conversation on suitable hardware; online services still need internet."],
   extra:"stages",
