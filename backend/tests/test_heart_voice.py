@@ -14,6 +14,8 @@ print(json.dumps({'type':'ready','voice':'af_heart','sampleRate':24000}),flush=T
 for line in sys.stdin:
  v=json.loads(line)
  if v['text']=='slow':time.sleep(20)
+ if v['text']=='malformed':
+  print('[]',flush=True);continue
  if v['text']=='broken':
   print(json.dumps({'id':v['id'],'type':'error'}),flush=True);continue
  print(json.dumps({'id':v['id'],'audio':base64.b64encode(b'\\1\\0'*400).decode()}),flush=True)
@@ -43,6 +45,20 @@ class HeartTests(unittest.IsolatedAsyncioTestCase):
         (self.home/'voices-v1.0.bin').unlink()
         self.assertEqual((await self.service.status())['state'],'setup-required')
         self.assertIsNone(self.service.process)
+
+    async def test_malformed_worker_frame_fails_cleanly_and_allows_retry(self):
+        for frame in ('[]','null','true','42'):
+            with self.subTest(frame=frame):
+                self.service.script.write_text(WORKER.replace("print('[]',flush=True)",f"print({frame!r},flush=True)"))
+                with self.assertRaises(JuneError):
+                    async for _ in self.service.pcm({**self.value,'text':'malformed'}):pass
+                self.assertIsNone(self.service.process)
+        self.service.script.write_text(WORKER.replace("print('[]',flush=True)","print(json.dumps({'id':v['id'],'audio':None}),flush=True)"))
+        with self.assertRaises(JuneError):
+            async for _ in self.service.pcm({**self.value,'text':'malformed'}):pass
+        self.assertIsNone(self.service.process)
+        self.service.script.write_text(WORKER)
+        self.assertTrue(b''.join([p async for p in self.service.pcm(self.value)]))
 
     async def test_old_provider_voice_rejected_before_worker_starts(self):
         with self.assertRaises(JuneError):

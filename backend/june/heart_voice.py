@@ -91,12 +91,14 @@ class HeartVoice:
                 async with asyncio.timeout(120):
                     while True:
                         event = json.loads(await process.stdout.readline())
+                        if not isinstance(event,dict): raise ValueError('Invalid voice frame')
                         if event.get('id') != identity: raise ValueError('Stale voice result')
                         if event.get('type') == 'done':
                             if not total: raise ValueError('Empty audio')
                             complete = True
                             return
                         if 'audio' not in event: raise ValueError('Synthesis failed')
+                        if not isinstance(event['audio'],str): raise ValueError('Invalid PCM encoding')
                         data = base64.b64decode(event['audio'], validate=True)
                         total += len(data)
                         if not data or len(data)>8192 or len(data)%2 or total>8640000:
