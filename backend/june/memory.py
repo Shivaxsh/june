@@ -162,7 +162,7 @@ class Store:
             os.chmod(self.path, 0o600)
             with self.db() as db:
                 version = db.execute('PRAGMA user_version').fetchone()[0]
-                if version > 1: raise invalid('This database needs a newer June version.', 503)
+                if version > 2: raise invalid('This database needs a newer June version.', 503)
                 if version == 0:
                     db.executescript('''
 CREATE TABLE meta (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
@@ -176,7 +176,10 @@ CREATE TABLE profile (id INTEGER PRIMARY KEY CHECK(id=1),value TEXT NOT NULL);
 PRAGMA user_version=1;
 ''')
                     db.execute('INSERT INTO profile VALUES(1,?)', (json.dumps(profile_defaults()),))
-                # A process restart cannot complete a previously running reply.
+            from .knowledge_store import migrate
+            migrate(self, version)
+            with self.db() as db:
+                # Back up before changing even pending pre-migration turns.
                 db.execute("UPDATE turns SET status='stopped' WHERE status='pending'")
             self.cleanup()
         except (OSError, sqlite3.Error) as e:
@@ -209,7 +212,19 @@ PRAGMA user_version=1;
         with self.db() as db:
             c = db.execute('SELECT * FROM conversations WHERE id=?',(cid,)).fetchone()
             if not c: raise invalid('This chat was deleted or expired.',404)
-            return {**dict(c), 'turns':[dict(x) for x in db.execute('SELECT * FROM turns WHERE conversation=? ORDER BY created,rowid',(cid,))]}
+            result = {**dict(c), 'turns':[dict(x) for x in db.execute('SELECT * FROM turns WHERE conversation=? ORDER BY created,rowid',(cid,))]}
+            scope = db.execute('SELECT documentIds,revision FROM conversation_knowledge WHERE conversation=?',(cid,)).fetchone()
+            if scope:
+                result['knowledge'] = {'documentIds':json.loads(scope[0])}
+                result['knowledgeRevision'] = scope[1]
+                live = {r[0] for r in db.execute('SELECT id FROM documents')}
+                for turn in result['turns']:
+                    turn['citations'] = json.loads(turn['citations'])
+                    for citation in turn['citations']:
+                        if citation['documentId'] not in live:
+                            citation['deleted'] = True
+                            citation['name'] = 'Source deleted'
+            return result
     def delete_conversation(self, cid=None):
         with self.db() as db:
             if cid: db.execute('DELETE FROM conversations WHERE id=?',(cid,))
@@ -236,6 +251,8 @@ PRAGMA user_version=1;
             return bool(changed)
     def context(self,cid):
         chat = self.conversation(cid)
+        if chat.get('knowledge'):
+            raise invalid('Document scope changed. Start a new conversation.',409)
         revision = self.revision()
         turns = [t for t in chat['turns'] if t['status']=='complete' and t['revision']==revision]
         result=[]; size=0
@@ -344,6 +361,7 @@ PRAGMA user_version=1;
         with self.db() as db:
             ids=[x[0] for x in db.execute('SELECT id FROM conversations ORDER BY updated DESC')] if chats else []
         conversations=[self.conversation(cid) for cid in ids]
+        conversations=[c for c in conversations if not c.get('knowledge')]
         for chat in conversations:
             for turn in chat['turns']:
                 if turn['status']=='pending':turn['status']='stopped'

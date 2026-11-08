@@ -453,47 +453,47 @@ Give June a consistent style and user-controlled application memory. Use the wor
 
 ## Phase 7 — RAG: giving June knowledge
 
-RAG means “look it up, then answer”. June searches your notes and documents first, then answers from what she found. You add knowledge without retraining anything.
+RAG means “look it up, then answer”. Explicit Ask my documents mode searches only selected ready notes and text PDFs, then answers with validated evidence. Ordinary chat remains separate; document content is untrusted and never becomes approved personal memory automatically.
 
 ### Learn and practise — same order as the artifact
 
 #### 7.1 Embeddings
 
-**Learn:** turning text into lists of numbers that capture its meaning.
+**Learn:** using local all-minilm:22m to turn text into searchable vectors without replacing Qwen; split oversized inputs rather than silently truncating.
 
-**Practice:** Embed a few notes you own and compare similarity for related and unrelated questions. Explain why an embedding is not the original text.
+**Practice:** Embed synthetic notes locally with all-minilm:22m and compare related and unrelated questions. Keep Qwen unchanged. Use truncate:false and subdivide oversized passages and queries while retaining source locations.
 
 #### 7.2 Vector databases
 
-**Learn:** storing embeddings and finding the closest matches (pgvector on Supabase, or Chroma).
+**Learn:** storing vectors, source IDs and job metadata privately in SQLite; pgvector on Supabase and Chroma are optional alternatives to study.
 
-**Practice:** Store vectors with source IDs and metadata, then retrieve candidates. Choose a local store first if it meets your experiment; learn the alternatives named in the artifact.
+**Practice:** Store document originals, vectors and indexing state privately in SQLite with a versioned migration and pre-migration backup. Compare the optional vector stores named in the resources. Never copy documents into approved memory or ordinary exports.
 
 #### 7.3 Chunking
 
-**Learn:** splitting long documents into small pieces.
+**Learn:** splitting UTF-8 notes and text PDFs into roughly 600-character passages with 100-character overlap, retaining page or line locations.
 
-**Practice:** Split notes into passages while retaining source and location. Compare a few chunk sizes on the same questions.
+**Practice:** Import UTF-8 .txt/.md and selectable-text PDFs only. Retain pages or note line ranges in roughly 600-character passages with 100 overlap. Check the 10 MiB, 200 PDF page, 50 document and 5,000 passage limits; test partial PDFs, rejection, deduplication, cancellation and explicit Retry after restart.
 
 #### 7.4 Retrieval and reranking
 
-**Learn:** finding candidate pieces, then keeping only the best ones.
+**Learn:** fusing FTS5 keywords and cosine similarity, then selecting at most four diverse passages within 2,400 characters.
 
-**Practice:** Inspect retrieved candidates before generating an answer. Reorder or rerank them and compare whether the useful passage rises to the top.
+**Practice:** Inspect FTS5 and cosine candidates before generation, fuse their ranks and retain at most four diverse passages within 2,400 characters. Retrieve only selected ready documents and pause background indexing during foreground work. Compare exact identifier and paraphrase questions.
 
 #### 7.5 Citations
 
-**Learn:** June says where she found the answer.
+**Learn:** validating source IDs and exact quotations before displaying or speaking an answer; unsupported questions receive an explicit evidence-missing reply.
 
-**Practice:** Show the source passage and location with each supported answer. Ask a question absent from the notes and have June say the evidence is missing.
+**Practice:** Buffer Qwen output until source IDs and exact quotes validate. Open citations at their page or lines. Evaluate 15 supported and five unsupported synthetic questions, conflicting sources and injection. Change selection into a new conversation; delete a source during generation and verify stale results cannot return. Check a human spoken question and follow-up with Heart separately.
 
 ### Build — June v0.6
 
-**Artifact project:** Ask June out loud about your own notes or PDFs and she answers from them, telling you where the answer came from.
+**Artifact project:** Import UTF-8 notes or selectable-text PDFs, select ready sources in Ask my documents, and inspect the supporting page or lines. Verify 15 supported and five unsupported real-model questions, source isolation, injection/deletion handling and a human spoken question plus follow-up before marking only this build complete.
 
-**Your exercise:** Connect your own small note collection to retrieval, generation and citations, then ask about it through the voice flow.
+**Your exercise:** Build explicit Ask my documents mode with a private note/text-PDF library, local retrieval, validated citations and Heart playback. Keep documents until explicit deletion, ordinary chat unchanged and personal memory separate. Follow docs/phase-7.md and record evidence in docs/phase-7-verification.md.
 
-**Completion checks:** You can inspect the passage supporting an answer. Absent information is reported honestly. Deleted or unauthorised sources are not retrieved.
+**Completion checks:** Do not mark complete until the fixed real-model 15-supported/5-unsupported evaluation passes with supporting retrieval, quotes and locations; source selection, injection, deletion, restart, imports and limits pass; regressions, TypeScript, build and accessible mobile UI pass; and a human spoken document question plus follow-up audibly completes with inspectable citations. Measure import, retrieval, generation and first audio separately. Existing acoustic/latency limitations remain open; leave learning checkboxes and personality answers unchanged.
 
 ### Resources — same order as the artifact
 

@@ -7,3 +7,5 @@ pipecat-ai[silero]==0.0.85
 onnxruntime==1.23.2
 vosk==0.3.44
 numpy==1.26.4
+
+pypdf==7.0.0

@@ -150,11 +150,19 @@ class Coordinator:
             async with self.lock:yield
         finally:self.tasks.pop(task,None)
 
-async def persisted_chat(client,settings,store,coordinator,value,mode,messages):
+async def persisted_chat(client,settings,store,coordinator,value,mode,messages,knowledge=None):
+    if 'knowledge' in value:
+        if knowledge is None:raise JuneError('storage','Private document storage is unavailable.',503)
+        from .knowledge_chat import document_chat
+        async with aclosing(document_chat(knowledge,value,mode,messages)) as source:
+            async for event in source:yield event
+        return
     cid,tid=value.get('conversationId'),value.get('turnId')
     temporary=value.get('temporary') is True
     if bool(cid)!=bool(tid) or any(x is not None and (not isinstance(x,str) or not re.fullmatch(r'[\w-]{1,80}',x)) for x in (cid,tid)):
         raise JuneError('invalid-chat','Provide valid conversation and turn identifiers together.',400)
+    if cid and store and store.conversation(cid).get('knowledge'):
+        raise JuneError('context-changed','Document scope changed. Start a new conversation.',409)
     if store is None and not temporary:
         raise JuneError('storage','Private storage is unavailable. Retry or explicitly choose temporary chat.',503)
     facts=[];started=False;reply='';ending='stopped';saved_answer=None
@@ -213,6 +221,7 @@ async def extract(client,settings,store,coordinator,cid,tid):
     chat=store.conversation(cid)
     turn=next((t for t in chat['turns'] if t['id']==tid and t['status']=='complete'),None)
     if not turn: raise JuneError('invalid-turn','Only completed replies can suggest memories.',400)
+    if chat.get('knowledge'):return
     if exclude_proposals(turn['user']):return
     # Asking for an existing fact supplies no new one. Avoid a second model
     # inference merely because a recall question contains the word "my".

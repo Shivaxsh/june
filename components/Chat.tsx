@@ -21,11 +21,15 @@ import HandsFreePanel, { handsFreeLabels } from "./voice/HandsFreePanel";
 import { mergeTranscript } from "@/lib/voice/sentences";
 
 import ModelPicker from "./ModelPicker";
+import CitationSources from "./knowledge/CitationSources";
+import DocumentsPanel from "./knowledge/DocumentsPanel";
+import {useDocuments} from "./knowledge/useDocuments";
+import {parseScope,parseStored,validateCitations,validatedDocumentReply,type Citation,type KnowledgeScope} from "@/lib/knowledge-types";
 import LibraryPanel from "./memory/LibraryPanel";
 import { useLibrary } from "./memory/useLibrary";
 import { libraryRequest, LibraryError, type SavedConversation } from "@/lib/memory-types";
 
-type DisplayMessage = ChatMessage & { id: string; state?: "pending" | "complete" | "stopped" | "failed"; limited?: boolean; repetitionStopped?: boolean; memoryIds?: string[] };
+type DisplayMessage = ChatMessage & { id: string; state?: "pending" | "complete" | "stopped" | "failed"; limited?: boolean; repetitionStopped?: boolean; memoryIds?: string[]; citations?:Citation[] };
 
 export default function Chat() {
   const audio = useAudio();
@@ -55,6 +59,22 @@ export default function Chat() {
 
   const [conversationId, setConversationId] = useState<string | null>(null);
   const conversationIdRef = useRef<string | null>(null);
+  const conversationOpenGeneration = useRef(0);
+  const [knowledge,setKnowledge]=useState<KnowledgeScope|null>(null);
+  const knowledgeRef=useRef<KnowledgeScope|null>(null);
+  const [deletedSources,setDeletedSources]=useState<string[]>([]);
+  const [documentStage,setDocumentStage]=useState("");
+  const documents=useDocuments(ids=>{
+    setDeletedSources(previous=>[...new Set([...previous,...ids])]);
+    const affected=knowledgeRef.current?.documentIds.some(id=>ids.includes(id));
+    // Replayed historical document audio is also invalidated on deletion.
+    if(affected || messages.some(m=>m.citations?.some(c=>ids.includes(c.documentId)))){
+      interrupt();handsFree.stop();voice.cancel();audio.stop();history.current=[];
+      conversationIdRef.current=null;setConversationId(null);
+      if(affected){const next={documentIds:knowledgeRef.current!.documentIds.filter(id=>!ids.includes(id))};knowledgeRef.current=next;setKnowledge(next);}
+      setAnnouncement("Source deleted. Affected chat and audio stopped; start a new document conversation.");
+    }
+  });
   const extraction = useRef<AbortController | null>(null);
   const [suggestAfter, setSuggestAfter] = useState<{conversationId:string;turnId:string}|null>(null);
   const library = useLibrary(() => {
@@ -77,11 +97,12 @@ export default function Chat() {
   // A wake phrase or natural interruption invalidates the old request. Late network,
   // transcription and synthesis callbacks cannot resume an interrupted turn.
   function interrupt() {
+    conversationOpenGeneration.current++;
     cancelExtraction();
     spokenTurn.current = null;
     requestId.current++;
     active.current?.abort(); active.current = null;
-    busyRef.current = false; setBusy(false);
+    busyRef.current = false; setBusy(false); setDocumentStage("");
     voice.stopVoice("voice-turn-cancelled");
     setMessages(previous => previous.map(message => message.state === "pending" ? { ...message, state: "stopped" } : message));
   }
@@ -125,9 +146,12 @@ export default function Chat() {
   },[]);
   useEffect(() => {voice.setExpression(library.temporary ? "steady" : library.data?.profile.expression || "steady");},[library.data?.profile.expression,library.temporary]);
 
-  function openConversation(chat:SavedConversation) {
-    newChat();setConversationId(chat.id);conversationIdRef.current=chat.id;
-    setMessages(chat.turns.flatMap(t => [{role:"user" as const,content:t.user,id:`user-${t.id}`},{role:"assistant" as const,content:t.assistant,id:`assistant-${t.id}`,state:t.status === "pending" ? "stopped" as const : t.status,memoryIds:JSON.parse(t.memories || "[]")}]));
+  function openConversation(chat:SavedConversation,token:number) {
+    if(token!==conversationOpenGeneration.current)return;
+    const restored=parseScope(chat.knowledge);
+    newChat(restored ? "local" : mode);setConversationId(chat.id);conversationIdRef.current=chat.id;
+    knowledgeRef.current=restored;setKnowledge(restored);
+    setMessages(chat.turns.flatMap(t => [{role:"user" as const,content:t.user,id:`user-${t.id}`},{role:"assistant" as const,content:t.assistant,id:`assistant-${t.id}`,state:t.status === "pending" ? "stopped" as const : t.status,memoryIds:restored?[]:parseStored(t.memories,[]),citations:(()=>{try{return validateCitations(parseStored(t.citations,[]));}catch{return [];}})()}]));
     // Inference context is loaded and filtered by the Python server, never reconstructed from displayed history.
     setAnnouncement("Saved conversation reopened.");
   }
@@ -158,6 +182,7 @@ export default function Chat() {
   }, [messages]);
 
   function newChat(nextMode = mode) {
+    conversationOpenGeneration.current++;
     cancelExtraction(); setConversationId(null);conversationIdRef.current=null;
     handsFree.stop(); spokenTurn.current = null;
     audio.stop(); voice.cancel(true); setPreview("auto");
@@ -171,11 +196,17 @@ export default function Chat() {
     setMessages([]);
     setDraft("");
     setError("");
-    setTiming("");
+    setTiming(""); setDocumentStage("");
+    knowledgeRef.current=null;setKnowledge(null);
     setMode(nextMode);
     setAnnouncement("New chat. Earlier saved conversations remain in Recent chats.");
     nearBottom.current = true;
     composer.current?.focus();
+  }
+
+  function selectKnowledge(scope:KnowledgeScope|null){
+    newChat(scope ? "local" : mode);knowledgeRef.current=scope;setKnowledge(scope);
+    setAnnouncement(scope?"New document conversation. Questions use only the selected ready sources.":"New general conversation.");
   }
 
   async function send(input?: { content: string; voiceTurn?: number }) {
@@ -186,7 +217,10 @@ export default function Chat() {
     const content = (input?.content ?? draft).trim();
     if (!content || modelChangingRef.current || busyRef.current || voice.recognition.phase !== "idle" || content.length > MAX_MESSAGE_LENGTH) return;
     if ((!library.data || library.error) && !library.temporary) {setError("Private storage is unavailable. Retry storage or explicitly choose temporary chat.");return;}
+    const scope=knowledgeRef.current;
+    if(scope && (!documents.loaded || !scope.documentIds.length || scope.documentIds.some(id=>!documents.documents.some(d=>d.id===id&&d.status==='ready')))){setError("Choose ready document sources to start a new conversation.");return;}
     cancelExtraction();
+    setDocumentStage(scope?"Searching documents…":"");
     setPreview("auto");
     busyRef.current = true;
     setBusy(true);
@@ -211,6 +245,7 @@ export default function Chat() {
     let repetitionStopped = false;
     const stageTimings: Record<string, number> = {};
     let memoryIds: string[] = [];
+    let citations:Citation[]=[];
     const turnId=crypto.randomUUID();
     let savedConversation=conversationIdRef.current;
     nearBottom.current = true;
@@ -225,7 +260,7 @@ export default function Chat() {
     const update = (state: DisplayMessage["state"]) => {
       if (id !== requestId.current) return;
       setMessages(previous => previous.map(message => message.id === assistantId
-        ? { ...message, content: reply, state, limited: replyLimited, repetitionStopped, memoryIds } : message));
+        ? { ...message, content: reply, state, limited: replyLimited, repetitionStopped, memoryIds, citations } : message));
     };
     try {
       if (!library.temporary && !savedConversation) {
@@ -237,7 +272,7 @@ export default function Chat() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, messages: context, ...(library.temporary ? {temporary:true} : {conversationId:savedConversation,turnId}) }),
+        body: JSON.stringify({ mode, messages: context, ...(scope?{knowledge:scope}:{}), ...(library.temporary ? {temporary:true} : {conversationId:savedConversation,turnId}) }),
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -255,16 +290,18 @@ export default function Chat() {
             console.debug('[June timing]', JSON.stringify({ event: 'first-text', at: Date.now(), ...(automatic ? { voiceSessionId, turnId: input!.voiceTurn! } : {}), durationMs: firstToken - started }));
           }
           reply += event.text;
-          voice.push(id, event.text);
-          update("pending");
+          if (!scope) {voice.push(id, event.text);update("pending");}
         } else if (event.type === "done" && typeof event.model === "string") {
+          if(scope) citations=validatedDocumentReply(reply,event,scope);
           complete = true;
           replyLimited = event.limited === true;
           repetitionStopped = event.repetitionStopped === true;
           if (repetitionStopped) { spokenTurn.current = null; voice.stopVoice('repetition-stopped'); }
-          memoryIds = Array.isArray(event.memoryIds) ? event.memoryIds : [];
+          memoryIds = !scope && Array.isArray(event.memoryIds) ? event.memoryIds : [];
           if(!library.temporary && event.persistence!=="saved") throw new Error("This reply was not confirmed saved. Check private storage.");
           break;
+        } else if (event.type === 'stage' && (event.stage === 'searching' || event.stage === 'answering')) {
+          setDocumentStage(event.stage==='searching'?'Searching documents…':'Preparing a grounded answer…');
         } else if (event.type === 'timing') {
           if (typeof event.stage === 'string' && /^[a-z][a-z0-9_-]{0,39}$/i.test(event.stage) && typeof event.durationMs === 'number' && Number.isFinite(event.durationMs) && event.durationMs >= 0) stageTimings[event.stage] = event.durationMs;
         } else if (event.type === "error" && typeof event.message === "string") {
@@ -275,11 +312,12 @@ export default function Chat() {
       if (id !== requestId.current) return;
       if (!complete || !reply.trim()) throw new Error("The reply ended unexpectedly. Please try again.");
       if (spokenTurn.current?.request === id) spokenTurn.current.complete = true;
+      if(scope && !repetitionStopped)voice.push(id,reply);
       if (!repetitionStopped) voice.finish(id, !replyLimited);
       if (!repetitionStopped) history.current = [...context, { role: "assistant", content: reply }];
       update("complete");
       void library.refresh();
-      if(!repetitionStopped && mode==="local" && !library.temporary && savedConversation) setSuggestAfter({conversationId:savedConversation,turnId});
+      if(!scope && !repetitionStopped && mode==="local" && !library.temporary && savedConversation) setSuggestAfter({conversationId:savedConversation,turnId});
       const elapsed = ((performance.now() - started) / 1000).toFixed(1);
       const first = ((firstToken - started) / 1000).toFixed(1);
       setTiming(`${elapsed}s total · first text in ${first}s${Object.entries(stageTimings).map(([stage, ms]) => ` · ${stage} ${(ms / 1000).toFixed(1)}s`).join('')}`);
@@ -288,6 +326,7 @@ export default function Chat() {
     } catch (failure) {
       if (id !== requestId.current) return;
       voice.stopVoice();
+      if(scope){reply="";citations=[];}
       if (controller.signal.aborted) {
         update("stopped");
         setAnnouncement("Reply stopped. You can send another message.");
@@ -303,7 +342,7 @@ export default function Chat() {
       if (id === requestId.current) {
         active.current = null;
         busyRef.current = false;
-        setBusy(false);
+        setBusy(false);setDocumentStage("");
         if (!input) composer.current?.focus();
       }
     }
@@ -331,11 +370,12 @@ export default function Chat() {
 
       <main className="chat-shell">
         <section className="face-section" aria-labelledby="june-title">
-          <div className="face-copy"><p className="eyebrow">Phase 6 · Memory and personality</p><h1 id="june-title">A little more<br /><em>personal.</em></h1><p className="subtitle">A familiar voice. A memory you approve. A conversation to return to.</p><a className="learn-link" href="/learn/phase-6">Inside memory and personality <span aria-hidden="true">↗</span></a><OrbControls preview={preview} onPreview={setPreview} still={still} onStill={setStill} disabled={busy || handsFree.active} /></div>
+          <div className="face-copy"><p className="eyebrow">Phase 7 · Ask your documents</p><h1 id="june-title">Your documents.<br /><em>In conversation.</em></h1><p className="subtitle">Choose your sources. Ask a question. Follow the evidence.</p><a className="learn-link" href="/learn/phase-7">Inside document questions <span aria-hidden="true">↗</span></a><OrbControls preview={preview} onPreview={setPreview} still={still} onStill={setStill} disabled={busy || handsFree.active} /></div>
           <Orb expression={library.temporary ? "steady" : library.data?.profile.expression} mood={orb.mood} label={orb.label} level={voice.engine === "native" && voice.speech.phase === "speaking" ? voice.activity : handsFree.active ? handsFree.level : voice.recognition.phase === "listening" ? voice.level : audio.level} still={still} activity={voice.engine === "browser" ? voice.activity : undefined} speechActive={voice.engine === "browser" && voice.speech.phase === "speaking" && !handsFree.state.probing} />
         </section>
         <div inert={modelChanging}>
-        <LibraryPanel onDeleteActive={()=>newChat()} library={library} activeId={conversationId} onOpen={openConversation} />
+        <DocumentsPanel data={documents} scope={knowledge} onScope={selectKnowledge}/>
+        <LibraryPanel openGeneration={conversationOpenGeneration} onDeleteActive={()=>newChat()} library={library} activeId={conversationId} onOpen={openConversation} />
         <HandsFreePanel controls={handsFree} enabled={voice.engine === 'native' && !!voice.ownerId && !busy && !modelChanging && (!!library.data && !library.error || library.temporary) && mode === "local" && status?.state === "ready" && voice.speakReplies && !!voice.choices.selected && voice.support.recognition} onStart={() => { cancelExtraction(); audio.stop(); voice.cancel(); setPreview("auto"); handsFree.start(); }} />
         {handsFree.active && <button className="quiet-button all-stop" onClick={stopAll}>Stop conversation &amp; microphone</button>}
         <VoicePanel voice={voice} busy={busy || modelChanging} onUse={useTranscript} onActivate={() => { cancelExtraction(); setPreview("auto"); }} />
@@ -358,14 +398,15 @@ export default function Chat() {
           if (panel) nearBottom.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 100;
         }}>
           {!messages.length && <div className="empty-state"><span className="empty-label">A BEGINNING, WITH ROOM TO GROW</span><h2>Hello, I’m <em>June.</em></h2><p>Ask a question, explore an idea, or just say hello.</p><div className="suggestions">{["Introduce yourself, June.", "Explain async/await simply."].map(text => <button key={text} onClick={() => { setDraft(text); composer.current?.focus(); }}>{text}<span aria-hidden="true">↗</span></button>)}</div></div>}
-          {messages.map(message => <article key={message.id} className={`message ${message.role}`} aria-label={message.role === "user" ? "Your message" : "June’s message"}><span className="message-label">{message.role === "user" ? "YOU" : "JUNE"}</span><div className="message-text">{message.content || (message.state === "pending" ? <span className="waiting">Thinking<span aria-hidden="true">…</span></span> : message.state === "stopped" ? "Reply stopped." : "No reply yet.")}</div><ReplyStatus state={message.state} hasContent={!!message.content} limited={message.limited} repetitionStopped={message.repetitionStopped} busy={busy} onRetry={() => {
+          {messages.map(message => <article key={message.id} className={`message ${message.role}`} aria-label={message.role === "user" ? "Your message" : "June’s message"}><span className="message-label">{message.role === "user" ? "YOU" : "JUNE"}</span><div className="message-text">{message.content || (message.state === "pending" ? <span className="waiting">{documentStage||"Thinking"}<span aria-hidden="true">…</span></span> : message.state === "stopped" ? "Reply stopped." : "No reply yet.")}</div><ReplyStatus state={message.state} hasContent={!!message.content} limited={message.limited} repetitionStopped={message.repetitionStopped} busy={busy} onRetry={() => {
             const index = messages.findIndex(item => item.id === message.id);
             const question = messages[index - 1];
             if (question?.role === 'user') void send({ content: question.content });
-          }} />{message.role === "assistant" && !!message.memoryIds?.length && <details className="used-memories"><summary>Approved facts provided ({message.memoryIds.length})</summary>{message.memoryIds.map(mid=><p key={mid}>{library.data?.memories.find(m=>m.id===mid)?.text || "This saved memory has since been removed."}</p>)}</details>}{message.role === "assistant" && message.state === "complete" && !message.repetitionStopped && <button className="quiet-button hear-reply" disabled={busy || !voice.choices.selected} onClick={() => { setPreview("auto"); voice.replay(message.content); }}>Hear reply</button>}</article>)}
+          }} />{message.role === "assistant" && !!message.citations?.length && <CitationSources citations={message.citations} deleted={[...deletedSources,...(documents.loaded?message.citations.filter(c=>!documents.documents.some(d=>d.id===c.documentId)).map(c=>c.documentId):[])]}/>}{message.role === "assistant" && !!message.memoryIds?.length && <details className="used-memories"><summary>Approved facts provided ({message.memoryIds.length})</summary>{message.memoryIds.map(mid=><p key={mid}>{library.data?.memories.find(m=>m.id===mid)?.text || "This saved memory has since been removed."}</p>)}</details>}{message.role === "assistant" && message.state === "complete" && !message.repetitionStopped && <button className="quiet-button hear-reply" disabled={busy || !voice.choices.selected || message.citations?.some(c=>c.deleted || deletedSources.includes(c.documentId)||(documents.loaded&&!documents.documents.some(d=>d.id===c.documentId)))} onClick={() => { setPreview("auto"); voice.replay(message.content); }}>Hear reply</button>}</article>)}
         </div>
 
         <div className="composer-area">
+          {knowledge&&<p className="demo-notice" role="status">Ask my documents · {knowledge.documentIds.length} selected sources. Source changes start a new chat.</p>}
           {contextLimited && <p className="demo-notice" role="status">Long conversation · June uses recent messages to fit her local model. Older messages remain visible but may be outside her current context. This is not saved memory.</p>}
           {error && <div className="error-notice" role="alert">{error}</div>}
           <form className="composer" onSubmit={event => { event.preventDefault(); void send(); }}>

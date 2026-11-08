@@ -696,14 +696,14 @@ const PHASES = [
   res:[["Anthropic: interactive prompt engineering tutorial","https://github.com/anthropics/prompt-eng-interactive-tutorial"],["Claude API docs","https://docs.claude.com/"],["Python SQLite documentation","https://docs.python.org/3/library/sqlite3.html"],["Supabase docs (optional later)","https://supabase.com/docs"],["DeepLearning.AI short courses","https://www.deeplearning.ai/short-courses/"]] },
 
 { n:7, id:"p7", title:"RAG: giving June knowledge", weeks:"4 weeks",
-  why:"RAG means “look it up, then answer”. June searches your notes and documents first, then answers from what she found. You add knowledge without retraining anything.",
+  why:"RAG means “look it up, then answer”. Explicit Ask my documents mode searches only selected ready notes and text PDFs, then answers with validated evidence. Ordinary chat remains separate; document content is untrusted and never becomes approved personal memory automatically.",
   learn:[
-    ["Embeddings","turning text into lists of numbers that capture its meaning"],
-    ["Vector databases","storing embeddings and finding the closest matches (pgvector on Supabase, or Chroma)"],
-    ["Chunking","splitting long documents into small pieces"],
-    ["Retrieval and reranking","finding candidate pieces, then keeping only the best ones"],
-    ["Citations","June says where she found the answer"]],
-  build:["June v0.6","Ask June out loud about your own notes or PDFs and she answers from them, telling you where the answer came from."],
+    ["Embeddings","using local all-minilm:22m to turn text into searchable vectors without replacing Qwen; split oversized inputs rather than silently truncating"],
+    ["Vector databases","storing vectors, source IDs and job metadata privately in SQLite; pgvector on Supabase and Chroma are optional alternatives to study"],
+    ["Chunking","splitting UTF-8 notes and text PDFs into roughly 600-character passages with 100-character overlap, retaining page or line locations"],
+    ["Retrieval and reranking","fusing FTS5 keywords and cosine similarity, then selecting at most four diverse passages within 2,400 characters"],
+    ["Citations","validating source IDs and exact quotations before displaying or speaking an answer; unsupported questions receive an explicit evidence-missing reply"]],
+  build:["June v0.6","Import UTF-8 notes or selectable-text PDFs, select ready sources in Ask my documents, and inspect the supporting page or lines. Verify 15 supported and five unsupported real-model questions, source isolation, injection/deletion handling and a human spoken question plus follow-up before marking only this build complete."],
   res:[["Anthropic: Contextual Retrieval","https://www.anthropic.com/news/contextual-retrieval"],["Supabase: AI and vectors","https://supabase.com/docs/guides/ai"],["DeepLearning.AI short courses (search “RAG”)","https://www.deeplearning.ai/short-courses/"]] },
 
 { n:8, id:"p8", title:"June's hands: agents, MCP and your world", weeks:"6–8 weeks", jarvis:true,

@@ -2,8 +2,9 @@
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 export type ChatMode = "local" | "demo";
 export type ChatEvent =
+  | { type: "stage"; stage:"searching"|"answering" }
   | { type: "delta"; text: string }
-  | { type: "done"; model: string; limited?: boolean; repetitionStopped?: boolean; persistence?: "saved" | "temporary"; memoryIds?: string[]; revision?: number; conversationId?: string; turnId?: string }
+  | { type: "done"; model: string; citations?:import("./knowledge-types").Citation[]; knowledgeRevision?:number; limited?: boolean; repetitionStopped?: boolean; persistence?: "saved" | "temporary"; memoryIds?: string[]; revision?: number; conversationId?: string; turnId?: string }
   | { type: "timing"; stage: string; durationMs: number }
   | { type: "error"; message: string };
 

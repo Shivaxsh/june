@@ -11,6 +11,8 @@ import httpx
 from starlette.requests import ClientDisconnect
 
 from .chat import model_status, stream_chat, validate_chat
+from .knowledge import Knowledge
+from .knowledge_api import router as knowledge_router
 from .memory import Store
 from .memory_service import Coordinator, persisted_chat
 from .memory_api import router as memory_router
@@ -45,6 +47,8 @@ async def lifespan(app):
     async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=5), trust_env=False,
                                  limits=httpx.Limits(max_connections=6, max_keepalive_connections=3)) as client:
         app.state.client = client
+        app.state.knowledge = Knowledge(app.state.store,client,app.state.settings,app.state.coordinator,
+            busy=lambda: app.state.voice_slots.owner is not None or app.state.speech.busy) if app.state.store else None
         app.state.voice_provider = HeartVoice(app.state.native_audio,coordinator=app.state.coordinator)
         app.state.voice_runtime = VoiceRuntime(app.state.settings,client,app.state.speech,app.state.native_audio,app.state.voice_assets,app.state.coordinator,app.state.store)
         app.state.voice_runtime.start()
@@ -58,6 +62,7 @@ async def lifespan(app):
         try: yield
         finally:
             sweeper.cancel()
+            if app.state.knowledge:await app.state.knowledge.close()
             await app.state.voice_runtime.close()
             await app.state.voice_provider.close()
             await app.state.native_audio.close()
@@ -121,6 +126,7 @@ class LocalOnly:
 
 app.add_middleware(LocalOnly)
 app.include_router(memory_router)
+app.include_router(knowledge_router)
 app.include_router(voice_router)
 
 
@@ -180,6 +186,10 @@ async def chat(request: Request):
         raise JuneError('invalid-chat', 'The message request was not valid JSON or was too large.', 400)
     if request.app.state.store is None and value.get('temporary') is not True:
         raise JuneError('storage','Private storage is unavailable. Retry or explicitly choose temporary chat.',503)
+    if 'knowledge' in value:
+        from .knowledge_chat import selection
+        if getattr(request.app.state,'knowledge',None) is None:raise JuneError('storage','Private document storage is unavailable.',503)
+        request.app.state.knowledge.db.select(selection(value))
     if mode == 'local' and not value.get('conversationId'):
         available = await status(request)
         if available['state'] != 'ready':
@@ -189,7 +199,7 @@ async def chat(request: Request):
         # StreamingResponse cancels this iterator on disconnect. No background
         # model task is detached from its browser request.
         try:
-            async with aclosing(persisted_chat(request.app.state.client, request.app.state.settings, request.app.state.store, request.app.state.coordinator, value, mode, messages)) as source:
+            async with aclosing(persisted_chat(request.app.state.client, request.app.state.settings, request.app.state.store, request.app.state.coordinator, value, mode, messages, getattr(request.app.state,'knowledge',None))) as source:
                 async for event in source:
                     yield json.dumps(event, ensure_ascii=False).encode() + b'\n'
         except JuneError as error:
@@ -301,7 +311,7 @@ async def socket_chat(socket: WebSocket):
                 await send({'type': 'error', 'message': available['message']})
                 return
         try:
-            async with aclosing(persisted_chat(socket.app.state.client, settings, socket.app.state.store, socket.app.state.coordinator, value, mode, messages)) as source:
+            async with aclosing(persisted_chat(socket.app.state.client, settings, socket.app.state.store, socket.app.state.coordinator, value, mode, messages, getattr(socket.app.state,'knowledge',None))) as source:
                 async for event in source:
                     await send(event)
         except JuneError as error:

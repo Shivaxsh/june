@@ -1,4 +1,6 @@
-# June v0.5.1
+# June v0.6
+
+**Phase 7 — Ask my documents:** [setup and walkthrough](docs/phase-7.md) · [verification and remaining acceptance](docs/phase-7-verification.md) · [learning studio](http://127.0.0.1:3001/learn/phase-7). Import private notes or selectable-text PDFs, select sources explicitly, and inspect citations behind document answers. Run `npm run knowledge:setup` once. Documents remain until deleted and are excluded from ordinary exports. Text answers wait for source validation; this does not train Qwen or fix the existing speech/latency limitations. The final human spoken-document check remains pending.
 
 A personal assistant, built one phase at a time. June combines a Python backend, local streamed text chat, a Canvas particle orb, local Whisper speech recognition and the approved local Heart speaking voice. Speech uses no API credits.
 

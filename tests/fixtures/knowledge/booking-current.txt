@@ -1,0 +1,3 @@
+Synthetic current booking record, issued 8 November 2026.
+For the Solstice rehearsal, the current booking assigns room Cedar with 18 seats.
+This current record conflicts with the archived booking; the discrepancy is unresolved.

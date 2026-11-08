@@ -1,0 +1,3 @@
+Synthetic archived booking record, issued 1 October 2026.
+For the Solstice rehearsal, the archived booking assigns room Birch with 12 seats.
+This record describes the old booking, not a confirmed current reservation.

@@ -317,3 +317,25 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--inset); 
 .model-picker-actions select { flex: 1 1 220px; min-width: 0; max-width: 100%; font-size: 12px; min-height: 38px; color: var(--text); }
 .model-picker-body p { line-height: 1.7; overflow-wrap: anywhere; }
 .model-picker-hint { color: var(--muted); }
+
+.documents-panel { border: 1px solid var(--line); background: var(--panel); border-radius: 12px; margin-bottom: 16px; font-size: 13px; }
+.documents-panel summary { cursor: pointer; padding: 16px; }
+.documents-panel summary span { color: var(--muted); margin-left: 12px; font-size: 11px; }
+.documents-body { padding: 0 16px 18px; line-height: 1.6; overflow-wrap: anywhere; }
+.documents-body p { color: var(--muted); }
+.document-upload { display: grid; gap: 8px; }
+.document-upload input { max-width: 100%; color: var(--muted); }
+.document-list { padding: 0; list-style: none; }
+.document-list li { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.document-list label { display: flex; align-items: center; gap: 10px; }
+.document-list input { accent-color: var(--accent); min-width: 18px; min-height: 18px; }
+.document-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.document-list progress { width: 100%; accent-color: var(--accent); }
+.document-preview { max-height: 360px; overflow: auto; background: var(--inset); padding: 16px; margin-top: 16px; border-radius: 8px; }
+.document-preview p, .used-memories blockquote { white-space: pre-wrap; overflow-wrap: anywhere; }
+.used-memories blockquote { margin: 8px 0 16px; padding-left: 12px; border-left: 2px solid var(--line-strong); }
+@media(max-width:600px) { .documents-panel summary span { display: block; margin: 6px 0 0; } .document-actions .quiet-button { min-height: 44px; white-space: normal; } }
+.citation-sources { margin-top: 14px; font-size: 12px; color: var(--muted); }
+.citation-sources ol { padding-left: 22px; display: grid; gap: 8px; }
+.citation-sources .quiet-button { white-space: normal; text-align: left; min-height: 40px; overflow-wrap: anywhere; }
+.citation-sources blockquote { margin: 10px 0; border-left: 2px solid var(--accent); padding-left: 12px; white-space: pre-wrap; }

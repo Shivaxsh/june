@@ -1,8 +1,9 @@
 {
   "name": "june",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "private": true,
   "scripts": {
+    "knowledge:setup": "node scripts/knowledge.mjs",
     "dev": "node scripts/start.mjs dev",
     "build": "next build --webpack",
     "start": "node scripts/start.mjs production",

@@ -70,6 +70,13 @@ def prompt_for_turn(messages, identity, memory_context=''):
 def validate_chat(value):
     if not isinstance(value, dict):
         raise JuneError('invalid-chat', 'Please send a valid conversation.', 400)
+    if 'knowledge' in value:
+        scope=value['knowledge']
+        ids=scope.get('documentIds') if isinstance(scope,dict) else None
+        if (not isinstance(scope,dict) or set(scope)!={'documentIds'} or not isinstance(ids,list)
+                or not 1<=len(ids)<=50 or any(not isinstance(x,str) or not re.fullmatch(r'[\w-]{1,80}',x) for x in ids)
+                or len(set(ids))!=len(ids)):
+            raise JuneError('invalid-chat','Select one or more ready documents.',400)
     mode, messages = value.get('mode', 'local'), value.get('messages')
     if mode not in ('local', 'demo') or not isinstance(messages, list) or not 1 <= len(messages) <= 20:
         raise JuneError('invalid-chat', 'Please send a valid conversation. Start a new chat if this one is too long.', 400)

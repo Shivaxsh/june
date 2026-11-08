@@ -63,3 +63,5 @@ uvicorn==0.54.0
 vosk==0.3.44
 websockets==17.2
 yarl==1.25.1
+
+pypdf==7.0.0
