@@ -206,6 +206,9 @@ test('engine failure and forced timeout remove temporary audio and free the proc
   const { tmpdir, homedir } = await import('node:os'); const { join } = await import('node:path');
   const directory = await mkdtemp(join(tmpdir(),'june-engine-test-')); const previous = process.env.JUNE_SPEECH_HOME;
   const actual = join(homedir(),'Library/Application Support/June/speech'); const realSet = globalThis.setTimeout;
+  const {existsSync}=await import('node:fs');
+  const {setInterval:realInterval,clearInterval:clearIntervalTimer}=await import('node:timers');
+  let startupWatch;
   try {
     await mkdir(join(directory,'whisper.cpp/build/bin'),{recursive:true});
     await symlink(join(actual,'ggml-base.en.bin'),join(directory,'ggml-base.en.bin'));
@@ -216,17 +219,28 @@ test('engine failure and forced timeout remove temporary audio and free the proc
     process.env.JUNE_SPEECH_HOME = directory;
     await writeFile(executable,`#!${process.execPath}\nprocess.exit(1);\n`,{mode:0o700});
     await assert.rejects(server.transcribe(clip,new AbortController().signal),error=>error.code==='engine-failed');
-    await writeFile(executable,`#!${process.execPath}\nconst fs=require('node:fs');fs.writeFileSync(${JSON.stringify(join(directory,'pid'))},String(process.pid));process.on('SIGTERM',()=>{});setInterval(()=>{},1000);\n`,{mode:0o700});
+    await writeFile(executable,`#!${process.execPath}\nconst fs=require('node:fs');process.on('SIGTERM',()=>{});fs.writeFileSync(${JSON.stringify(join(directory,'pid'))},String(process.pid));setInterval(()=>{},1000);\n`,{mode:0o700});
     // Compress only this component's watchdog delays; the child is a real process
     // that ignores SIGTERM, so escalation and cleanup are exercised end to end.
-    globalThis.setTimeout = (fn,ms,...args) => realSet(fn,ms===120000?300:ms===1000?50:ms,...args);
+    globalThis.setTimeout = (fn,ms,...args) => {
+      if(ms!==120000)return realSet(fn,ms===1000?50:ms,...args);
+      // Measure the forced watchdog after the fixture is actually running.
+      // Busy machines can otherwise kill Node before its PID-file instruction.
+      const deadline=Date.now()+10000;
+      startupWatch=realInterval(()=>{
+        if(existsSync(join(directory,'pid'))||Date.now()>=deadline){clearIntervalTimer(startupWatch);fn(...args);}
+      },25);
+      return startupWatch;
+    };
     await assert.rejects(server.transcribe(clip,new AbortController().signal),error=>error.code==='timeout');
     globalThis.setTimeout = realSet;
+    assert.ok(existsSync(join(directory,'pid')),'The real timeout fixture must start before escalation is tested');
     const pid = Number(await readFile(join(directory,'pid'),'utf8')); assert.throws(()=>process.kill(pid,0),error=>error.code==='ESRCH');
     assert.deepEqual((await readdir(tmpdir())).filter(name=>name.startsWith('june-speech-')),before);
     await writeFile(executable,`#!${process.execPath}\nprocess.exit(1);\n`,{mode:0o700});
     await assert.rejects(server.transcribe(clip,new AbortController().signal),error=>error.code==='engine-failed');
   } finally {
+    clearIntervalTimer(startupWatch);
     globalThis.setTimeout = realSet; if(previous===undefined) delete process.env.JUNE_SPEECH_HOME; else process.env.JUNE_SPEECH_HOME=previous;
     await rm(directory,{recursive:true,force:true});
   }

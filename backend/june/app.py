@@ -47,8 +47,12 @@ async def lifespan(app):
     async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=5), trust_env=False,
                                  limits=httpx.Limits(max_connections=6, max_keepalive_connections=3)) as client:
         app.state.client = client
-        app.state.knowledge = Knowledge(app.state.store,client,app.state.settings,app.state.coordinator,
-            busy=lambda: app.state.voice_slots.owner is not None or app.state.speech.busy) if app.state.store else None
+        try:
+            app.state.knowledge = Knowledge(app.state.store,client,app.state.settings,app.state.coordinator,
+                busy=lambda: app.state.voice_slots.owner is not None or app.state.speech.busy) if app.state.store else None
+        except (JuneError,OSError):
+            # Document failure must not take ordinary chat and voice offline.
+            app.state.knowledge = None
         app.state.voice_provider = HeartVoice(app.state.native_audio,coordinator=app.state.coordinator)
         app.state.voice_runtime = VoiceRuntime(app.state.settings,client,app.state.speech,app.state.native_audio,app.state.voice_assets,app.state.coordinator,app.state.store)
         app.state.voice_runtime.start()
@@ -62,13 +66,19 @@ async def lifespan(app):
         try: yield
         finally:
             sweeper.cancel()
-            if app.state.knowledge:await app.state.knowledge.close()
-            await app.state.voice_runtime.close()
-            await app.state.voice_provider.close()
-            await app.state.native_audio.close()
-            if hasattr(app.state.speech,'close'):await app.state.speech.close()
-            await app.state.coordinator.cancel()
+            cleanup=[]
+            if app.state.knowledge:cleanup.append(app.state.knowledge.close)
+            cleanup.extend([app.state.voice_runtime.close,app.state.voice_provider.close,app.state.native_audio.close])
+            if hasattr(app.state.speech,'close'):cleanup.append(app.state.speech.close)
+            cleanup.append(app.state.coordinator.cancel)
+            failure=None
+            for release in cleanup:
+                try:await release()
+                except BaseException as exc:
+                    # A broken subsystem cannot skip microphone/process cleanup.
+                    if failure is None:failure=exc
             with suppress(asyncio.CancelledError):await sweeper
+            if failure is not None:raise failure
 
 
 app = FastAPI(title='June local backend', version=VERSION, lifespan=lifespan)

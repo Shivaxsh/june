@@ -2,6 +2,10 @@
 
 Implementation and automated acceptance pass. **Human spoken document question and follow-up remain pending; Phase 7 build is not marked complete.** Existing acoustic and latency limitations remain open.
 
+## Latest reliability audit
+
+The [expanded audit](phase-7-audit.md) supersedes the historical counts, model quotation protocol and timing observations below. Final checks: **387 Python, 155 JavaScript, TypeScript and production build passed; 20/20 fixed real-model cases plus 7/7 additional adversarial cases passed.** The server now attaches canonical passages after Qwen selects source labels. The final fixed-set median answer was 6.50 seconds; the final browser check took 8.7 seconds to validated text and 12.39 seconds to first audio. These are observed samples, not guaranteed latency. Human hands-free acceptance is still pending.
+
 ## Automated checks
 
 - 378 Python regressions passed, including 25 focused knowledge cases. Coverage includes real macOS PDF extraction, mixed/scanned/encrypted/malformed/oversized files, UTF-8 validation, upload bounds, deduplication, document/passage limits, migration/restart, cancellation, foreground priority, stale jobs, source isolation, deletion, exports, invalid citations and model outages.

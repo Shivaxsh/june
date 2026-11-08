@@ -108,7 +108,12 @@ def score(case, events, retrieved, previews, selected, unsupported_response=None
             re.search(p, answer, re.I | re.S) for p in case['forbiddenPatterns'])
         citations_ok = bool(citations) and not citation_errors and all_patterns(case['evidencePatterns'], quote_text)
         if len(selected) > 1:
-            citations_ok = citations_ok and {c.get('documentId') for c in citations if isinstance(c, dict)} == set(selected)
+            required=case.get('requiredCitationDocuments')
+            if required is None:
+                citations_ok = citations_ok and {c.get('documentId') for c in citations if isinstance(c, dict)} == set(selected)
+            else:
+                # A broad search scope need not cite irrelevant selected files.
+                citations_ok = citations_ok and set(required)<={c.get('name') for c in citations if isinstance(c,dict)}
     else:
         answer_ok = bool(REFUSAL.search(answer)) and (unsupported_response is None or answer.strip() == unsupported_response)
         citations_ok = not citations and not citation_errors

@@ -23,7 +23,7 @@ The [roadmap](roadmap/building-june.html), [workbook](roadmap/June%20Build%20Wor
 | Vector storage | Private SQLite holds vectors, source IDs, metadata and indexing ownership. A versioned migration keeps a private pre-migration backup. Chroma/pgvector are alternatives to study, not required services. |
 | Chunking | Start near 600 characters with 100-character overlap, retaining source boundaries, PDF page and note line locations. |
 | Retrieval and reranking | Fuse FTS5 keyword rank and cosine-similarity rank, apply diversity selection and keep at most four passages within 2,400 evidence characters. Incomplete or unselected documents cannot retrieve. |
-| Citations | Qwen returns source identifiers and exact quotes; validate membership before showing or speaking text. A matching quote proves provenance, not that every answer claim follows from it. |
+| Citations | Qwen selects supplied source labels; the server attaches exact stored passages and validates membership before showing or speaking text. This avoids generating copied quotations. A matching quote proves provenance, not that every answer claim follows from it. |
 
 Retrieved instructions are untrusted source text. They cannot authorise exports, execute actions or override the user/system instructions. A conflicting-source answer must attribute the records and their discrepancy rather than silently invent a resolution.
 

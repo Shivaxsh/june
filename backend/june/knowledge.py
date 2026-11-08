@@ -48,7 +48,7 @@ def split_piece(piece):
 
 def vector(value):
     if (not isinstance(value,list) or not 1<=len(value)<=4096 or
-            any(isinstance(x,bool) or not isinstance(x,(float,int)) or not math.isfinite(x) for x in value)):
+            any(isinstance(x,bool) or not isinstance(x,(float,int)) or abs(x)>1e100 or not math.isfinite(x) for x in value)):
         raise error('The embedding model returned invalid vectors.',502)
     norm=math.sqrt(sum(x*x for x in value))
     if not norm or not math.isfinite(norm):
@@ -254,7 +254,14 @@ class Knowledge:
             async with self.index_lock:
                 await self.wait_idle()
                 if not self.db.update(did,token,status='extracting',message='Reading document.'):return
-                extracted=await self.extract(did)
+                while True:
+                    await self.wait_idle()
+                    try:
+                        extracted=await self.background_request(self.extract(did))
+                        break
+                    except JuneError as exc:
+                        if exc.status!=409:raise
+                        await asyncio.sleep(.1)
                 chunks=passages(extracted['pages'])
                 if not chunks:raise error('No readable text was found.',422)
                 self.db.update(did,token,status='indexing',message='Creating local search index.')

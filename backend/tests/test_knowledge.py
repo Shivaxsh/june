@@ -21,16 +21,17 @@ from june.knowledge_chat import validate_answer,UNSUPPORTED,resolve_citations,an
 
 
 class SourceLabels(unittest.TestCase):
-    def test_schema_quotes_are_exact_source_text_not_retyped_paraphrases(self):
-        source={'text':'The workshop opens at 09:40.\nIt closes at 17:20.'}
-        schema=answer_schema([source]);choice=schema['properties']['citations']['items']['anyOf'][0]
+    def test_schema_uses_server_owned_quotes_and_exact_source_labels(self):
+        source={'id':'source-id','text':'The workshop opens at 09:40.\nIt closes at 17:20.'}
+        schema=answer_schema([source]);choice=schema['properties']['citations']['items']
         self.assertEqual(choice['properties']['chunkId']['enum'],['S1'])
-        self.assertTrue(all(quote in source['text'] for quote in choice['properties']['quote']['enum']))
-        self.assertNotIn('The workshop opens at 09:40. It closes at 17:20.',choice['properties']['quote']['enum'])
+        self.assertNotIn('quote',choice['properties'])
+        resolved=resolve_citations({'citations':[{'chunkId':'S1'}]},[source])
+        self.assertEqual(resolved['citations'][0]['quote'],source['text'])
 
     def test_short_labels_resolve_without_guessing_mistyped_ids(self):
-        sources=[{'id':'3bff0028-f7b6-49cd-8011-988633f275ac'}]
-        value={'supported':True,'answer':'KS-047-B','citations':[{'chunkId':'S1','quote':'KS-047-B'}]}
+        sources=[{'id':'3bff0028-f7b6-49cd-8011-988633f275ac','text':'KS-047-B'}]
+        value={'supported':True,'answer':'KS-047-B','citations':[{'chunkId':'S1'}]}
         self.assertEqual(resolve_citations(value,sources)['citations'][0]['chunkId'],sources[0]['id'])
         self.assertEqual(value['citations'][0]['chunkId'],'S1')
         for bad in ['S2','S01','3bff0028-f7b6-49cd-8011-988630f275ac']:
@@ -74,7 +75,7 @@ class KnowledgeTests(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(200,json={'embeddings':[[1.,.1,.2]]})
             if request.url.path=='/api/chat':
                 evidence=json.loads(value['messages'][-1]['content'])['evidence']
-                result=self.answer if self.answer is not None else {'supported':True,'answer':'June launches on Monday.','citations':[{'chunkId':evidence[0]['chunkId'],'quote':'June launches on Monday.'}]}
+                result=self.answer if self.answer is not None else {'supported':True,'answer':'June launches on Monday.','citations':[{'chunkId':evidence[0]['chunkId']}]}
                 return httpx.Response(200,json={'message':{'content':json.dumps(result)}})
             return httpx.Response(200,json={'models':[{'name':'all-minilm:22m'}]})
         self.client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
