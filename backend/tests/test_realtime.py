@@ -465,13 +465,14 @@ class InterruptionReview(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(self.turn.probe)
         self.assertFalse(any(e['type']=='resume' for e in self.events))
 
-    async def test_short_wait_is_validated_and_sent_without_another_wake(self):
+    async def test_short_wait_stops_and_listens_without_a_model_acknowledgement(self):
         await self.start_probe()
         for _ in range(7): await self.packet(True)
         for _ in range(50): await self.packet(False)
         await self.turn.flush()
         self.assertTrue(any(e['type']=='interrupt' for e in self.events))
-        self.assertEqual([e['text'] for e in self.events if e['type']=='transcript'],['Wait.'])
+        self.assertFalse(any(e['type']=='transcript' for e in self.events))
+        self.assertEqual(self.turn.phase, 'listening')
 
     async def test_short_spoken_echo_is_not_sent_as_a_question(self):
         async def echo(_): return {'text':'A graphics card.', 'durationMs':15}
@@ -490,7 +491,7 @@ class ShortProbeRaces(unittest.IsolatedAsyncioTestCase):
             events.append(e)
             if e['type']=='state' and e.get('phase')=='generating' and e['turn']==2:
                 blocked.set();await release.wait()
-        async def transcribe(_):return {'text':'Wait.', 'durationMs':1}
+        async def transcribe(_):return {'text':'Wait, explain workers instead.', 'durationMs':1}
         turn=VoiceTurn(emit,transcribe,clock=lambda:now);turn.number=1;turn.phase='speaking'
         for i in range(60):
             now+=.02;await turn.audio(b'\x00\x10'*320,i<15)

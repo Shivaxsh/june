@@ -76,17 +76,19 @@ Messages are limited to 2,000 characters; a request may contain up to 20 message
 
 ## Phase 3 — talk and hear June
 
-June records the microphone directly, then uses local Whisper **base.en** to turn the recording into English text. Qwen writes the reply and a local female system voice reads it aloud. No external recognition service, paid provider or API key is used. Your recording reaches only June's server on this Mac and its temporary file is deleted after processing.
+June records the microphone directly, then uses local Whisper **base.en** to turn the recording into English text. Qwen writes the reply and June's fixed local Heart voice reads it aloud. No external recognition service, paid provider or API key is used. Your recording reaches only June's server on this Mac and its temporary file is deleted after processing.
 
-1. Choose and preview June's voice. Known female local English identities are offered; Indian English is preferred when available. This Mac/browser currently offers Samantha (American English) and other female English voices, but no recognised female Indian English voice.
-2. Hold **Hold to talk** with mouse/touch, or hold Space/Enter while it is focused. Release ends recording and starts transcription. Limit: 30 seconds; review appears after processing, not live while you speak. **Start listening / Stop listening** is a toggle alternative for accessibility.
+1. Preview June's Heart voice (American English). It is the sole speaking identity; no browser or hosted voice fallback is used.
+2. For manual recording, explicitly select **Use browser microphone for manual recording only**. Hold **Hold to talk** with mouse/touch, or hold Space/Enter while it is focused. Release ends recording and starts transcription. Limit: 30 seconds; review appears after processing, not live while you speak. **Start listening / Stop listening** is a toggle alternative for accessibility.
 3. Review and edit the transcript. **Use transcript** appends it to any existing draft; **Send** is deliberately separate. If the combined text exceeds the message limit, shorten it before using it.
-4. Every reply is spoken by default. **Speak replies** saves your mute preference. Voice selection also survives reload; input is English for every accent, and old browser-recognition language settings are no longer used; transcripts remain temporary; saved chats stay in Recent chats for 30 days.
+4. Every reply is spoken by default. **Speak replies** saves your mute preference. Input is English, and old browser-recognition language settings are no longer used; transcripts remain temporary; saved chats stay in Recent chats for 30 days.
 5. **Stop** cancels the model, recognition and speech. **Stop voice** clears current and queued speech while allowing text generation to continue. **Hear reply** replays a completed answer even when automatic speech is muted.
 
 Streaming text becomes speech one sentence at a time. Fenced code blocks are excluded; formatting markers are removed, while the full written reply stays visible. Sentence ordering and request identifiers keep cancelled or superseded speech from returning later.
 
-Actual listening and speaking control the orb. Speech boundary events highlight words when supported; otherwise captions use approximate timing. Speech movement is explicitly a visual approximation. Browser system synthesis does not expose audio samples for the sound meter, so amplitude is labelled unavailable during speech. Phase 2 sample/file visualisation still uses actual measured sound.
+Actual listening and speaking control the orb. Heart captions use approximate timing; the orb and sound meter follow measured native playback audio. Phase 2 sample/file visualisation also uses actual measured sound.
+
+In native hands-free mode, a standalone **wait**, **stop**, **pause** or **hold on** stops the current reply and leaves a ten-second listening window for your instruction. It does not request an unnecessary model acknowledgement. Words arriving during interruption transcription are retained and decoded before submission. Say your instruction naturally, or use manual recording to review uncertain words. Recognition can still mishear speech; the app does not silently rewrite a recognised “great” into “wait.”
 
 Voice activities and the Phase 2 audio sources operate exclusively. Starting recognition stops speech/audio; starting sample/file playback stops recognition and suppresses the current reply's speech queue. New chat, navigation and hidden tabs stop media work. Recognition controls are disabled during model generation.
 
@@ -96,7 +98,7 @@ Open the [Phase 3 studio](http://127.0.0.1:3001/learn/phase-3) for the six workb
 
 Run `npm run speech:setup` once. It installs pinned whisper.cpp v1.9.5, a private CMake 3.31.6 environment and base.en (about 142 MiB), compiles a CPU-only engine, verifies the model SHA-256 and runs a genuine speech smoke test. Existing Apple command-line compiler tools and Python 3 are required; this Mac already has both. Files stay under `~/Library/Application Support/June/speech`, outside Git. Internet is needed only for setup downloads.
 
-Use `npm run speech:check` to verify the installation. June's **Refresh speech** checks server readiness. There is no third server to start: June’s Python backend launches the speech engine when you finish a recording. Two CPU threads and a two-minute timeout keep jobs bounded. Stop aborts the job and removes temporary recordings. Quiet or very short recordings show a retry message. Whisper can mishear speech and background noise; always review the words.
+Use `npm run speech:check` to verify the installation. June's **Refresh speech** checks server readiness. There is no third server to start: June’s Python backend owns the resident Whisper worker, loading its model once. Four CPU threads, one active transcription and a two-minute timeout keep jobs bounded. Stop aborts the job and removes temporary recordings. Quiet or very short recordings show a retry message. Whisper can mishear speech and background noise; use manual transcript review when exact wording matters.
 
 The 11-second official reference clip took about 2.5 seconds to transcribe on this Intel Mac during initial verification. This is an observed example, not a latency guarantee. See `docs/verification-v0.3.1.md` for the physical conversation acceptance result.
 

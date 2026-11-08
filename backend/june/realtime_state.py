@@ -13,6 +13,15 @@ from .speech_text import clean_transcript
 PAUSES = {'short': .8, 'normal': 1.5, 'patient': 2.5}
 
 
+def pause_only(text):
+    """Transport controls, not guesses about ambiguous recognised words."""
+    words = ' '.join(re.findall(r'\w+', text.lower()))
+    return bool(re.fullmatch(
+        r'(?:(?:okay|ok|please|june|i said) )*'
+        r'(?:(?:wait|stop|pause)(?: (?:wait|stop|pause))*|hold on)'
+        r'(?: (?:please|a (?:minute|second)|talking|speaking|june))?', words))
+
+
 def remove_wake_phrase(text, confirmed=False):
     # Only a lexical wake already confirmed by Vosk permits ASR homophones.
     # Ordinary transcripts/names remain untouched. In particular a wake-only
@@ -119,6 +128,7 @@ class VoiceTurn:
         self.playback = []
         self.audio_time = 0.
         self.echo_check = False
+        self.replacement_capture = False
         self.generation_candidate = None
         self.generation_job = None
 
@@ -168,6 +178,7 @@ class VoiceTurn:
         self.minimum_voiced = .24
         self.voiced, self.silence = .24, probe['silence'] if probe else 0.
         self.echo_check = True
+        self.replacement_capture = True
         self.deadline = self.clock() + 10
         self.question_deadline = None
         await self.state('listening')
@@ -291,6 +302,9 @@ class VoiceTurn:
                         return
                     self.buffer.clear(); self.preroll.clear(); self.preroll_voice.clear()
                     self.reset_pending(); self.question_deadline = self.deadline = None
+                    if pause_only(text):
+                        await self.listen_for_replacement()
+                        return
                     await self.state('generating')
                     if not self.closed and self.number == accepted:
                         await self.emit({'type': 'transcript', 'turn': accepted, 'text': text, 'durationMs': result['durationMs']})
@@ -334,6 +348,7 @@ class VoiceTurn:
         if candidate['voiced'] + 1e-6 < .24:
             return
         number = self.number
+        self.reset_pending()
         async def confirm():
             try:
                 result = await self.transcribe(pcm_wav(bytes(candidate['audio'][:960000])))
@@ -355,6 +370,13 @@ class VoiceTurn:
                 self.preroll.clear(); self.preroll_voice.clear()
                 self.interrupt_voiced = 0.
                 self.deadline = self.question_deadline = None
+                if pause_only(text):
+                    await self.listen_for_replacement()
+                    return
+                if self.pending_voiced + 1e-6 >= .08 and len(candidate['audio']) < 960000:
+                    await self.listen_for_replacement(bytes(candidate['audio']), candidate['voiced'])
+                    return
+                self.reset_pending()
                 await self.state('generating')
                 await self.emit({'type': 'transcript', 'turn': accepted, 'text': text, 'durationMs': result['durationMs']})
             except (JuneError, ValueError, KeyError, TypeError, UnicodeError):
@@ -404,18 +426,18 @@ class VoiceTurn:
                           'activity': self.phase}
 
     def reset_pending(self):
-        # Only provisional audio while identifying a wake-only utterance.
-        # If the original clip contains a question, discard this room audio.
+        # Bounded continuation during wake-only or interruption decoding.
         self.pending_question = bytearray()
         self.pending_started = None
         self.pending_voiced = self.pending_silence = 0.
         self.pending_finished = False
 
     def pending_audio(self, pcm, voiced, now, duration):
-        if self.question_deadline is None or self.pending_finished:
+        continuation = self.replacement_capture or self.generation_job is not None
+        if (self.question_deadline is None and not continuation) or self.pending_finished:
             return
         if self.pending_started is None:
-            if not voiced or now > self.question_deadline:
+            if not voiced or (not continuation and now > self.question_deadline):
                 return
             self.pending_started = now
             self.pending_question.extend(self.preroll[:-len(pcm)][-6400:])
@@ -426,8 +448,26 @@ class VoiceTurn:
             self.pending_silence = 0.
         else:
             self.pending_silence += duration
-        if len(self.pending_question) >= 960000 or (self.pending_voiced >= .5 and self.pending_silence + 1e-6 >= self.pause):
+        minimum = .24 if continuation else .5
+        if len(self.pending_question) >= 960000 or (self.pending_voiced + 1e-6 >= minimum and self.pending_silence + 1e-6 >= self.pause):
             self.pending_finished = True
+
+    async def listen_for_replacement(self, prefix=b'', voiced=0.):
+        # Do not fabricate or concatenate transcript text. If the instruction
+        # continued, decode its actual retained PCM as a single utterance.
+        number = self.number
+        pending, finished = self.pending_question, self.pending_finished
+        self.buffer = bytearray((prefix + pending)[:960000])
+        self.voiced = voiced + self.pending_voiced
+        self.silence = self.pending_silence if self.pending_started is not None else 0.
+        self.reset_pending()
+        self.minimum_voiced = .24
+        self.replacement_capture = self.echo_check = True
+        self.question_deadline = None
+        self.deadline = self.clock() + 10
+        await self.state('listening')
+        if not self.closed and number == self.number and self.voiced + 1e-6 >= self.minimum_voiced and (finished or len(self.buffer) >= 960000):
+            await self.finish_capture()
 
     async def state(self, phase):
         number = self.number
@@ -437,6 +477,7 @@ class VoiceTurn:
                 return
             self.buffer.clear()
             self.reset_pending()
+            self.replacement_capture = False
             self.deadline = self.question_deadline = None
         self.phase = phase
         await self.emit({'type': 'state', 'phase': phase, 'turn': self.number})
@@ -464,6 +505,7 @@ class VoiceTurn:
             return
         self.minimum_voiced = .5
         self.echo_check = False
+        self.replacement_capture = False
         # Notify the browser before waiting for Whisper to exit: playback and
         # model generation should stop as soon as the wake phrase is detected.
         await self.emit({'type': 'wake', 'turn': self.number})
@@ -499,6 +541,8 @@ class VoiceTurn:
             await self.wake()
             return
         if self.phase in ('generating', 'speaking') or self.probe:
+            if self.generation_job is not None:
+                self.pending_audio(pcm, voiced, now, duration)
             await self.consider_interruption(voiced, duration, now, pcm)
             return
         if self.phase == 'followup' and voiced:
@@ -533,6 +577,7 @@ class VoiceTurn:
         if self.closed:
             return
         number, clip = self.number, pcm_wav(bytes(self.buffer[:960000]))
+        captured_voiced = self.voiced
         end_detection_ms = round(self.silence * 1000)
         self.buffer.clear()
         self.preroll.clear()
@@ -562,6 +607,16 @@ class VoiceTurn:
                     self.deadline = self.clock() + 30
                     await self.state('followup')
                     return
+                if pause_only(text):
+                    await self.listen_for_replacement()
+                    return
+                if self.replacement_capture:
+                    if self.pending_voiced + 1e-6 >= .08 and len(clip) - 44 < 960000:
+                        await self.listen_for_replacement(clip[44:], captured_voiced)
+                        return
+                    if not text:
+                        await self.listen_for_replacement()
+                        return
                 if not text:
                     if result['text'].strip() and self.question_deadline is not None and (self.pending_started is not None or self.clock() < self.question_deadline):
                         # A wake phrase can be a separate utterance. Keep its
@@ -581,6 +636,7 @@ class VoiceTurn:
                     raise JuneError('too-long', 'That question is too long. Try a shorter question.', 400)
                 self.question_deadline = None
                 self.reset_pending()
+                self.replacement_capture = False
                 await self.state('generating')
                 if not self.closed and number == self.number:
                     await self.emit({'type': 'transcript', 'turn': number, 'text': text,
@@ -588,7 +644,11 @@ class VoiceTurn:
             except JuneError as error:
                 if not self.closed and number == self.number:
                     await self.emit({'type': 'error', 'turn': number, 'message': error.message, 'fatal': False})
-                    await self.state('waiting')
+                    if not self.closed and number == self.number:
+                        if self.replacement_capture:
+                            await self.listen_for_replacement()
+                        else:
+                            await self.state('waiting')
             except (ValueError, KeyError, TypeError, UnicodeError):
                 if not self.closed and number == self.number:
                     await self.emit({'type': 'error', 'turn': number, 'message': 'The local transcript was invalid. Please try again.', 'fatal': False})
