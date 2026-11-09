@@ -8,7 +8,7 @@ export type HandsFreeState = { phase: HandsFreePhase; error: string; turn: numbe
 type Input = { readonly echoMode?: EchoMode; start(signal: AbortSignal, packet: (data: ArrayBuffer) => void, fail: (message: string) => void): Promise<void>; stop(): void };
 
 export async function fetchVoiceConfig(signal: AbortSignal, http: typeof fetch = fetch): Promise<VoiceConfig> {
-  const response = await http('/api/voice/status', { cache: 'no-store', signal });
+  const response = await http.call(globalThis, '/api/voice/status', { cache: 'no-store', signal });
   const data = await response.json();
   if (!response.ok || typeof data?.state !== 'string' || typeof data?.message !== 'string') throw Error('Hands-free status is unavailable. Restart June, then refresh.');
   return data as VoiceConfig;

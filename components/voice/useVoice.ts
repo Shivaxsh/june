@@ -24,7 +24,9 @@ export function useVoice(stopMedia: () => void, onManual: () => void = () => {})
   const audioStatusRef = useRef(audioStatus);
   const mounted = useRef(false);
   const audioCheck = useRef(0);
-  async function refreshAudio() {
+  const audioRetry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  async function refreshAudio(retry = true) {
+    clearTimeout(audioRetry.current);
     const check = ++audioCheck.current;
     try {
       const data = await fetchVoiceConfig(AbortSignal.timeout(12000));
@@ -34,6 +36,14 @@ export function useVoice(stopMedia: () => void, onManual: () => void = () => {})
       }
     } catch {
       if (mounted.current && check === audioCheck.current) {
+        if (retry) {
+          audioRetry.current = setTimeout(() => {
+            if (!mounted.current || check !== audioCheck.current) return;
+            if (!selected.current) void registry.current?.refresh();
+            void refreshAudio(false);
+          }, 750);
+          return;
+        }
         const status = { state: 'error', providerState: 'error' as const, message: 'June’s voice is unavailable. Refresh audio; replies remain readable.' };
         audioStatusRef.current = status; setAudioStatus(status); speech.current?.stop('provider-unavailable');
       }
@@ -72,7 +82,7 @@ export function useVoice(stopMedia: () => void, onManual: () => void = () => {})
     const hide = () => { if (document.hidden) stop(); };
     window.addEventListener("pagehide", stop); document.addEventListener("visibilitychange", hide);
     return () => {
-      mounted.current = false; audioCheck.current++; recognition.current?.dispose();
+      mounted.current = false; audioCheck.current++; clearTimeout(audioRetry.current); recognition.current?.dispose();
       recognition.current = null;
       window.removeEventListener("pagehide", stop); document.removeEventListener("visibilitychange", hide);
     };

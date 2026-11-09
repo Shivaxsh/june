@@ -1,14 +1,14 @@
 # Phase 7 — Knowledge from your documents
 
-June v0.6 adds explicit **Ask my documents** mode: import a small private collection, select ready sources, then inspect the passages behind an answer. The implementation contract is [phase-7-implementation.md](phase-7-implementation.md). Delivery acceptance is **pending** until the [verification report](phase-7-verification.md) contains actual results, including the human spoken check. Existing recognition, echo and latency limitations remain open.
+June v0.6 lets you import a private collection and inspect the passages behind a reply. **Library + general** is the default for new chats. Use **Selected documents only** when every answer must come from a specific set of files. The [verification report](phase-7-verification.md) covers the earlier document release and its remaining human spoken check.
 
 ## Use the document library
 
 1. Start June as usual on port **3001**. Run `npm run knowledge:setup` once if the local embedding model is missing. This installs/verifies **all-minilm:22m**; it does not replace the configured Qwen model or Heart voice.
 2. Open Documents and import a UTF-8 `.txt`/`.md` or a PDF with selectable text. Limits are **10 MiB/file, 200 PDF pages, 50 documents and 5,000 passages**. There is no OCR. Unsupported, malformed, encrypted and image-only inputs are rejected; a partly searchable PDF needs a warning identifying pages without text.
 3. Wait until indexing reports ready. Imports are serial; indexing pauses between small batches during listening, transcription, chat and playback. Cancel stops indexing; interrupted jobs require explicit Retry after restart. Identical file hashes deduplicate imports.
-4. Choose one or more ready sources and enable **Ask my documents**. Selecting a different scope starts a fresh conversation. Ordinary chat keeps its existing behaviour and does not silently search documents.
-5. Send a typed or spoken question. Searching documents and Preparing sourced answer indicate real stages. The answer is held until its citations validate. Open each citation to inspect the filename and PDF page or note line range. Missing or invalid evidence produces an explicit unsupported answer.
+4. Use **Library + general** to ask about any ready file and follow up with ordinary questions. Name a file to narrow the search. Choose **General only** for the existing streaming chat and approved memory, or select ready files in Documents and start **Selected documents only**. Use **Continue with Library + general** to expand an existing document chat in place.
+5. Send a typed or spoken question. In Library + general, **From your documents** and **General knowledge** identify the two kinds of answer. If a document fact is missing, June says so and can still answer a separate general question. Open a citation to inspect its filename and PDF page or note line range.
 6. Delete a source when it is no longer needed. This removes its original, passages and vectors and cancels affected work. Earlier written answers remain visible with Source deleted labels; they must not reintroduce deleted evidence in a new turn.
 
 Documents remain until explicit deletion, independently of the existing 30-day chat retention. Originals and extracted passages do not belong in ordinary chat/memory exports, progress backups or Git. Document statements never automatically become approved personal memories; approved memory is not evidence in document mode. Do not import private files to produce acceptance evidence.
@@ -35,6 +35,8 @@ Setup verified on 2026-11-08: all-minilm:22m downloaded and returned **384 dimen
 
 Record import/extraction/indexing, retrieval, generation and first-audio timing separately. The acceptance runner measures import-ready, retrieval and answer-turn durations, with a generation estimate from stage boundaries where available. It does not start Heart, record sound or measure first audio. Human/parent verification supplies first-audio measurements and audible-completion evidence.
 
+The Library + general check on November 9 verified a cited GPU answer, a general VRAM follow-up, an absent serial number, and a mixed VRAM answer with its page citation. The final browser mixed turn took approximately 0.3 seconds for retrieval and 68.4 seconds for answer generation on this Mac. A separate browser turn completed native Heart playback and restored its answer label after restart. The hands-free microphone check remains separate.
+
 ## API contract
 
 The same-origin document API lives at `/api/knowledge`. Errors contain `{message}` and an appropriate HTTP error status.
@@ -49,6 +51,8 @@ The same-origin document API lives at `/api/knowledge`. Errors contain `{message
 | `DELETE /documents/{id}` | Remove document content and invalidate affected context. |
 
 `POST /api/chat` retains `mode: local|demo` and adds optional `knowledge:{documentIds:[...]}`. Empty/invalid document selection is rejected. Stage events use `searching` and `answering`; completion carries validated `citations:[{documentId,chunkId,name,page,lineStart,lineEnd,quote}]` and `knowledgeRevision`. Persisted conversations restore scope and citations. Only validated completion text may be voiced; raw model JSON must not be shown or spoken.
+
+Use `knowledge:{mode:"auto"}` for Library + general with Local AI. Its completion also includes `provenance` and separate retrieval and answer timing events. Omit `knowledge` for General only. `POST /api/library/conversations/{id}/library-mode` expands a selected-document chat in place. Chats with either document mode stay out of ordinary exports and memory suggestion extraction.
 
 ## Run the fixed local acceptance set
 

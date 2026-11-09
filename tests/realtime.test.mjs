@@ -430,7 +430,11 @@ test('native microphone preparation can arrive before ready and never acquires b
 test('voice status adapter validates readiness while preserving native permission and warming fields', async () => {
   const { fetchVoiceConfig } = await load('../lib/voice/realtime-client.ts');
   const data = { state: 'ready', message: 'Native ready', audioEngine: 'mac-native', nativeReady: true, permission: 'not-determined', whisperWarm: false, modelWarm: true };
-  assert.deepEqual(await fetchVoiceConfig(new AbortController().signal, async () => Response.json(data)), data);
+  async function browserFetch() {
+    assert.equal(this, globalThis);
+    return Response.json(data);
+  }
+  assert.deepEqual(await fetchVoiceConfig(new AbortController().signal, browserFetch), data);
   await assert.rejects(() => fetchVoiceConfig(new AbortController().signal, async () => Response.json({ state: 3 })), /status|unavailable/i);
 });
 

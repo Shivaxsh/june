@@ -151,6 +151,12 @@ class Coordinator:
         finally:self.tasks.pop(task,None)
 
 async def persisted_chat(client,settings,store,coordinator,value,mode,messages,knowledge=None):
+    if value.get('knowledge') == {'mode':'auto'}:
+        from .library_chat import automatic_chat
+        async with aclosing(automatic_chat(client,settings,store,coordinator,knowledge,value,messages)) as source:
+            async for event in source:
+                yield event
+        return
     if 'knowledge' in value:
         if knowledge is None:raise JuneError('storage','Private document storage is unavailable.',503)
         from .knowledge_chat import document_chat

@@ -162,7 +162,7 @@ class Store:
             os.chmod(self.path, 0o600)
             with self.db() as db:
                 version = db.execute('PRAGMA user_version').fetchone()[0]
-                if version > 2: raise invalid('This database needs a newer June version.', 503)
+                if version > 3: raise invalid('This database needs a newer June version.', 503)
                 if version == 0:
                     db.executescript('''
 CREATE TABLE meta (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
@@ -213,10 +213,10 @@ PRAGMA user_version=1;
             c = db.execute('SELECT * FROM conversations WHERE id=?',(cid,)).fetchone()
             if not c: raise invalid('This chat was deleted or expired.',404)
             result = {**dict(c), 'turns':[dict(x) for x in db.execute('SELECT * FROM turns WHERE conversation=? ORDER BY created,rowid',(cid,))]}
-            scope = db.execute('SELECT documentIds,revision FROM conversation_knowledge WHERE conversation=?',(cid,)).fetchone()
+            scope = db.execute('SELECT documentIds,revision,mode FROM conversation_knowledge WHERE conversation=?',(cid,)).fetchone()
             if scope:
-                result['knowledge'] = {'documentIds':json.loads(scope[0])}
-                result['knowledgeRevision'] = scope[1]
+                result['knowledge'] = {'mode':'auto'} if scope['mode'] == 'auto' else {'documentIds':json.loads(scope['documentIds'])}
+                result['knowledgeRevision'] = scope['revision']
                 live = {r[0] for r in db.execute('SELECT id FROM documents')}
                 for turn in result['turns']:
                     turn['citations'] = json.loads(turn['citations'])
@@ -225,6 +225,35 @@ PRAGMA user_version=1;
                             citation['deleted'] = True
                             citation['name'] = 'Source deleted'
             return result
+    def bind_library_chat(self, cid, *, upgrade=False):
+        self.conversation(cid)
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT mode FROM conversation_knowledge WHERE conversation=?', (cid,)).fetchone()
+            if row and row['mode'] == 'auto':
+                return
+            if row and upgrade:
+                if db.execute("SELECT 1 FROM turns WHERE conversation=? AND status='pending'", (cid,)).fetchone():
+                    raise invalid('Wait for the current document reply or stop it before changing modes.', 409)
+                db.execute("UPDATE conversation_knowledge SET mode='auto' WHERE conversation=?", (cid,))
+                return
+            if row or upgrade or db.execute('SELECT 1 FROM turns WHERE conversation=?', (cid,)).fetchone():
+                raise invalid('This chat already uses another source mode.', 409)
+            db.execute("INSERT INTO conversation_knowledge(conversation,documentIds,revision,mode) SELECT ?, '[]', revision, 'auto' FROM knowledge_meta", (cid,))
+
+    def library_sources(self, cid):
+        with self.db() as db:
+            row = db.execute('SELECT documentIds FROM conversation_knowledge WHERE conversation=?', (cid,)).fetchone()
+            return json.loads(row[0]) if row else []
+
+    def finish_library_turn(self, cid, tid, content, citations, provenance, revision):
+        with self.db() as db:
+            changed = db.execute("UPDATE turns SET assistant=?,status='complete',citations=?,provenance=?,knowledgeRevision=? WHERE id=? AND conversation=? AND status='pending'",
+                                 (content, json.dumps(citations), provenance, revision, tid, cid)).rowcount
+            if changed:
+                db.execute('UPDATE conversation_knowledge SET revision=? WHERE conversation=?', (revision, cid))
+                db.execute('UPDATE conversations SET updated=? WHERE id=?', (self.clock(), cid))
+        return bool(changed)
     def delete_conversation(self, cid=None):
         with self.db() as db:
             if cid: db.execute('DELETE FROM conversations WHERE id=?',(cid,))

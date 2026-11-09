@@ -15,7 +15,7 @@ def error(message, status=400):
     return JuneError('knowledge', message, status)
 
 
-def migrate(store, version):
+def migrate_phase_seven(store, version):
     if version >= 2:
         return
     # SQLite backup gives a consistent pre-migration snapshot, including WAL.
@@ -40,6 +40,24 @@ def migrate(store, version):
             'PRAGMA user_version=2',
         ):
             db.execute(statement)
+
+
+def migrate(store, version):
+    migrate_phase_seven(store, version)
+    if version >= 3:
+        return
+    if version == 2:
+        backup = store.directory / 'june.pre-library-chat.sqlite3'
+        if not backup.exists():
+            fd = os.open(backup, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+            with sqlite3.connect(store.path) as source, sqlite3.connect(backup) as target:
+                source.backup(target)
+    with store.db() as db:
+        db.execute('BEGIN IMMEDIATE')
+        db.execute("ALTER TABLE conversation_knowledge ADD COLUMN mode TEXT NOT NULL DEFAULT 'selected' CHECK(mode IN ('selected','auto'))")
+        db.execute('ALTER TABLE turns ADD COLUMN provenance TEXT')
+        db.execute('PRAGMA user_version=3')
 
 
 class KnowledgeStore:
@@ -145,14 +163,14 @@ class KnowledgeStore:
     def bind(self, cid, ids):
         self.store.conversation(cid)
         with self.store.db() as db:
-            row = db.execute('SELECT documentIds FROM conversation_knowledge WHERE conversation=?',(cid,)).fetchone()
+            row = db.execute('SELECT documentIds,mode FROM conversation_knowledge WHERE conversation=?',(cid,)).fetchone()
             if row:
-                if json.loads(row[0])!=ids:
+                if row['mode'] != 'selected' or json.loads(row['documentIds']) != ids:
                     raise error('Document scope changed. Start a new conversation.',409)
             elif db.execute('SELECT 1 FROM turns WHERE conversation=?',(cid,)).fetchone():
                 raise error('Document scope changed. Start a new conversation.',409)
             else:
-                db.execute('INSERT INTO conversation_knowledge VALUES(?,?,?)',(cid,json.dumps(ids),self.revision()))
+                db.execute('INSERT INTO conversation_knowledge(conversation,documentIds,revision) VALUES(?,?,?)',(cid,json.dumps(ids),self.revision()))
 
     def delete(self, did):
         self.get(did)

@@ -28,6 +28,15 @@ test('scope and citation persistence accept JSON and parsed values safely',()=>{
   for(const value of ['{',{},null,{documentIds:[]},{documentIds:[3]}])assert.equal(types.parseScope(value),null);
   assert.deepEqual(types.validateCitations(types.parseStored(JSON.stringify([citation]),[])),[citation]);
 });
+test('automatic replies require provenance consistent with their citations',()=>{
+  const auto={mode:'auto'};
+  assert.deepEqual(types.parseScope(JSON.stringify(auto)),auto);
+  assert.deepEqual(types.validatedDocumentReply('General knowledge\nVRAM holds textures.',{...done,citations:[],provenance:'general'},auto),[]);
+  assert.deepEqual(types.validatedDocumentReply('From your documents\nFriday.',{...done,provenance:'documents'},auto),[citation]);
+  assert.throws(()=>types.validatedDocumentReply('Unlabeled reply.',done,auto));
+  assert.throws(()=>types.validatedDocumentReply('From your documents\nFriday.',{...done,citations:[],provenance:'mixed'},auto));
+  assert.throws(()=>types.validatedDocumentReply('General knowledge\nFriday.',{...done,provenance:'general'},auto));
+});
 test('citation preview resolves the exact supporting passage and rejects stale or mismatched sources',()=>{
   const passage={id:'chunk-a',text:'Notes. The launch is Friday. More context.',page:null,lineStart:1,lineEnd:3};
   assert.equal(types.supportingPassage({id:'doc-a',passages:[passage]},citation),passage);

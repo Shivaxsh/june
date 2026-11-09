@@ -99,7 +99,7 @@ class KnowledgeTests(unittest.IsolatedAsyncioTestCase):
         backup=self.store.directory/'june.pre-phase7.sqlite3'
         with sqlite3.connect(backup) as db:self.assertEqual(db.execute('pragma user_version').fetchone()[0],1)
         self.assertEqual(os.stat(backup).st_mode&0o777,0o600)
-        with self.store.db() as db:self.assertEqual(db.execute('pragma user_version').fetchone()[0],2)
+        with self.store.db() as db:self.assertEqual(db.execute('pragma user_version').fetchone()[0],3)
         did=await self.ready()
         reopened=Store(self.store.directory)
         self.assertEqual(reopened.revision(),0)
@@ -141,6 +141,23 @@ class KnowledgeTests(unittest.IsolatedAsyncioTestCase):
         for path,payload in self.calls:
             if path=='/api/embed':
                 self.assertIs(payload['truncate'],False);self.assertEqual(payload['keep_alive'],'15m')
+
+    async def test_gpu_and_vram_queries_retrieve_parts_list_labels(self):
+        did = await self.ready(name='parts.txt')
+        token = self.service.db.own(did)
+        card = 'Graphics Card Example RTX 5070 Ti Ultra OC\n16GB GDDR7'
+        texts = [f'The name of component {i} is Example Cooler.' for i in range(5)] + [card]
+        indexed = [
+            {'id': f'part-{i}', 'text': text, 'page': i + 1, 'lineStart': 1,
+             'lineEnd': 2, 'vector': [1.0, .1, .2]}
+            for i, text in enumerate(texts)
+        ]
+        self.service.db.publish(did, token, indexed, len(indexed), '')
+
+        for question in ("what's the gpu name", 'Which GPUs are listed?', 'What is the graphics card?', 'How much VRAM is listed?'):
+            with self.subTest(question=question):
+                results = await self.service.search(question, [did])
+                self.assertIn(card, [result['text'] for result in results])
 
     async def test_index_pauses_while_listening_and_cancel_has_no_stale_writes(self):
         self.listen=True

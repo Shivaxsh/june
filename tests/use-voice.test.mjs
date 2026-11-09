@@ -28,7 +28,7 @@ function fixture(speak = 'true') {
   const slots = [], pending = [], cleanups = [], requests = [];
   let cursor = 0;
   const values = new Map([['june-audio-engine-v1', 'browser'], ['june-voice-v1', 'browser-uri|Nicky|en-US'], ['june-speak-replies-v1', speak]]);
-  const api = { status: 'ready', provider: 'ready', voices: 'ready', playbackError: false };
+  const api = { status: 'ready', provider: 'ready', voices: 'ready', playbackError: false, statusFailures: 0, voiceListFailures: 0 };
   const descriptors = Object.fromEntries(['window', 'document', 'navigator', 'fetch', 'voiceHooks'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   const setGlobal = (key, value) => Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   setGlobal('voiceHooks', {
@@ -48,8 +48,14 @@ function fixture(speak = 'true') {
   setGlobal('document', { addEventListener() {}, removeEventListener() {} });
   setGlobal('navigator', { mediaDevices: {} });
   setGlobal('fetch', async (path, options) => {
-    if (path === '/api/voice/voices') return Response.json({ state: api.voices, voices: [june], message: api.voices });
-    if (path === '/api/voice/status') return Response.json({ state: api.status, nativeReady: true, provider: 'kokoro', providerState: api.provider, voiceId: june.id, whisperWarm: false, modelWarm: false, message: api.status });
+    if (path === '/api/voice/voices') {
+      if (api.voiceListFailures > 0) { api.voiceListFailures--; throw new TypeError('Connection closed during restart'); }
+      return Response.json({ state: api.voices, voices: [june], message: api.voices });
+    }
+    if (path === '/api/voice/status') {
+      if (api.statusFailures > 0) { api.statusFailures--; throw new TypeError('Connection closed during restart'); }
+      return Response.json({ state: api.status, nativeReady: true, provider: 'kokoro', providerState: api.provider, voiceId: june.id, whisperWarm: false, modelWarm: false, message: api.status });
+    }
     if (path === '/api/speech/status') return Response.json({ state: 'ready', message: 'Local transcription ready' });
     requests.push({ path, body: JSON.parse(options.body) });
     if (path.endsWith('/stop')) return Response.json({ stopped: true });
@@ -129,5 +135,19 @@ test('preview and replay work during model warm-up while native hands-free waits
     assert.equal(f.render().speech.error, '');
     f.api.status = 'ready'; await voice.refreshAudio(); await tick();
     assert.equal(f.render().support.recognition, true);
+  } finally { f.close(); }
+});
+
+test('a transient restart recovers Heart controls without reloading or using the microphone', async () => {
+  const f = fixture();
+  try {
+    f.api.statusFailures = 1;
+    f.api.voiceListFailures = 1;
+    f.render(); await tick();
+    assert.equal(f.render().support.speech, false);
+    await new Promise(resolve => setTimeout(resolve, 900)); await tick();
+    assert.equal(f.render().choices.selected, june.id);
+    assert.equal(f.render().support.speech, true);
+    assert.deepEqual(f.requests, []);
   } finally { f.close(); }
 });

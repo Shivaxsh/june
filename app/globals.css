@@ -58,6 +58,9 @@ textarea::placeholder { color: var(--muted); }
 .stop-button { background: #eed6b1; }
 .composer-notes { align-items: flex-start; margin-top: 10px; font-size: 10px; line-height: 1.6; color: var(--muted); }
 .composer-notes span:last-child { text-align: right; }
+.source-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; color: var(--muted); font-size: 12px; }
+.source-controls select { max-width: 100%; padding: 7px 9px; }
+.source-controls p { flex-basis: 100%; margin: 0; overflow-wrap: anywhere; }
 .error-notice { color: #f3d3b4; border: 1px solid #80644b; border-radius: 8px; padding: 12px; font-size: 12px; line-height: 1.7; margin-bottom: 12px; background: #30261d; }
 .footer { margin-top: auto; border-top: 1px solid var(--line); padding-top: 18px; color: var(--muted); font-size: 10px; line-height: 1.6; }
 .footer p { margin: 0; }

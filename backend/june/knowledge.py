@@ -281,7 +281,15 @@ class Knowledge:
 
     async def search(self,query,ids):
         ids=self.db.select(ids)
-        query_parts=await self.embed_piece({'id':'query','text':query,'page':None,'lineStart':1,'lineEnd':query.count('\n')+1})
+        # Parts lists use labels like "Graphics Card" and memory types like
+        # GDDR7 instead of the acronyms people use in questions.
+        semantic_query, gpu_mentions = re.subn(
+            r'\bgpu(s?)\b', r'graphics card\1', query, flags=re.IGNORECASE
+        )
+        semantic_query, vram_mentions = re.subn(
+            r'\bvram\b', 'graphics card video memory', semantic_query, flags=re.IGNORECASE
+        )
+        query_parts=await self.embed_piece({'id':'query','text':semantic_query,'page':None,'lineStart':1,'lineEnd':query.count('\n')+1})
         dimensions=len(query_parts[0]['vector'])
         if any(len(p['vector'])!=dimensions for p in query_parts):raise error('Embedding dimensions changed. Retry indexing.',502)
         q=vector([sum(p['vector'][i] for p in query_parts) for i in range(dimensions)])
@@ -289,7 +297,12 @@ class Knowledge:
         with self.db.store.db() as db:
             rows=[dict(r) for r in db.execute('SELECT p.*,d.name FROM passages p JOIN documents d ON d.id=p.document WHERE d.status=\'ready\' AND p.document IN ('+placeholders+')',ids)]
             words=re.findall(r'\w+',query)[:64]
-            fts=' OR '.join('"'+w+'"' for w in words)
+            if gpu_mentions or vram_mentions:
+                words.extend(('graphics card', 'graphics cards'))
+            terms = ['"'+word+'"' for word in words]
+            if vram_mentions:
+                terms.extend(('"video memory"', '"gddr"*', '"hbm"*'))
+            fts=' OR '.join(terms)
             lexical=[r[0] for r in db.execute('SELECT f.id FROM passage_fts f JOIN passages p ON p.id=f.id WHERE passage_fts MATCH ? AND p.document IN ('+placeholders+') ORDER BY bm25(passage_fts) LIMIT 100',[fts,*ids])] if fts else []
         scores={}
         for r in rows:

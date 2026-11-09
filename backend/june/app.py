@@ -196,7 +196,7 @@ async def chat(request: Request):
         raise JuneError('invalid-chat', 'The message request was not valid JSON or was too large.', 400)
     if request.app.state.store is None and value.get('temporary') is not True:
         raise JuneError('storage','Private storage is unavailable. Retry or explicitly choose temporary chat.',503)
-    if 'knowledge' in value:
+    if 'knowledge' in value and value['knowledge'] != {'mode':'auto'}:
         from .knowledge_chat import selection
         if getattr(request.app.state,'knowledge',None) is None:raise JuneError('storage','Private document storage is unavailable.',503)
         request.app.state.knowledge.db.select(selection(value))

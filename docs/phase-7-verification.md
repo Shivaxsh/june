@@ -4,7 +4,13 @@ Implementation and automated acceptance pass. **Human spoken document question a
 
 ## Latest reliability audit
 
-The [expanded audit](phase-7-audit.md) supersedes the historical counts, model quotation protocol and timing observations below. Final checks: **387 Python, 155 JavaScript, TypeScript and production build passed; 20/20 fixed real-model cases plus 7/7 additional adversarial cases passed.** The server now attaches canonical passages after Qwen selects source labels. The final fixed-set median answer was 6.50 seconds; the final browser check took 8.7 seconds to validated text and 12.39 seconds to first audio. These are observed samples, not guaranteed latency. Human hands-free acceptance is still pending.
+The November 9 audit of **Library + general** fixed overlapping filenames, PDF-only source requests, general questions about file formats, and mixed questions whose general clause uses a pronoun. A follow-up now stays with the latest named or cited source even after a missing answer. Deleted, ambiguous, and missing sources require clarification before June can cite a different file. Browser voice readiness now retries a transient status failure once, and the status request preserves the browser fetch receiver.
+
+Six real local checks passed in an isolated store, including the cited GPU and VRAM facts, an unsupported serial number, a general explanation of PDF, an exact missing filename, and an answer from the unselected workshop note. The saved chat kept all six replies and was excluded from ordinary exports. Observed retrieval was about 2 ms to 1.3 s. Model-generated replies took about 24–84 s in this run, and the missing-file check returned directly. The model remains the main latency bottleneck.
+
+**399 Python tests, 157 JavaScript tests, TypeScript, and the production build passed.** Browser checks verified that a missing filename produces a readable reply and native Heart playback without acquiring the microphone. On the final browser comparison with a missing file, Heart began at 3.96 seconds and finished at 9.93 seconds from submission. The human hands-free acceptance check remains pending.
+
+The [earlier document-only audit](phase-7-audit.md) passed 387 Python tests, 155 JavaScript tests, TypeScript, the production build, 20 fixed real-model cases and seven adversarial cases. It introduced server-owned source quotations. That fixed set recorded a median answer time of 6.50 seconds. Its browser check took 8.7 seconds to validated text and 12.39 seconds to first audio.
 
 ## Automated checks
 

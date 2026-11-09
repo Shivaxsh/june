@@ -24,7 +24,7 @@ import ModelPicker from "./ModelPicker";
 import CitationSources from "./knowledge/CitationSources";
 import DocumentsPanel from "./knowledge/DocumentsPanel";
 import {useDocuments} from "./knowledge/useDocuments";
-import {parseScope,parseStored,validateCitations,validatedDocumentReply,type Citation,type KnowledgeScope} from "@/lib/knowledge-types";
+import {libraryScope,parseScope,parseStored,validateCitations,validatedDocumentReply,type Citation,type KnowledgeScope} from "@/lib/knowledge-types";
 import LibraryPanel from "./memory/LibraryPanel";
 import { useLibrary } from "./memory/useLibrary";
 import { libraryRequest, LibraryError, type SavedConversation } from "@/lib/memory-types";
@@ -60,19 +60,25 @@ export default function Chat() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const conversationIdRef = useRef<string | null>(null);
   const conversationOpenGeneration = useRef(0);
-  const [knowledge,setKnowledge]=useState<KnowledgeScope|null>(null);
-  const knowledgeRef=useRef<KnowledgeScope|null>(null);
+  const [knowledge,setKnowledge]=useState<KnowledgeScope|null>(libraryScope);
+  const knowledgeRef=useRef<KnowledgeScope|null>(libraryScope);
+  const documentPanel=useRef<HTMLDetailsElement>(null);
+  const [switchingLibrary,setSwitchingLibrary]=useState(false);
+  const selectedScope=knowledge && "documentIds" in knowledge ? knowledge : null;
   const [deletedSources,setDeletedSources]=useState<string[]>([]);
   const [documentStage,setDocumentStage]=useState("");
   const documents=useDocuments(ids=>{
     setDeletedSources(previous=>[...new Set([...previous,...ids])]);
-    const affected=knowledgeRef.current?.documentIds.some(id=>ids.includes(id));
+    const scope=knowledgeRef.current;
+    const affected=scope && "documentIds" in scope && scope.documentIds.some(id=>ids.includes(id));
     // Replayed historical document audio is also invalidated on deletion.
-    if(affected || messages.some(m=>m.citations?.some(c=>ids.includes(c.documentId)))){
+    if(affected || (scope && "mode" in scope && busyRef.current) || messages.some(m=>m.citations?.some(c=>ids.includes(c.documentId)))){
       interrupt();handsFree.stop();voice.cancel();audio.stop();history.current=[];
-      conversationIdRef.current=null;setConversationId(null);
-      if(affected){const next={documentIds:knowledgeRef.current!.documentIds.filter(id=>!ids.includes(id))};knowledgeRef.current=next;setKnowledge(next);}
-      setAnnouncement("Source deleted. Affected chat and audio stopped; start a new document conversation.");
+      if(affected){
+        conversationIdRef.current=null;setConversationId(null);
+        const next={documentIds:scope.documentIds.filter(id=>!ids.includes(id))};knowledgeRef.current=next;setKnowledge(next);
+      }
+      setAnnouncement("Source deleted. June stopped affected replies and refreshed the available sources.");
     }
   });
   const extraction = useRef<AbortController | null>(null);
@@ -197,7 +203,8 @@ export default function Chat() {
     setDraft("");
     setError("");
     setTiming(""); setDocumentStage("");
-    knowledgeRef.current=null;setKnowledge(null);
+    const nextScope=nextMode === "local" ? libraryScope : null;
+    knowledgeRef.current=nextScope;setKnowledge(nextScope);
     setMode(nextMode);
     setAnnouncement("New chat. Earlier saved conversations remain in Recent chats.");
     nearBottom.current = true;
@@ -206,7 +213,26 @@ export default function Chat() {
 
   function selectKnowledge(scope:KnowledgeScope|null){
     newChat(scope ? "local" : mode);knowledgeRef.current=scope;setKnowledge(scope);
-    setAnnouncement(scope?"New document conversation. Questions use only the selected ready sources.":"New general conversation.");
+    setAnnouncement(!scope ? "New general conversation." : "mode" in scope ? "New Library + general conversation." : "New conversation using the selected documents only.");
+  }
+
+  async function continueWithLibrary() {
+    const cid=conversationIdRef.current;
+    if (!cid || busyRef.current || switchingLibrary) return;
+    stopAll();
+    const token=conversationOpenGeneration.current;
+    setSwitchingLibrary(true);
+    setError("");
+    try {
+      await libraryRequest(`conversations/${cid}/library-mode`, "POST", {});
+      if (token !== conversationOpenGeneration.current || cid !== conversationIdRef.current) return;
+      knowledgeRef.current=libraryScope;setKnowledge(libraryScope);
+      setAnnouncement("This conversation now uses Library + general. Earlier replies and citations are still here.");
+    } catch (failure) {
+      if (token === conversationOpenGeneration.current) setError(failure instanceof Error ? failure.message : "Could not change this conversation’s source mode.");
+    } finally {
+      setSwitchingLibrary(false);
+    }
   }
 
   async function send(input?: { content: string; voiceTurn?: number }) {
@@ -215,12 +241,12 @@ export default function Chat() {
     if (automatic && !voiceSessionId) return;
     if (!automatic) handsFree.stop();
     const content = (input?.content ?? draft).trim();
-    if (!content || modelChangingRef.current || busyRef.current || voice.recognition.phase !== "idle" || content.length > MAX_MESSAGE_LENGTH) return;
+    if (!content || modelChangingRef.current || busyRef.current || switchingLibrary || voice.recognition.phase !== "idle" || content.length > MAX_MESSAGE_LENGTH) return;
     if ((!library.data || library.error) && !library.temporary) {setError("Private storage is unavailable. Retry storage or explicitly choose temporary chat.");return;}
     const scope=knowledgeRef.current;
-    if(scope && (!documents.loaded || !scope.documentIds.length || scope.documentIds.some(id=>!documents.documents.some(d=>d.id===id&&d.status==='ready')))){setError("Choose ready document sources to start a new conversation.");return;}
+    if(scope && "documentIds" in scope && (!documents.loaded || !scope.documentIds.length || scope.documentIds.some(id=>!documents.documents.some(d=>d.id===id&&d.status==='ready')))){setError("Choose ready document sources to start a new conversation.");return;}
     cancelExtraction();
-    setDocumentStage(scope?"Searching documents…":"");
+    setDocumentStage("");
     setPreview("auto");
     busyRef.current = true;
     setBusy(true);
@@ -301,7 +327,7 @@ export default function Chat() {
           if(!library.temporary && event.persistence!=="saved") throw new Error("This reply was not confirmed saved. Check private storage.");
           break;
         } else if (event.type === 'stage' && (event.stage === 'searching' || event.stage === 'answering')) {
-          setDocumentStage(event.stage==='searching'?'Searching documents…':'Preparing a grounded answer…');
+          setDocumentStage(event.stage==='searching'?'Searching documents':'Preparing an answer');
         } else if (event.type === 'timing') {
           if (typeof event.stage === 'string' && /^[a-z][a-z0-9_-]{0,39}$/i.test(event.stage) && typeof event.durationMs === 'number' && Number.isFinite(event.durationMs) && event.durationMs >= 0) stageTimings[event.stage] = event.durationMs;
         } else if (event.type === "error" && typeof event.message === "string") {
@@ -370,11 +396,11 @@ export default function Chat() {
 
       <main className="chat-shell">
         <section className="face-section" aria-labelledby="june-title">
-          <div className="face-copy"><p className="eyebrow">Phase 7 · Ask your documents</p><h1 id="june-title">Your documents.<br /><em>In conversation.</em></h1><p className="subtitle">Choose your sources. Ask a question. Follow the evidence.</p><a className="learn-link" href="/learn/phase-7">Inside document questions <span aria-hidden="true">↗</span></a><OrbControls preview={preview} onPreview={setPreview} still={still} onStill={setStill} disabled={busy || handsFree.active} /></div>
+          <div className="face-copy"><p className="eyebrow">Phase 7 · Ask your documents</p><h1 id="june-title">Your documents.<br /><em>In conversation.</em></h1><p className="subtitle">Ask about your library or follow the conversation wherever it goes.</p><a className="learn-link" href="/learn/phase-7">Inside document questions <span aria-hidden="true">↗</span></a><OrbControls preview={preview} onPreview={setPreview} still={still} onStill={setStill} disabled={busy || handsFree.active} /></div>
           <Orb expression={library.temporary ? "steady" : library.data?.profile.expression} mood={orb.mood} label={orb.label} level={voice.engine === "native" && voice.speech.phase === "speaking" ? voice.activity : handsFree.active ? handsFree.level : voice.recognition.phase === "listening" ? voice.level : audio.level} still={still} activity={voice.engine === "browser" ? voice.activity : undefined} speechActive={voice.engine === "browser" && voice.speech.phase === "speaking" && !handsFree.state.probing} />
         </section>
         <div inert={modelChanging}>
-        <DocumentsPanel data={documents} scope={knowledge} onScope={selectKnowledge}/>
+        <DocumentsPanel data={documents} scope={selectedScope} onScope={selectKnowledge} openRef={documentPanel}/>
         <LibraryPanel openGeneration={conversationOpenGeneration} onDeleteActive={()=>newChat()} library={library} activeId={conversationId} onOpen={openConversation} />
         <HandsFreePanel controls={handsFree} enabled={voice.engine === 'native' && !!voice.ownerId && !busy && !modelChanging && (!!library.data && !library.error || library.temporary) && mode === "local" && status?.state === "ready" && voice.speakReplies && !!voice.choices.selected && voice.support.recognition} onStart={() => { cancelExtraction(); audio.stop(); voice.cancel(); setPreview("auto"); handsFree.start(); }} />
         {handsFree.active && <button className="quiet-button all-stop" onClick={stopAll}>Stop conversation &amp; microphone</button>}
@@ -406,15 +432,33 @@ export default function Chat() {
         </div>
 
         <div className="composer-area">
-          {knowledge&&<p className="demo-notice" role="status">Ask my documents · {knowledge.documentIds.length} selected sources. Source changes start a new chat.</p>}
+          {mode === "local" && <div className="source-controls">
+            <label htmlFor="source-mode">Answer sources</label>
+            <select id="source-mode" value={selectedScope ? "selected" : knowledge ? "auto" : "general"} disabled={busy || switchingLibrary} onChange={event => {
+              const next=event.target.value;
+              if (next === "selected") {
+                if (documentPanel.current) {
+                  documentPanel.current.open=true;
+                  documentPanel.current.querySelector("summary")?.focus();
+                }
+              } else if (next === "auto" && selectedScope && conversationId) void continueWithLibrary();
+              else selectKnowledge(next === "auto" ? libraryScope : null);
+            }}>
+              <option value="auto">Library + general</option>
+              <option value="general">General only</option>
+              <option value="selected">Selected documents only</option>
+            </select>
+            {selectedScope && conversationId && <button className="quiet-button" disabled={busy || switchingLibrary} onClick={() => void continueWithLibrary()}>Continue with Library + general</button>}
+            {selectedScope && <p>{selectedScope.documentIds.map(id=>documents.documents.find(d=>d.id===id)?.name || "Source unavailable").join(", ") || "Choose ready files in Documents."}</p>}
+          </div>}
           {contextLimited && <p className="demo-notice" role="status">Long conversation · June uses recent messages to fit her local model. Older messages remain visible but may be outside her current context. This is not saved memory.</p>}
           {error && <div className="error-notice" role="alert">{error}</div>}
           <form className="composer" onSubmit={event => { event.preventDefault(); void send(); }}>
             <label htmlFor="message" className="sr-only">Message June</label>
-            <textarea ref={composer} id="message" value={draft} maxLength={MAX_MESSAGE_LENGTH} rows={2} placeholder="What’s on your mind?" disabled={busy || ((!library.data || !!library.error) && !library.temporary)} onChange={event => setDraft(event.target.value)} onKeyDown={event => {
+            <textarea ref={composer} id="message" value={draft} maxLength={MAX_MESSAGE_LENGTH} rows={2} placeholder="What’s on your mind?" disabled={busy || switchingLibrary || ((!library.data || !!library.error) && !library.temporary)} onChange={event => setDraft(event.target.value)} onKeyDown={event => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
             }} />
-            {busy ? <button className="send-button stop-button" type="button" onClick={stopAll}><span aria-hidden="true">■</span> Stop</button> : <button className="send-button" type="submit" disabled={modelChanging || !draft.trim() || voice.recognition.phase !== "idle" || ((!library.data || !!library.error) && !library.temporary)}><span>Send</span><span aria-hidden="true">↑</span></button>}
+            {busy ? <button className="send-button stop-button" type="button" onClick={stopAll}><span aria-hidden="true">■</span> Stop</button> : <button className="send-button" type="submit" disabled={modelChanging || switchingLibrary || !draft.trim() || voice.recognition.phase !== "idle" || ((!library.data || !!library.error) && !library.temporary)}><span>Send</span><span aria-hidden="true">↑</span></button>}
           </form>
           <div className="composer-notes"><span>Enter to send · Shift + Enter for a new line</span><span>{timing || `${draft.length}/${MAX_MESSAGE_LENGTH}`}</span></div>
         </div>
