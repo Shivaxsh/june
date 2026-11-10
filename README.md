@@ -1,6 +1,6 @@
 # June v0.6
 
-**Phase 7 — Ask my documents:** [setup and walkthrough](docs/phase-7.md) · [verification and remaining acceptance](docs/phase-7-verification.md) · [learning studio](http://127.0.0.1:3001/learn/phase-7). Import private notes or selectable-text PDFs, select sources explicitly, and inspect citations behind document answers. Run `npm run knowledge:setup` once. Documents remain until deleted and are excluded from ordinary exports. Text answers wait for source validation; this does not train Qwen or fix the existing speech/latency limitations. The final human spoken-document check remains pending.
+**Phase 7 — Documents in conversation.** Import private notes or selectable-text PDFs, then ask normally. June uses the library when relevant and shows citations for document answers. Run `npm run knowledge:setup` once. Documents remain until deleted and are excluded from ordinary exports. The final human spoken-document check remains pending. [Setup and walkthrough](docs/phase-7.md) · [Verification](docs/phase-7-verification.md) · [Learning studio](http://127.0.0.1:3001/learn/phase-7)
 
 A personal assistant, built one phase at a time. June combines a Python backend, local streamed text chat, a Canvas particle orb, local Whisper speech recognition and the approved local Heart speaking voice. Speech uses no API credits.
 
@@ -70,9 +70,9 @@ The configured model download is about 2.5 GB. June's helper stores models in `~
 - **Stop** interrupts a reply. Partial text stays visible and labelled stopped.
 - **New chat** starts a separate conversation and clears active model context; earlier chats remain in Recent chats.
 - **Reconnect** checks the model server after a restart.
-- **Practice demo** is a manually selected learning mode with simulated replies. It is clearly labelled and never selected automatically on failure.
+- Every message uses one conversation: June searches ready documents when they can answer, otherwise answers from general knowledge or approved memory, and labels which source each reply used.
 
-Only completed message/reply pairs become follow-up context. Failed and interrupted turns stay visible but are excluded; on failure your input is restored for retry. Switching reply source starts a new chat. Reloading clears the active view, but saved conversations remain in Recent chats for 30 days. Approved memories persist separately in private SQLite storage on this Mac; merely mentioning a fact does not approve it.
+Only completed message/reply pairs become follow-up context. Failed and interrupted turns stay visible but are excluded; on failure your input is restored for retry. Reloading clears the active view, but saved conversations remain in Recent chats for 30 days. Approved memories persist separately in private SQLite storage on this Mac; merely mentioning a fact does not approve it.
 
 Messages are limited to 2,000 characters; a request may contain up to 20 messages and 6,000 characters of conversation text. The app keeps recent whole turns within that request budget and shows a notice when older context is shortened. Older messages stay visible; this is not saved memory. Oversized historical replies are shortened only in the model context, with Unicode characters kept intact. Generation uses a 4,096-token context, a 256-token reply cap, temperature 0.1 and thinking disabled. A small model can answer incorrectly or repeat earlier errors even after a correction; this is not fixed by lowering temperature alone. Long answers can hit the reply cap; these are labelled, and only complete sentences are automatically spoken. See [the reliability audit](docs/reliability-audit.md).
 

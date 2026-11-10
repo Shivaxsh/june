@@ -1,14 +1,14 @@
 # Phase 7 — Knowledge from your documents
 
-June v0.6 lets you import a private collection and inspect the passages behind a reply. **Library + general** is the default for new chats. Use **Selected documents only** when every answer must come from a specific set of files. The [verification report](phase-7-verification.md) covers the earlier document release and its remaining human spoken check.
+June v0.6 uses your private document library and general knowledge in one conversation. Import files under Documents and ask normally. The [verification report](phase-7-verification.md) covers the remaining human spoken check.
 
 ## Use the document library
 
 1. Start June as usual on port **3001**. Run `npm run knowledge:setup` once if the local embedding model is missing. This installs/verifies **all-minilm:22m**; it does not replace the configured Qwen model or Heart voice.
 2. Open Documents and import a UTF-8 `.txt`/`.md` or a PDF with selectable text. Limits are **10 MiB/file, 200 PDF pages, 50 documents and 5,000 passages**. There is no OCR. Unsupported, malformed, encrypted and image-only inputs are rejected; a partly searchable PDF needs a warning identifying pages without text.
 3. Wait until indexing reports ready. Imports are serial; indexing pauses between small batches during listening, transcription, chat and playback. Cancel stops indexing; interrupted jobs require explicit Retry after restart. Identical file hashes deduplicate imports.
-4. Use **Library + general** to ask about any ready file and follow up with ordinary questions. Name a file to narrow the search. Choose **General only** for the existing streaming chat and approved memory, or select ready files in Documents and start **Selected documents only**. Use **Continue with Library + general** to expand an existing document chat in place.
-5. Send a typed or spoken question. In Library + general, **From your documents** and **General knowledge** identify the two kinds of answer. If a document fact is missing, June says so and can still answer a separate general question. Open a citation to inspect its filename and PDF page or note line range.
+4. Ask about any ready file and follow up with ordinary questions in the same chat. Name a file to narrow the search. Reopened conversations use this behavior on the next message and keep earlier answers and citations.
+5. Send a typed or spoken question. **From your documents**, **General knowledge**, and **Saved memory** show where the answer came from. If a document fact is missing, June says so and can still answer a separate general question. Open a citation to inspect its filename and PDF page or note line range.
 6. Delete a source when it is no longer needed. This removes its original, passages and vectors and cancels affected work. Earlier written answers remain visible with Source deleted labels; they must not reintroduce deleted evidence in a new turn.
 
 Documents remain until explicit deletion, independently of the existing 30-day chat retention. Originals and extracted passages do not belong in ordinary chat/memory exports, progress backups or Git. Document statements never automatically become approved personal memories; approved memory is not evidence in document mode. Do not import private files to produce acceptance evidence.
@@ -22,7 +22,7 @@ The [roadmap](roadmap/building-june.html), [workbook](roadmap/June%20Build%20Wor
 | Embeddings | Local all-minilm:22m maps text into vectors. Send `truncate:false`; subdivide oversized passages and long queries rather than silently dropping their ending. |
 | Vector storage | Private SQLite holds vectors, source IDs, metadata and indexing ownership. A versioned migration keeps a private pre-migration backup. Chroma/pgvector are alternatives to study, not required services. |
 | Chunking | Start near 600 characters with 100-character overlap, retaining source boundaries, PDF page and note line locations. |
-| Retrieval and reranking | Fuse FTS5 keyword rank and cosine-similarity rank, apply diversity selection and keep at most four passages within 2,400 evidence characters. Incomplete or unselected documents cannot retrieve. |
+| Retrieval and reranking | Fuse FTS5 keyword rank and cosine-similarity rank, apply diversity selection and keep at most four passages within 2,400 evidence characters. Only ready files enter the search, and a named source narrows the results. |
 | Citations | Qwen selects supplied source labels; the server attaches exact stored passages and validates membership before showing or speaking text. This avoids generating copied quotations. A matching quote proves provenance, not that every answer claim follows from it. |
 
 Retrieved instructions are untrusted source text. They cannot authorise exports, execute actions or override the user/system instructions. A conflicting-source answer must attribute the records and their discrepancy rather than silently invent a resolution.
@@ -52,7 +52,7 @@ The same-origin document API lives at `/api/knowledge`. Errors contain `{message
 
 `POST /api/chat` retains `mode: local|demo` and adds optional `knowledge:{documentIds:[...]}`. Empty/invalid document selection is rejected. Stage events use `searching` and `answering`; completion carries validated `citations:[{documentId,chunkId,name,page,lineStart,lineEnd,quote}]` and `knowledgeRevision`. Persisted conversations restore scope and citations. Only validated completion text may be voiced; raw model JSON must not be shown or spoken.
 
-Use `knowledge:{mode:"auto"}` for Library + general with Local AI. Its completion also includes `provenance` and separate retrieval and answer timing events. Omit `knowledge` for General only. `POST /api/library/conversations/{id}/library-mode` expands a selected-document chat in place. Chats with either document mode stay out of ordinary exports and memory suggestion extraction.
+The interface uses `knowledge:{mode:"auto"}` for all chat messages. Completion includes `provenance` and separate retrieval and answer timing events. This request also resumes an older saved conversation in place. The original strict and general request forms remain available to API clients. Document-enabled conversations stay out of ordinary exports. Memory suggestions for general replies are extracted from the user's own message and require approval.
 
 ## Run the fixed local acceptance set
 

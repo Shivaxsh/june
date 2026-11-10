@@ -1,3 +1,15 @@
+// The completed chat keeps its labels and citations on screen.
+export function spokenChatReply(reply: string) {
+  const sourceHeading = "From your documents\n";
+  if (reply.startsWith(sourceHeading)) {
+    const body = reply.slice(sourceHeading.length);
+    // A separate line lets the speech cleaner handle Markdown at the start
+    // of the source body, including lists and headings.
+    return `Your documents say:\n${body}`;
+  }
+  return reply.replace(/^(?:Document evidence|General knowledge)\n/, "");
+}
+
 // Re-evaluate the growing text, but emit each completed sentence only once.
 // Keeping incomplete fences out of spoken text prevents a partial code block
 // from being read aloud before its closing marker arrives.

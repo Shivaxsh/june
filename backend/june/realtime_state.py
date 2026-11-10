@@ -22,6 +22,23 @@ def pause_only(text):
         r'(?: (?:please|a (?:minute|second)|talking|speaking|june))?', words))
 
 
+REPLACEMENT_LEAD = re.compile(
+    r"^(?:(?:okay|ok|oh|um|uh|so)\s+)*(?:wait|stop|pause|hold|hang|no|nope|actually|sorry|cancel|instead|"
+    r"scratch|forget|never ?mind|june|correction|change)\b", re.I,
+)
+
+
+def addresses_june(raw):
+    """While June is still thinking, only speech aimed at her replaces the question.
+
+    A slow local model can take a minute. Side remarks, another person or a TV
+    must not silently cancel the pending answer and become the next question.
+    """
+    text = remove_wake_phrase(raw)
+    words = ' '.join(re.findall(r"[\w']+", raw.lower()))
+    return bool(raw.strip()) and (text != raw.strip() or pause_only(raw) or bool(REPLACEMENT_LEAD.match(words)))
+
+
 def remove_wake_phrase(text, confirmed=False):
     # Only a lexical wake already confirmed by Vosk permits ASR homophones.
     # Ordinary transcripts/names remain untouched. In particular a wake-only
@@ -284,6 +301,9 @@ class VoiceTurn:
                 words = re.findall(r'[a-z0-9]+', text.lower())
                 explicit = bool(controls.intersection(words)) or any(word.isdigit() for word in words)
                 acoustic_evidence = probe['clean_voiced'] + 1e-6 >= .18 or explicit or no_playback_question
+                if not probe['spoken'] and not addresses_june(raw):
+                    # Nothing has been spoken yet: June is still thinking.
+                    acoustic_evidence = False
                 if acoustic_evidence and words and not self.is_playback_echo(text, probe['spoken']):
                     if probe['tail_voiced'] >= .08 or probe['silence'] < .3:
                         # Speech continued while Whisper checked the prefix.
@@ -354,8 +374,11 @@ class VoiceTurn:
                 result = await self.transcribe(pcm_wav(bytes(candidate['audio'][:960000])))
                 if self.closed or number != self.number:
                     return
-                text = remove_wake_phrase(clean_transcript(result['text']))
+                raw = clean_transcript(result['text'])
+                text = remove_wake_phrase(raw)
                 if not text or (self.playback and self.is_playback_echo(text, ' '.join(self.playback))):
+                    return
+                if not addresses_june(raw):
                     return
                 if len(text.encode('utf-16-le')) // 2 > 2000:
                     return

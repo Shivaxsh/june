@@ -6,6 +6,35 @@ import Darwin
 import CoreFoundation
 
 let selfTesting = CommandLine.arguments.contains("--self-test")
+
+// macOS attributes microphone access to the "responsible" process: whichever
+// app started June (Terminal, the Claude app, an editor). A command-line
+// launcher such as node cannot show a permission prompt, so the request was
+// silently denied. Re-exec once as our own responsible process so the request
+// and the saved grant belong to June Audio itself (local.june.audio), however
+// June is started. The PID and stdio pipes are kept because this is an exec.
+// If the system call is unavailable we continue with the old behaviour.
+func becomeResponsibleForSelf() {
+    let marker = "JUNE_AUDIO_SELF_RESPONSIBLE"
+    if selfTesting || getenv(marker) != nil { return }
+    typealias Disclaim = @convention(c) (UnsafeMutablePointer<posix_spawnattr_t?>, Int32) -> Int32
+    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_spawnattrs_setdisclaim"),
+          let path = Bundle.main.executablePath else { return }
+    var attributes: posix_spawnattr_t? = nil
+    guard posix_spawnattr_init(&attributes) == 0 else { return }
+    defer { posix_spawnattr_destroy(&attributes) }
+    guard posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETEXEC)) == 0,
+          unsafeBitCast(symbol, to: Disclaim.self)(&attributes, 1) == 0 else { return }
+    setenv(marker, "1", 1)
+    var arguments: [UnsafeMutablePointer<CChar>?] = CommandLine.arguments.map { strdup($0) } + [nil]
+    var pid: pid_t = 0
+    _ = posix_spawn(&pid, path, nil, &attributes, &arguments, environ)
+    // Only reached if the exec failed.
+    unsetenv(marker)
+    arguments.forEach { free($0) }
+}
+becomeResponsibleForSelf()
+
 let writer = DispatchQueue(label: "local.june.audio.stdout")
 func emit(_ value: [String: Any]) {
     if selfTesting { return } // Offline validation writes its own single summary.

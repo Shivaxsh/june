@@ -688,15 +688,26 @@ class FalseInterruptions(unittest.IsolatedAsyncioTestCase):
         await self.turn.flush()
         self.assertFalse(any(e['type'] == 'transcript' for e in self.events))
 
-    async def test_generating_without_playback_accepts_a_different_question(self):
+    async def test_generating_without_playback_accepts_an_addressed_replacement(self):
         self.turn.playback.clear()
         self.turn.spoken = ''
         self.turn.phase = 'generating'
-        self.result = 'Tell me something else.'
+        self.result = 'Actually, tell me something else.'
         for _ in range(15): await self.packet()
         for _ in range(55): await self.packet(False)
         await self.turn.flush()
-        self.assertEqual([e['text'] for e in self.events if e['type'] == 'transcript'], ['Tell me something else.'])
+        self.assertEqual([e['text'] for e in self.events if e['type'] == 'transcript'], ['Actually, tell me something else.'])
+
+    async def test_side_remark_while_thinking_keeps_the_pending_answer(self):
+        self.turn.playback.clear()
+        self.turn.spoken = ''
+        self.turn.phase = 'generating'
+        self.result = "I'm not sure if I can get it."
+        for _ in range(15): await self.packet()
+        for _ in range(55): await self.packet(False)
+        await self.turn.flush()
+        self.assertEqual(self.turn.number, 1)
+        self.assertFalse(any(e['type'] in ('interrupt', 'transcript') for e in self.events))
 
     async def test_completion_during_noise_probe_is_not_lost(self):
         for _ in range(8): await self.packet()

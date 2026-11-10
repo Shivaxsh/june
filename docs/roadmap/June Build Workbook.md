@@ -453,7 +453,7 @@ Give June a consistent style and user-controlled application memory. Use the wor
 
 ## Phase 7 — RAG: giving June knowledge
 
-RAG means “look it up, then answer”. Explicit Ask my documents mode searches only selected ready notes and text PDFs, then answers with validated evidence. Ordinary chat remains separate; document content is untrusted and never becomes approved personal memory automatically.
+RAG means “look it up, then answer”. June uses ready notes and text PDFs when they support a question, with general follow-ups in the same chat. Document facts include validated citations, and document content stays separate from approved personal memory.
 
 ### Learn and practise — same order as the artifact
 
@@ -479,21 +479,21 @@ RAG means “look it up, then answer”. Explicit Ask my documents mode searches
 
 **Learn:** fusing FTS5 keywords and cosine similarity, then selecting at most four diverse passages within 2,400 characters.
 
-**Practice:** Inspect FTS5 and cosine candidates before generation, fuse their ranks and retain at most four diverse passages within 2,400 characters. Retrieve only selected ready documents and pause background indexing during foreground work. Compare exact identifier and paraphrase questions.
+**Practice:** Inspect FTS5 and cosine candidates before generation, fuse their ranks and retain at most four diverse passages within 2,400 characters. Search ready documents, narrowing by filename when the question names one. Compare exact identifier and paraphrase questions.
 
 #### 7.5 Citations
 
 **Learn:** validating source IDs and exact quotations before displaying or speaking an answer; unsupported questions receive an explicit evidence-missing reply.
 
-**Practice:** Buffer Qwen output until source IDs and exact quotes validate. Open citations at their page or lines. Evaluate 15 supported and five unsupported synthetic questions, conflicting sources and injection. Change selection into a new conversation; delete a source during generation and verify stale results cannot return. Check a human spoken question and follow-up with Heart separately.
+**Practice:** Buffer Qwen output until source IDs and exact quotes validate. Open citations at their page or lines. Evaluate 15 supported and five unsupported synthetic questions, conflicting sources and injection. Follow a document question with a general question in the same chat. Delete a source during generation and verify stale results cannot return. Check a human spoken question and follow-up with Heart separately.
 
 ### Build — June v0.6
 
-**Artifact project:** Import UTF-8 notes or selectable-text PDFs, select ready sources in Ask my documents, and inspect the supporting page or lines. Verify 15 supported and five unsupported real-model questions, source isolation, injection/deletion handling and a human spoken question plus follow-up before marking only this build complete.
+**Artifact project:** Import UTF-8 notes or selectable-text PDFs and ask a question in chat. Inspect the supporting page or lines, then ask a general follow-up in the same conversation. Verify 15 supported and five unsupported real-model questions, source isolation, injection/deletion handling and a human spoken question plus follow-up before marking only this build complete.
 
-**Your exercise:** Build explicit Ask my documents mode with a private note/text-PDF library, local retrieval, validated citations and Heart playback. Keep documents until explicit deletion, ordinary chat unchanged and personal memory separate. Follow docs/phase-7.md and record evidence in docs/phase-7-verification.md.
+**Your exercise:** Build one chat with a private note/text-PDF library, local retrieval, validated citations and general follow-ups. Keep documents until explicit deletion and personal memory separate. Follow docs/phase-7.md and record evidence in docs/phase-7-verification.md.
 
-**Completion checks:** Do not mark complete until the fixed real-model 15-supported/5-unsupported evaluation passes with supporting retrieval, quotes and locations; source selection, injection, deletion, restart, imports and limits pass; regressions, TypeScript, build and accessible mobile UI pass; and a human spoken document question plus follow-up audibly completes with inspectable citations. Measure import, retrieval, generation and first audio separately. Existing acoustic/latency limitations remain open; leave learning checkboxes and personality answers unchanged.
+**Completion checks:** Mark complete after the fixed real-model 15-supported/5-unsupported evaluation passes with supporting retrieval, quotes and locations, and after checking source isolation, injection, deletion, restart, imports and limits. Run regressions, TypeScript, build and mobile checks. Verify a human spoken document question and general follow-up with complete Heart playback and an inspectable citation. Measure import, retrieval, generation and first audio separately.
 
 ### Resources — same order as the artifact
 

@@ -1,7 +1,7 @@
 export type SelectedScope = {documentIds: string[]};
 export type KnowledgeScope = SelectedScope | {mode: "auto"};
 export const libraryScope = {mode: "auto"} as const;
-export const provenances = ["documents", "general", "mixed", "missing", "mixed-missing"] as const;
+export const provenances = ["documents", "general", "mixed", "missing", "mixed-missing", "memory"] as const;
 export type Provenance = typeof provenances[number];
 export type Citation = {documentId:string;chunkId:string;name:string;page:number|null;lineStart:number|null;lineEnd:number|null;quote:string;deleted?:boolean};
 export type KnowledgeDocument = {id:string;name:string;status:string;message:string;progress:number;pages:number;warning?:string};
@@ -25,7 +25,9 @@ export function validateCitations(value:unknown, scope?:SelectedScope):Citation[
   return value as Citation[];
 }
 export function validatedDocumentReply(reply:string, event:{citations?:unknown;knowledgeRevision?:unknown;memoryIds?:unknown;provenance?:unknown}, scope:KnowledgeScope) {
-  if (!Number.isInteger(event.knowledgeRevision) || (event.knowledgeRevision as number)<0 || (Array.isArray(event.memoryIds) && event.memoryIds.length)) throw new Error("June did not validate the document reply.");
+  const fromMemory = "mode" in scope && event.provenance === "memory";
+  if (!Number.isInteger(event.knowledgeRevision) || (event.knowledgeRevision as number)<0 ||
+      (event.memoryIds !== undefined && (!Array.isArray(event.memoryIds) || !event.memoryIds.every(id => typeof id === "string" && !!id) || (!fromMemory && event.memoryIds.length)))) throw new Error("June did not validate the reply sources.");
   const text=reply.trim();
   // A serialized model envelope must never enter playback or saved display text.
   if (!text || /^[\[{]/.test(text) || /^```(?:json)?/i.test(text)) throw new Error("June returned an unvalidated document answer. Retry the question.");

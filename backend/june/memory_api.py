@@ -38,7 +38,7 @@ async def conversation(cid:str,request:Request):
 @router.post('/conversations/{cid}/library-mode')
 async def library_mode(cid:str,request:Request):
     saved = store(request)
-    saved.bind_library_chat(cid, upgrade=True)
+    saved.bind_library_chat(cid)
     return saved.conversation(cid)
 @router.delete('/conversations')
 async def clear(request:Request):

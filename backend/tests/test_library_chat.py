@@ -4,9 +4,9 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from june.chat import validate_chat
-from june.errors import JuneError
-from june.library_chat import question_parts, source_scope
+from june.library_chat import mixed_schema, question_parts, source_scope
 from june.memory_service import persisted_chat
+from june.product_reference import motherboard_reference
 import test_knowledge as fixtures
 
 
@@ -28,6 +28,29 @@ class LibraryChatTests(unittest.IsolatedAsyncioTestCase):
     def model(status, document='', general='', labels=()):
         return {'message':{'content':json.dumps({'documentStatus':status, 'documentAnswer':document,
                 'generalAnswer':general, 'citations':[{'chunkId':label} for label in labels]})}}
+
+    async def test_saved_delivery_preferences_reach_auto_chat_but_not_temporary_chat(self):
+        profile = self.store.snapshot()['profile']
+        profile['fields']['speech'] = 'Lead with the answer. Use natural contractions.'
+        self.store.save_profile(profile)
+        cid = self.store.create_conversation()['id']
+        question = 'What does VRAM do?'
+        with patch('june.library_chat.bounded_json', new=AsyncMock(return_value=
+            self.model('not_needed', general='VRAM holds graphics data.')
+        )) as model:
+            await self.ask(question, cid, 'saved')
+            for flags in ({'temporary':True}, {}):
+                request = {'mode':'local', 'knowledge':{'mode':'auto'}, **flags,
+                           'messages':[{'role':'user', 'content':question}]}
+                mode, messages = validate_chat(request)
+                async for _ in persisted_chat(
+                    self.client, self.settings, self.store, self.coordinator, request, mode, messages, self.service,
+                ):
+                    pass
+        saved, temporary, unsaved = (call.args[2]['messages'][0]['content'] for call in model.call_args_list)
+        self.assertIn(profile['fields']['speech'], saved)
+        self.assertNotIn(profile['fields']['speech'], temporary)
+        self.assertNotIn(profile['fields']['speech'], unsaved)
 
     async def test_library_followups_and_mixed_provenance_are_saved(self):
         did = await self.ready(b'Graphics card Example 5070. VRAM 16 GB.', 'build.txt')
@@ -141,12 +164,153 @@ class LibraryChatTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('last named is unavailable', unknown[-2]['text'])
         self.assertEqual(model.await_count, 3)
 
+    async def test_compound_build_question_uses_both_quotes_without_unrelated_context(self):
+        first = await self.ready(b'Motherboard Example Board A.', 'First Build.pdf.txt')
+        second = await self.ready(b'Motherboard Example Board B.', 'Second Build.txt')
+        await self.ready(b'An unrelated personal profile.', 'Profile.txt')
+        cid = self.store.create_conversation()['id']
+        with patch('june.library_chat.bounded_json', new=AsyncMock(side_effect=[
+            self.model('not_needed', general='VRAM stores graphics data.'),
+            self.model('supported', 'The two quotes list Example Board A and Example Board B. Feature details are absent.', labels=['S1','S2']),
+        ])) as model:
+            await self.ask('What is VRAM used for?', cid, 'one')
+            events = await self.ask('Can you fetch the motherboard inside my documents? Which motherboard is it? On both of the PC builds, what features are listed?', cid, 'two')
+        payload = json.loads(model.call_args.args[2]['messages'][-1]['content'])
+        self.assertEqual(payload['recentConversation'], [])
+        self.assertEqual({c['documentId'] for c in events[-1]['citations']}, {first, second})
+        self.assertIn('Feature details are absent', events[-2]['text'])
+
+    async def test_unrelated_general_question_is_answered_when_passages_lack_it(self):
+        await self.ready(b'Memory Example DDR5 32GB.', 'PC Build.txt')
+        cid = self.store.create_conversation()['id']
+        with patch('june.library_chat.bounded_json', new=AsyncMock(side_effect=[
+            self.model('missing', general='Earth has no single furthest point; Voyager 1 is the furthest spacecraft.'),
+            self.model('missing', general='I do not know your serial number.'),
+        ])) as model:
+            general = await self.ask("tell me what's the furthest point from the earth.", cid, 'one')
+            personal = await self.ask('What is the serial number of my graphics card?', cid, 'two')
+        self.assertEqual(general[-2]['text'], 'General knowledge\nEarth has no single furthest point; Voyager 1 is the furthest spacecraft.')
+        self.assertEqual(general[-1]['provenance'], 'general')
+        self.assertEqual(personal[-2]['text'], 'Document evidence\nI could not find that information in the documents I searched.')
+        self.assertEqual(personal[-1]['provenance'], 'missing')
+        schema = model.call_args_list[0].args[2]['format']
+        for branch in schema['anyOf']:
+            status = branch['properties']['documentStatus']['enum'][0]
+            self.assertEqual(branch['properties']['generalAnswer'].get('minLength'), None if status == 'supported' else 1)
+
+    def test_document_schema_requires_citations_for_a_supported_answer(self):
+        schema = mixed_schema([{'text':'Motherboard Example Board.'}], required=True, general_only=False)
+        branches = {branch['properties']['documentStatus']['enum'][0]:branch['properties']['citations']
+                    for branch in schema['anyOf']}
+        self.assertEqual(branches['supported']['minItems'], 1)
+        self.assertEqual(branches['supported']['items']['properties']['chunkId']['enum'], ['S1'])
+        self.assertEqual(branches['missing']['maxItems'], 0)
+
     def test_general_file_format_and_pronoun_followup(self):
         question = 'What is the PDF format?'
         self.assertEqual(question_parts(question), ('', question, False))
         self.assertEqual(question_parts('Which GPU does my build list, and what is it used for?'),
                          ('Which GPU does my build list', 'what is it used for?', True))
         self.assertEqual(question_parts('Which GPU does my build list, and where is it listed?')[1], '')
+
+    def test_product_features_are_separate_from_the_cited_identification(self):
+        source = 'Can you fetch the motherboard inside my documents? Which motherboard is it? On both of the PDFs, which are PC builds'
+        extra = 'tell me their speciality and features and all.'
+        self.assertEqual(question_parts(f'{source} and {extra}'), (source, extra, True))
+        strict = 'Which motherboard is in my build PDF, and what features are listed?'
+        self.assertEqual(question_parts(strict), (strict, '', True))
+        followup = 'What are its features?'
+        self.assertEqual(question_parts(followup, has_previous_source=True), (followup, followup, False))
+
+    async def test_verified_board_details_extend_a_cited_answer_and_followup(self):
+        board = 'MSI X870E Gaming Plus WIFI'
+        await self.ready(f'Motherboard: {board}.'.encode(), 'Build.txt')
+        cid = self.store.create_conversation()['id']
+        with patch('june.library_chat.bounded_json', new=AsyncMock(return_value=
+            self.model('supported', board, 'It has Wi-Fi 6E.', ['S1'])
+        )) as model:
+            first = await self.ask('Which motherboard is in Build.txt, and tell me its features?', cid, 'one')
+            second = await self.ask("like slots, pcei's, wifi available or not, version, m.2 slots, bios, overcloacking, turbo mode and every small details.", cid, 'two')
+        self.assertEqual(first[-1]['provenance'], 'mixed')
+        self.assertEqual(first[-1]['citations'][0]['name'], 'Build.txt')
+        self.assertIn('From your documents', first[-2]['text'])
+        self.assertNotIn('Wi-Fi 6E', first[-2]['text'])
+        for events in (first, second):
+            for term in ('Manufacturer reference', 'Wi-Fi 7', 'three SSD M.2', 'PCIe 5.0', 'Click BIOS X', 'Precision Boost 2', 'msi.com'):
+                self.assertIn(term, events[-2]['text'])
+        self.assertEqual(second[-1]['model'], 'June product reference')
+        self.assertEqual(model.await_count, 1)
+
+    async def test_build_recommendation_is_not_a_pdf_lookup(self):
+        board = 'MSI X870E Gaming Plus WiFi'
+        parts = f'Motherboard: {board}. Processor: AMD Ryzen 7 9800X3D.'
+        await self.ready(f'{parts} Graphics card: RTX 5070 Ti.'.encode(), 'First Build.txt')
+        await self.ready(f'{parts} Graphics card: RX 9070 XT.'.encode(), 'Second Build.txt')
+        cid = self.store.create_conversation()['id']
+        question = 'do you have better recommended motherboard for both builds or these are enough ?'
+        with patch('june.library_chat.bounded_json', new=AsyncMock(return_value=
+            self.model('supported', board, labels=['S1','S2'])
+        )) as model:
+            identified = await self.ask('Which motherboard is in First Build.txt and Second Build.txt?', cid, 'one')
+            # A later citation can correctly name the board but omit the CPU.
+            revision = self.store.revision()
+            self.store.start_turn(cid, 'two', question, revision)
+            citations = [{**c, 'quote': f'Motherboard: {board}.'} for c in identified[-1]['citations']]
+            self.store.finish_library_turn(cid, 'two', board, citations, 'documents', self.service.db.revision())
+            events = await self.ask(question, cid, 'three')
+        self.assertEqual(model.await_count, 1)
+        self.assertEqual(events[-1]['provenance'], 'general')
+        self.assertEqual(events[-1]['citations'], [])
+        self.assertTrue(events[-2]['text'].startswith('Recommendation\nKeep the MSI X870E'))
+        self.assertIn('B850 Tomahawk Max WiFi', events[-2]['text'])
+        self.assertIn('40 Gb/s USB4', events[-2]['text'])
+        self.assertNotIn('From your documents', events[-2]['text'])
+
+    def test_recommendations_do_not_override_requests_about_document_contents(self):
+        question = 'Which motherboard is recommended in my PDF?'
+        self.assertEqual(question_parts(question), (question, '', True))
+        question = 'Should I upgrade my motherboard for both builds?'
+        self.assertEqual(question_parts(question), ('', question, False))
+
+    def test_reference_stays_bound_to_the_exact_board(self):
+        board = 'MSI X870E Gaming Plus WIFI'
+        for question in ('What are the specs of MSI X870 Gaming Plus WIFI?',
+                         'What are the features of MSI MAG X870E Gaming Plus MAX WIFI?',
+                         'Compare MSI X870E Gaming Plus WIFI and Asus TUF Wi-Fi.',
+                         'What are its features on the Gigabyte X870E?'):
+            self.assertEqual(motherboard_reference(question, board), '')
+
+    async def test_detailed_followup_can_retry_a_previously_missing_identification(self):
+        board = 'MSI X870E Gaming Plus WIFI'
+        await self.ready(f'Motherboard: {board}.'.encode(), 'Build.txt')
+        cid = self.store.create_conversation()['id']
+        with patch('june.library_chat.bounded_json', new=AsyncMock(side_effect=[
+            self.model('missing'), self.model('supported', board, labels=['S1']),
+        ])):
+            await self.ask('Which motherboard is in Build.txt?', cid, 'one')
+            events = await self.ask('What are its PCIe slots and BIOS features?', cid, 'two')
+        self.assertEqual(events[-1]['provenance'], 'mixed')
+        self.assertEqual(events[-1]['citations'][0]['name'], 'Build.txt')
+        self.assertIn('Manufacturer reference', events[-2]['text'])
+
+    async def test_other_products_can_use_an_imported_spec_sheet(self):
+        board = 'Example Board A1'
+        await self.ready(f'Motherboard: {board}.'.encode(), 'Build.txt')
+        await self.ready(f'{board} specifications: two M.2 slots.'.encode(), 'Spec.txt')
+        cid = self.store.create_conversation()['id']
+        with patch('june.library_chat.bounded_json', new=AsyncMock(return_value=
+            self.model('supported', board, labels=['S1'])
+        )):
+            await self.ask('Which motherboard is in Build.txt?', cid, 'one')
+        with patch('june.library_chat.bounded_json', new=AsyncMock()) as model:
+            async def cite_specs(_client, _url, request, *_args):
+                evidence = json.loads(request['messages'][-1]['content'])['evidence']
+                label = next(item['chunkId'] for item in evidence if item['name']=='Spec.txt')
+                return self.model('supported', 'Two M.2 slots.', labels=[label])
+            model.side_effect = cite_specs
+            events = await self.ask('What are its M.2 slots?', cid, 'two')
+        self.assertEqual(events[-1]['citations'][0]['name'], 'Spec.txt')
+        self.assertNotIn('MSI', events[-2]['text'])
 
     async def test_unavailable_library_allows_general_question(self):
         cid = self.store.create_conversation()['id']
@@ -161,7 +325,6 @@ class LibraryChatTests(unittest.IsolatedAsyncioTestCase):
         did = await self.ready(b'Graphics Card Example 5070.', 'build.txt')
         cid = self.store.create_conversation()['id']
         await fixtures.KnowledgeTests.events(self, did, conversationId=cid, turnId='strict')
-        self.store.bind_library_chat(cid, upgrade=True)
         with patch.object(self.service, 'search', new=AsyncMock()) as search, patch(
             'june.library_chat.bounded_json', new=AsyncMock(return_value=self.model('not_needed', general='Choose a processor for your workload.'))
         ) as model:
@@ -179,15 +342,31 @@ class LibraryChatTests(unittest.IsolatedAsyncioTestCase):
         cid = self.store.create_conversation()['id']
         await fixtures.KnowledgeTests.events(self, did, conversationId=cid, turnId='strict')
         previous = self.store.conversation(cid)['turns']
-        with self.assertRaises(JuneError):
-            await self.ask('What is a launch?', cid, 'one')
-        self.store.bind_library_chat(cid, upgrade=True)
         with patch('june.library_chat.bounded_json', new=AsyncMock(return_value=self.model('not_needed', general='A launch introduces something.'))):
             await self.ask('What is a launch?', cid, 'one')
         chat = self.store.conversation(cid)
         self.assertEqual(chat['knowledge'], {'mode':'auto'})
         self.assertEqual(chat['turns'][:-1], previous)
         self.assertEqual(chat['turns'][-1]['provenance'], 'general')
+
+    async def test_existing_general_chat_recalls_approved_memory_without_search(self):
+        cid = self.store.create_conversation()['id']
+        self.store.start_turn(cid, 'old', 'Hello.', self.store.revision())
+        self.store.finish_turn('old', 'Hi.', 'complete')
+        self.store.add_memory('My name is Avery.')
+        await self.ready(b'An example document refers to a person named Jordan.', 'profile.txt')
+        with patch.object(self.service, 'search', new=AsyncMock()) as search, patch(
+            'june.library_chat.bounded_json', new=AsyncMock()
+        ) as model:
+            events = await self.ask('What is my approved name?', cid, 'new')
+        search.assert_not_called()
+        model.assert_not_called()
+        self.assertEqual(events[-1]['provenance'], 'memory')
+        self.assertIn('Avery', events[-2]['text'])
+        chat = self.store.conversation(cid)
+        self.assertEqual(chat['turns'][0]['assistant'], 'Hi.')
+        self.assertEqual(json.loads(chat['turns'][1]['memories']), events[-1]['memoryIds'])
+        self.assertTrue(events[-1]['memoryIds'])
 
     async def test_deleted_source_cancels_inflight_reply(self):
         did = await self.ready(name='build.txt')

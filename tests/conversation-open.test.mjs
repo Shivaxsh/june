@@ -42,11 +42,11 @@ test('obsolete rejection is ignored while a current request can open or report f
 test('Chat and LibraryPanel share synchronous invalidation and check before applying fetched data',async()=>{
   const chat=await readFile(new URL('../components/Chat.tsx',import.meta.url),'utf8');
   const panel=await readFile(new URL('../components/memory/LibraryPanel.tsx',import.meta.url),'utf8');
-  assert.match(chat,/function newChat\(nextMode = mode\) \{\s*conversationOpenGeneration.current\+\+/);
+  assert.match(chat,/function newChat\(\) \{\s*conversationOpenGeneration.current\+\+/);
   assert.match(chat,/function openConversation\(chat:SavedConversation,token:number\) \{\s*if\(token!==conversationOpenGeneration.current\)return;/);
   assert.match(chat,/openGeneration=\{conversationOpenGeneration\}/);
-  assert.match(chat,/function selectKnowledge[\s\S]*?newChat\(/);
-  assert.match(chat,/onChange=\{event => newChat\(event.target.value as ChatMode\)\}/);
+  assert.match(chat,/onClick=\{\(\) => newChat\(\)\}>New chat/);
+  assert.match(chat,/onDeleteActive=\{\(\)=>newChat\(\)\}/);
   assert.match(panel,/openLatestConversation\(openGeneration/);
   assert.match(panel,/onClick=\{\(\)=>openSavedChat\(c.id\)\}/);
   assert.match(panel,/useEffect\(\(\)=>\(\)=>\{openGeneration.current\+\+;/);

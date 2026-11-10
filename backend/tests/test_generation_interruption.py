@@ -42,6 +42,25 @@ class GenerationInterruption(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(turn.phase,'generating')
         finally: await turn.close()
 
+    async def test_side_remark_or_unaddressed_question_cannot_cancel_a_slow_answer(self):
+        for text in ("I'm not sure if I can get it.", "in the 5070ti build, what's the gpu name"):
+            with self.subTest(text=text):
+                turn=await self.make_turn(text)
+                try:
+                    await self.input(True,30); await self.input(False,42); await turn.flush()
+                    self.assertEqual(turn.number,2)
+                    self.assertEqual(turn.phase,'generating')
+                    self.assertFalse(any(e['type'] in ('interrupt','transcript') for e in self.events))
+                finally: await turn.close()
+
+    async def test_wake_addressed_replacement_still_replaces_the_question(self):
+        turn=await self.make_turn('Hey June, what is the GPU in the 5070Ti build?')
+        try:
+            await self.input(True,30); await self.input(False,42); await turn.flush()
+            self.assertEqual(turn.number,3)
+            self.assertEqual([e['text'] for e in self.events if e['type']=='transcript'],['what is the GPU in the 5070Ti build?'])
+        finally: await turn.close()
+
     async def test_playback_still_interrupts_promptly(self):
         turn=await self.make_turn('Wait')
         turn.phase='speaking'

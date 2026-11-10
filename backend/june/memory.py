@@ -225,20 +225,18 @@ PRAGMA user_version=1;
                             citation['deleted'] = True
                             citation['name'] = 'Source deleted'
             return result
-    def bind_library_chat(self, cid, *, upgrade=False):
+    def bind_library_chat(self, cid):
         self.conversation(cid)
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
             row = db.execute('SELECT mode FROM conversation_knowledge WHERE conversation=?', (cid,)).fetchone()
             if row and row['mode'] == 'auto':
                 return
-            if row and upgrade:
-                if db.execute("SELECT 1 FROM turns WHERE conversation=? AND status='pending'", (cid,)).fetchone():
-                    raise invalid('Wait for the current document reply or stop it before changing modes.', 409)
+            if db.execute("SELECT 1 FROM turns WHERE conversation=? AND status='pending'", (cid,)).fetchone():
+                raise invalid('Wait for the current reply or stop it before continuing.', 409)
+            if row:
                 db.execute("UPDATE conversation_knowledge SET mode='auto' WHERE conversation=?", (cid,))
                 return
-            if row or upgrade or db.execute('SELECT 1 FROM turns WHERE conversation=?', (cid,)).fetchone():
-                raise invalid('This chat already uses another source mode.', 409)
             db.execute("INSERT INTO conversation_knowledge(conversation,documentIds,revision,mode) SELECT ?, '[]', revision, 'auto' FROM knowledge_meta", (cid,))
 
     def library_sources(self, cid):
@@ -246,10 +244,10 @@ PRAGMA user_version=1;
             row = db.execute('SELECT documentIds FROM conversation_knowledge WHERE conversation=?', (cid,)).fetchone()
             return json.loads(row[0]) if row else []
 
-    def finish_library_turn(self, cid, tid, content, citations, provenance, revision):
+    def finish_library_turn(self, cid, tid, content, citations, provenance, revision, memory_ids=()):
         with self.db() as db:
-            changed = db.execute("UPDATE turns SET assistant=?,status='complete',citations=?,provenance=?,knowledgeRevision=? WHERE id=? AND conversation=? AND status='pending'",
-                                 (content, json.dumps(citations), provenance, revision, tid, cid)).rowcount
+            changed = db.execute("UPDATE turns SET assistant=?,status='complete',citations=?,provenance=?,knowledgeRevision=?,memories=? WHERE id=? AND conversation=? AND status='pending'",
+                                 (content, json.dumps(citations), provenance, revision, json.dumps(memory_ids), tid, cid)).rowcount
             if changed:
                 db.execute('UPDATE conversation_knowledge SET revision=? WHERE conversation=?', (revision, cid))
                 db.execute('UPDATE conversations SET updated=? WHERE id=?', (self.clock(), cid))
@@ -381,6 +379,10 @@ PRAGMA user_version=1;
                 self._add(db,fact,pinned,s['conversation'],replace)
             elif action!='reject': raise invalid()
             db.execute('UPDATE suggestions SET status=? WHERE id=?',(action,sid))
+    def profile(self):
+        with self.db() as db:
+            return json.loads(db.execute('SELECT value FROM profile WHERE id=1').fetchone()[0])
+
     def save_profile(self,profile):
         value=validate_profile(profile)
         with self.db() as db:

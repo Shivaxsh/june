@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "june-model",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "model:start"],
+      "port": 11434,
+      "url": "http://127.0.0.1:11434"
+    },
+    {
+      "name": "june",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3001,
+      "url": "http://127.0.0.1:3001"
+    }
+  ]
+}

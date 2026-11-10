@@ -33,6 +33,7 @@ test('automatic replies require provenance consistent with their citations',()=>
   assert.deepEqual(types.parseScope(JSON.stringify(auto)),auto);
   assert.deepEqual(types.validatedDocumentReply('General knowledge\nVRAM holds textures.',{...done,citations:[],provenance:'general'},auto),[]);
   assert.deepEqual(types.validatedDocumentReply('From your documents\nFriday.',{...done,provenance:'documents'},auto),[citation]);
+  assert.deepEqual(types.validatedDocumentReply('Saved memory:\nYour name is Avery.',{...done,citations:[],provenance:'memory',memoryIds:['fact-a']},auto),[]);
   assert.throws(()=>types.validatedDocumentReply('Unlabeled reply.',done,auto));
   assert.throws(()=>types.validatedDocumentReply('From your documents\nFriday.',{...done,citations:[],provenance:'mixed'},auto));
   assert.throws(()=>types.validatedDocumentReply('General knowledge\nFriday.',{...done,provenance:'general'},auto));
@@ -60,10 +61,11 @@ test('binary proxy preserves bytes, encoded filename, method and backend error r
 test('all typed/native sends use the shared scope and document streaming remains gated',async()=>{
   const chat=await read('../components/Chat.tsx');
   assert.match(chat,/transcript:.*send\(\{ content, voiceTurn: turn \}\)/);
-  assert.match(chat,/scope\?\{knowledge:scope\}/);
-  assert.match(chat,/if \(!scope\) \{voice.push\(id, event.text\);update\("pending"\);\}/);
-  assert.match(chat,/if\(scope\) citations=validatedDocumentReply\(reply,event,scope\)/);
-  assert.match(chat,/if\(!scope && !repetitionStopped && mode/);
+  assert.match(chat,/knowledge: libraryScope/);
+  assert.match(chat,/citations=validatedDocumentReply\(reply,event,libraryScope\)/);
+  assert.doesNotMatch(chat,/voice.push\(id, event.text\)|source-mode|Reply source|Continue with Library \+ general/);
+  const panel=await read('../components/knowledge/DocumentsPanel.tsx');
+  assert.doesNotMatch(panel,/type="checkbox"|Selected documents only/);
 });
 test('citations render source buttons with provenance and disable deleted sources',async()=>{
   const React=await import('react');const {renderToStaticMarkup}=await import('react-dom/server');

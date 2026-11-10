@@ -14,7 +14,14 @@ async function moduleUrl(url) {
   const result = 'data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'); modules.set(url.href, result); return result;
 }
 const load = async path => import(await moduleUrl(new URL(path, import.meta.url)));
-const { SentenceBuffer, spokenText, mergeTranscript } = await load('../lib/voice/sentences.ts');
+const { SentenceBuffer, spokenText, spokenChatReply, mergeTranscript } = await load('../lib/voice/sentences.ts');
+
+test('chat speech gives brief attribution without reading provenance headings aloud', () => {
+  const reply = 'From your documents\n- Use H/VOID.\n\nGeneral knowledge\nCheck the ticket status first.';
+  assert.equal(spokenText(spokenChatReply(reply)), 'Your documents say: Use H/VOID. General knowledge Check the ticket status first.');
+  assert.equal(spokenChatReply('General knowledge\nVRAM holds graphics data.'), 'VRAM holds graphics data.');
+  assert.equal(spokenChatReply('Document evidence\nI could not find that detail.'), 'I could not find that detail.');
+});
 const { VoiceRegistry, femaleVoices, voiceId, saved } = await load('../lib/voice/voices.ts');
 const { SpeechController } = await load('../lib/voice/speech.ts');
 const { RecognitionController } = await load('../lib/voice/recognition.ts');

@@ -289,6 +289,9 @@ class Knowledge:
         semantic_query, vram_mentions = re.subn(
             r'\bvram\b', 'graphics card video memory', semantic_query, flags=re.IGNORECASE
         )
+        amd_gpu = bool(gpu_mentions and re.search(r'\bamd\b', query, re.I))
+        if amd_gpu:
+            semantic_query = re.sub(r'\bamd\b', 'AMD Radeon RX', semantic_query, flags=re.I)
         query_parts=await self.embed_piece({'id':'query','text':semantic_query,'page':None,'lineStart':1,'lineEnd':query.count('\n')+1})
         dimensions=len(query_parts[0]['vector'])
         if any(len(p['vector'])!=dimensions for p in query_parts):raise error('Embedding dimensions changed. Retry indexing.',502)
@@ -302,6 +305,8 @@ class Knowledge:
             terms = ['"'+word+'"' for word in words]
             if vram_mentions:
                 terms.extend(('"video memory"', '"gddr"*', '"hbm"*'))
+            if amd_gpu:
+                terms.extend(('"radeon"', '"rx"'))
             fts=' OR '.join(terms)
             lexical=[r[0] for r in db.execute('SELECT f.id FROM passage_fts f JOIN passages p ON p.id=f.id WHERE passage_fts MATCH ? AND p.document IN ('+placeholders+') ORDER BY bm25(passage_fts) LIMIT 100',[fts,*ids])] if fts else []
         scores={}
