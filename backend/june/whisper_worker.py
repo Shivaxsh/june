@@ -32,8 +32,9 @@ async def finish_cleanup(coroutine):
 
 
 class WhisperWorker:
-    def __init__(self, command, *, startup_timeout=120, cancel_timeout=1):
+    def __init__(self, command, *, model='small.en-q5_1', startup_timeout=120, cancel_timeout=1):
         self.command = list(map(str, command))
+        self.model = model  # the id the worker must report as loaded
         self.startup_timeout = startup_timeout
         self.cancel_timeout = cancel_timeout
         self.busy = False
@@ -111,7 +112,7 @@ class WhisperWorker:
                 if self._closed:
                     raise failed()
                 message = await asyncio.wait_for(self._read(process), self.startup_timeout)
-                if message != {'type': 'ready', 'protocol': 1, 'model': 'base.en'}:
+                if message != {'type': 'ready', 'protocol': 1, 'model': self.model}:
                     raise failed()
                 self._ready = True
             except BaseException as error:

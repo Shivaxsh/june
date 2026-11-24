@@ -54,7 +54,7 @@ function fixture(speak = 'true') {
     }
     if (path === '/api/voice/status') {
       if (api.statusFailures > 0) { api.statusFailures--; throw new TypeError('Connection closed during restart'); }
-      return Response.json({ state: api.status, nativeReady: true, provider: 'kokoro', providerState: api.provider, voiceId: june.id, whisperWarm: false, modelWarm: false, message: api.status });
+      return Response.json({ state: api.status, nativeReady: true, provider: 'kokoro', providerState: api.provider, voiceId: june.id, whisperWarm: false, modelWarm: false, voiceWarm: false, ...(api.outputError ? { outputError: api.outputError } : {}), message: api.status });
     }
     if (path === '/api/speech/status') return Response.json({ state: 'ready', message: 'Local transcription ready' });
     requests.push({ path, body: JSON.parse(options.body) });
@@ -150,4 +150,82 @@ test('a transient restart recovers Heart controls without reloading or using the
     assert.equal(f.render().support.speech, true);
     assert.deepEqual(f.requests, []);
   } finally { f.close(); }
+});
+
+test('a failed audio status is re-checked with backoff, and recovery reloads the voice list without speaking or opening the mic', async () => {
+  const timers = [], realSet = globalThis.setTimeout, realClear = globalThis.clearTimeout;
+  globalThis.setTimeout = (fn, ms) => { const t = { fn, ms, cleared: false, fired: false }; timers.push(t); return t; };
+  globalThis.clearTimeout = t => { if (t && typeof t === 'object') t.cleared = true; };
+  const f = fixture();
+  const due = ms => timers.filter(t => !t.cleared && !t.fired && t.ms === ms);
+  const fire = async ms => { const [t] = due(ms); assert.ok(t, `a ${ms} ms check is scheduled`); t.fired = true; t.fn(); await tick(); f.render(); await tick(); return f.render(); };
+  try {
+    Object.assign(f.api, { status: 'error', provider: 'error', voices: 'error' });
+    f.render(); await tick(); let voice = f.render(); await tick(); voice = f.render();
+    assert.equal(voice.choices.selected, '', 'no voice while audio is down');
+    assert.equal(voice.audioRecovery.phase, 'unavailable');
+    assert.match(voice.audioRecovery.message, /unavailable/i);
+    assert.equal(due(2000).length, 1, 'exactly one pending check, not a loop per render');
+    voice = await fire(2000);
+    assert.equal(due(4000).length, 1, 'still failing: backs off');
+    assert.equal(due(2000).length, 0);
+    Object.assign(f.api, { status: 'ready', provider: 'ready', voices: 'ready' });
+    voice = await fire(4000); await tick(); voice = f.render();
+    assert.equal(voice.audioStatus.state, 'ready');
+    assert.equal(voice.choices.selected, june.id, 'voice list reloaded without a page reload');
+    assert.equal(voice.audioRecovery.phase, 'ready');
+    assert.equal(voice.audioRecovery.message, '');
+    assert.deepEqual(timers.filter(t => !t.cleared && !t.fired && t.ms >= 2000 && t.ms <= 60000).map(t => t.ms), [30000], 'once ready only the slow health check remains');
+    assert.equal(f.requests.filter(r => r.path.endsWith('/speak')).length, 0, 'nothing is spoken on recovery');
+  } finally { f.close(); globalThis.setTimeout = realSet; globalThis.clearTimeout = realClear; }
+});
+
+test('an output failure withdraws the voice (no claims, no speech) until it clears; voiceWarm false alone does not', async () => {
+  const f = fixture();
+  try {
+    f.render(); await tick(); let voice = f.render();
+    assert.equal(voice.choices.selected, june.id, 'healthy with voiceWarm false (prewarm off)');
+    assert.equal(voice.support.speech, true);
+    f.api.outputError = 'Audio output was interrupted. Reconnecting when June is idle.';
+    await voice.refreshAudio(); await tick(); f.render(); voice = f.render();
+    assert.equal(voice.choices.selected, '', 'timer claims and hands-free see no ready voice');
+    assert.equal(voice.support.speech, false);
+    assert.equal(voice.audioRecovery.phase, 'unavailable');
+    assert.match(voice.audioRecovery.message, /output stopped working/);
+    delete f.api.outputError;
+    await voice.refreshAudio(); await tick(); voice = f.render();
+    assert.equal(voice.choices.selected, june.id);
+    assert.equal(voice.support.speech, true);
+    assert.equal(f.requests.filter(r => r.path.endsWith('/speak')).length, 0, 'recovery never speaks');
+  } finally { f.close(); }
+});
+
+test('a ready page keeps one slow health check, detects a dead helper, backs off, and recovers on its own', async () => {
+  const timers = [], realSet = globalThis.setTimeout, realClear = globalThis.clearTimeout;
+  globalThis.setTimeout = (fn, ms) => { const t = { fn, ms, cleared: false, fired: false }; timers.push(t); return t; };
+  globalThis.clearTimeout = t => { if (t && typeof t === 'object') t.cleared = true; };
+  const f = fixture();
+  const due = ms => timers.filter(t => !t.cleared && !t.fired && t.ms === ms);
+  const fire = async ms => { const [t] = due(ms); assert.ok(t, `a ${ms} ms check is scheduled`); t.fired = true; t.fn(); await tick(); f.render(); await tick(); f.render(); return f.render(); };
+  try {
+    f.render(); await tick(); f.render(); let voice = f.render();
+    assert.equal(voice.audioRecovery.phase, 'ready');
+    assert.equal(due(30000).length, 1, 'one health check while ready');
+    voice = await fire(30000);
+    assert.equal(due(30000).length, 1, 'still healthy: the next health check, still only one');
+    f.api.outputError = 'Audio output was interrupted.';   // the JuneAudio worker died
+    voice = await fire(30000);
+    assert.equal(voice.audioRecovery.phase, 'unavailable');
+    assert.equal(voice.choices.selected, '');
+    assert.equal(due(2000).length, 1, 'failure budget starts fresh at 2 s');
+    voice = await fire(2000);
+    assert.equal(due(4000).length, 1);
+    delete f.api.outputError;
+    voice = await fire(4000);
+    assert.equal(voice.audioRecovery.phase, 'ready');
+    assert.equal(voice.choices.selected, june.id, 'voice back without a page or app restart');
+    assert.equal(due(30000).length, 1, 'back to one health check');
+    assert.equal(timers.filter(t => !t.cleared && !t.fired && t.ms >= 2000 && t.ms <= 60000).length, 1, 'a single loop throughout');
+    assert.equal(f.requests.filter(r => r.path.endsWith('/speak')).length, 0, 'never speaks');
+  } finally { f.close(); globalThis.setTimeout = realSet; globalThis.clearTimeout = realClear; }
 });

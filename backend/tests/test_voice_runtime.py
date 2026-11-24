@@ -62,3 +62,101 @@ class ReadinessHttpTests(unittest.TestCase):
                 self.assertIn('selected language model',result['message'])
                 self.assertNotIn('are warm',result['message'])
                 runtime.retry_preparation.assert_called_once()
+
+
+    def test_output_failure_reaches_status_without_stale_ready(self):
+        import os
+        from unittest.mock import patch, Mock
+        from fastapi.testclient import TestClient
+        from june.app import app
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'JUNE_DATA_HOME':directory,'JUNE_PREWARM':'0'}):
+            with TestClient(app,base_url='http://127.0.0.1:8001') as client:
+                runtime=app.state.voice_runtime
+                runtime.enabled=True;runtime.model_warm=True;runtime.detectors_warm=True
+                runtime.refresh_model=AsyncMock();runtime.retry_preparation=Mock()
+                app.state.voice_assets.status=AsyncMock(return_value={'state':'ready','message':'Detection ready.'})
+                app.state.native_audio.status=AsyncMock(return_value={'state':'ready','nativeReady':True,'voiceWarm':False,'outputError':'Audio output was interrupted.'})
+                app.state.speech.status=AsyncMock(return_value={'state':'ready','warm':True})
+                app.state.voice_provider.status=AsyncMock(return_value={'state':'ready','provider':'kokoro','voiceId':'kokoro-af-heart','voiceName':'June','ttsModel':'kokoro-v1.0','message':'Ready.'})
+                result=client.get('/api/voice/status').json()
+                self.assertEqual(result['state'],'preparing')
+                self.assertFalse(result['voiceWarm'])
+                self.assertEqual(result.get('outputError'),'Audio output was interrupted.')
+                self.assertIn('interrupted',result['message'])
+
+class RecoveryPreparation(unittest.IsolatedAsyncioTestCase):
+    async def test_output_recovery_preserves_resident_model_and_loaded_detectors(self):
+        from june.memory_service import Coordinator
+        requests=[]
+        async def response(req):
+            requests.append(req.url.path);return httpx.Response(200,json={'done':True})
+        audio=type('Audio',(),{'capture_owner':None,'jobs':{},'warm':AsyncMock()})()
+        speech=type('Speech',(),{'worker':SimpleNamespace(ready=True),'warm':AsyncMock()})()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as client:
+            async def no_reload():raise AssertionError('Loaded detectors must not initialize again')
+            assets=SimpleNamespace(status=no_reload)
+            runtime=VoiceRuntime(SimpleNamespace(model='local',ollama='http://127.0.0.1:11434'),client,speech,audio,assets,Coordinator(),None)
+            runtime.enabled=True;runtime.model_warm=True;runtime.detectors_warm=True
+            runtime.detectors=object();detectors=runtime.detectors
+            await runtime.prepare()
+            self.assertEqual(requests,[],'Output recovery must not run a model prompt')
+            self.assertIs(runtime.detectors,detectors)
+            self.assertTrue(runtime.whisper_warm)
+
+    async def test_preparation_waits_for_active_output_and_is_single_flight_with_backoff(self):
+        from june.memory_service import Coordinator
+        from unittest.mock import patch
+        gate=asyncio.Event();entered=[]
+        async def warm():entered.append('output');await gate.wait()
+        audio=SimpleNamespace(capture_owner=None,jobs={'playing':{}},warm=warm)
+        speech=SimpleNamespace(worker=SimpleNamespace(ready=True))
+        runtime=VoiceRuntime(SimpleNamespace(model='local'),None,speech,audio,None,Coordinator(),None)
+        runtime.enabled=True;runtime.model_warm=runtime.detectors_warm=True
+        runtime.retry_preparation();await asyncio.sleep(0)
+        self.assertEqual(entered,[])
+        audio.jobs={};runtime.retry_preparation();await asyncio.sleep(0)
+        runtime.retry_preparation();await asyncio.sleep(0)
+        self.assertEqual(entered,['output'])
+        gate.set();await runtime.task
+        runtime.retry_preparation();await asyncio.sleep(0)
+        self.assertEqual(entered,['output'])
+        await runtime.close()
+
+class HandsFreeOutputRecovery(unittest.IsolatedAsyncioTestCase):
+    async def test_recovery_is_scheduled_while_hands_free_capture_is_flowing(self):
+        from june.memory_service import Coordinator
+        entered=[]
+        async def warm():entered.append('output')
+        flowing=[False]
+        audio=SimpleNamespace(capture_owner='owner',jobs={},warm=warm,output_error='interrupted',capture_flowing=lambda:flowing[0])
+        runtime=VoiceRuntime(SimpleNamespace(model='local'),None,SimpleNamespace(worker=SimpleNamespace(ready=True)),audio,None,Coordinator(),None)
+        runtime.enabled=False
+        runtime.retry_preparation();await asyncio.sleep(0)
+        self.assertEqual(entered,[],'a stalled capture is not a safe moment')
+        flowing[0]=True;runtime.retry_preparation();await asyncio.sleep(0)
+        self.assertEqual(entered,['output'])
+        await runtime.close()
+
+class OutputOnlyRecovery(unittest.IsolatedAsyncioTestCase):
+    async def test_disabled_model_prewarm_still_recovers_reported_output_failure_only(self):
+        from june.native_audio import NativeAudioService
+        from june.memory_service import Coordinator
+        audio=NativeAudioService('/not-installed');audio.binary=Path(__file__)
+        async def ensure():pass
+        audio.ensure_started=ensure
+        async def send(value):
+            self.assertEqual(value['type'],'prepare-output')
+            await audio.receive({'type':'result','id':value['id'],'prepared':True})
+        audio.send=send
+        await audio.receive({'type':'device-error'})
+        runtime=VoiceRuntime(None,None,None,audio,None,Coordinator(),None)
+        runtime.enabled=False
+        runtime.retry_preparation()
+        self.assertIsNotNone(runtime.task,'Known output failure must recover even with model prewarm off')
+        try:
+            await runtime.task
+            self.assertTrue(audio.voice_warm)
+            self.assertIsNone(audio.output_error)
+            self.assertFalse(runtime.model_warm)
+            self.assertFalse(runtime.detectors_warm)
+        finally:await runtime.close();await audio.close()

@@ -2,10 +2,18 @@
 fastapi==0.143.0
 uvicorn==0.54.0
 httpx==0.28.1
+certifi==2026.7.22  # CA bundle for June's own HTTPS checks (websites.fetch_page); same pin as requirements.lock
 websockets==17.2
 pipecat-ai[silero]==0.0.85
 onnxruntime==1.23.2
 vosk==0.3.44
+# Speech recognition: NVIDIA Parakeet TDT 0.6B (int8 ONNX), run locally by june/parakeet_worker.py.
+sherpa-onnx==2.0.3
 numpy==1.26.4
 
 pypdf==7.0.0
+
+# Phase 8.3: documents June creates (Word, PowerPoint, PDF). Local file generation only.
+python-docx==1.1.2
+python-pptx==1.0.2
+reportlab==4.2.5

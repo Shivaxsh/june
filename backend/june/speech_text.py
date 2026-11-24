@@ -60,6 +60,38 @@ def product_release_context(messages):
     return False
 
 
+TOOL_MARKER = '[June’s app tools handled'
+TOOL_MARKER_RE = re.compile(r"\[?\s*June[’']s app tools handled", re.I)
+TOOL_FALLBACK = 'Sorry, I didn’t follow that. Could you say it again?'
+
+
+class ToolMarkerGuard:
+    """June's internal history note (library_chat.APP_ACTION_MARKER) is never a reply, even if the model copies it.
+
+    Text that could be the start of the note is held back until it is clearly something else; once the note appears,
+    nothing more is shown and the caller answers with TOOL_FALLBACK instead.
+    """
+    def __init__(self):
+        self.seen = self.held = ''
+        self.rejected = False
+
+    def push(self, text):
+        if self.rejected:
+            return ''
+        self.seen += text; self.held += text
+        if TOOL_MARKER_RE.search(self.seen):
+            self.rejected, self.held = True, ''
+            return ''
+        start = self.held.rfind('[')
+        possible = start >= 0 and TOOL_MARKER.replace('’', "'").lower().startswith(self.held[start:].replace('’', "'").lower()[:len(TOOL_MARKER)])
+        ready, self.held = (self.held[:start], self.held[start:]) if possible else (self.held, '')
+        return ready
+
+    def finish(self):
+        held, self.held = ('' if self.rejected else self.held), ''
+        return held
+
+
 class ReplyIdentityGuard:
     """Delay GPU sentences until their stated model identity can be checked.
 

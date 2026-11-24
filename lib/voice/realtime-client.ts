@@ -2,7 +2,9 @@ import type { EchoMode } from './realtime-capture';
 
 export type HandsFreePhase = 'off' | 'requesting' | 'connecting' | 'preparing' | 'waiting' | 'listening' | 'transcribing' | 'generating' | 'speaking' | 'followup';
 export type NativePermission = 'not-determined' | 'requesting' | 'granted' | 'denied' | 'restricted' | string;
-export type VoiceConfig = { state: string; websocketUrl?: string; message?: string; audioEngine?: string; nativeReady?: boolean; permission?: NativePermission; whisperWarm?: boolean; modelWarm?: boolean; provider?: 'kokoro'; voiceId?: string; voiceName?: 'June'; ttsModel?: 'kokoro-v1.0'; providerState?: 'ready' | 'setup-required' | 'error'; providerMessage?: string };
+export type VoiceConfig = { state: string; websocketUrl?: string; message?: string; audioEngine?: string; nativeReady?: boolean; permission?: NativePermission; whisperWarm?: boolean; modelWarm?: boolean; provider?: 'kokoro'; voiceId?: string; voiceName?: 'June'; ttsModel?: 'kokoro-v1.0'; providerState?: 'ready' | 'setup-required' | 'error'; providerMessage?: string;
+  /** Output prepared by prewarm (may stay false when prewarm is off); outputError is a reported playback failure. */
+  voiceWarm?: boolean; outputError?: string | null };
 export type AudioSourceOptions = { audioSource: 'native' | 'browser'; ownerId?: string; voiceId?: string };
 export type HandsFreeState = { phase: HandsFreePhase; error: string; turn: number; vad: number; transcriptionMs: number; probing?: boolean; echoMode?: EchoMode; sessionId?: string; audioSource?: 'native' | 'browser'; permission?: NativePermission; level?: number; timings?: Record<string, number> };
 type Input = { readonly echoMode?: EchoMode; start(signal: AbortSignal, packet: (data: ArrayBuffer) => void, fail: (message: string) => void): Promise<void>; stop(): void };
@@ -11,7 +13,12 @@ export async function fetchVoiceConfig(signal: AbortSignal, http: typeof fetch =
   const response = await http.call(globalThis, '/api/voice/status', { cache: 'no-store', signal });
   const data = await response.json();
   if (!response.ok || typeof data?.state !== 'string' || typeof data?.message !== 'string') throw Error('Hands-free status is unavailable. Restart June, then refresh.');
-  return data as VoiceConfig;
+  // Output health fields are typed here: only a real `true` is warm, and a malformed failure
+  // report still counts as a failure, so it can never make broken output look healthy.
+  const { voiceWarm, outputError, ...rest } = data as Record<string, unknown>;
+  const error = outputError === undefined || outputError === null ? outputError
+    : typeof outputError === 'string' && outputError.trim() && outputError.length <= 500 ? outputError : 'June’s voice output reported an error.';
+  return { ...rest, ...(voiceWarm === undefined ? {} : { voiceWarm: voiceWarm === true }), ...(error === undefined ? {} : { outputError: error }) } as VoiceConfig;
 }
 type Config = VoiceConfig;
 type Callbacks = { wake(turn: number): void; transcript(text: string, turn: number): void; cancel(): void; pause?(): boolean | Promise<boolean | null>; resume?(): void };
@@ -35,21 +42,29 @@ export class HandsFreeController {
   constructor(private factory: () => Input, private connect: (url: string) => WebSocket,
     private config: (signal: AbortSignal) => Promise<Config>, private notify: (state: HandsFreeState) => void, private callbacks: Callbacks) {}
   private emit(change: Partial<HandsFreeState>) {
+    // Phase changes and errors are fixed UI strings, never speech or reply text.
+    if (change.phase && change.phase !== this.state.phase) console.debug('[June voice]', JSON.stringify({ event: 'phase', at: Date.now(), from: this.state.phase, to: change.phase }));
     const newTurn = change.turn !== undefined && change.turn > this.state.turn;
     this.state = { ...this.state, ...(newTurn ? { timings: {}, transcriptionMs: 0 } : {}), ...change, echoMode: this.input?.echoMode ?? 'unknown' };
     this.notify(this.state);
   }
   get sessionId() { return this.session; }
   get active() { return this.state.phase !== 'off'; }
-  stop(message = '') {
+  /**
+   * Stops capture. `cancelReply: false` (a hidden page) releases audio but lets a reply being written finish.
+   * A failure (a stop with a message) after the question was accepted also keeps the reply: losing the
+   * microphone must not throw away the answer the person is already waiting for.
+   */
+  stop(message = '', { cancelReply = !(message && ['generating', 'speaking'].includes(this.state.phase)) }: { cancelReply?: boolean } = {}) {
     const wasActive = this.active;
+    if (wasActive) console.debug('[June voice]', JSON.stringify({ event: 'stop', at: Date.now(), phase: this.state.phase, cancelReply, message }));
     this.token++; clearTimeout(this.timer); clearInterval(this.heartbeat);
     this.abort?.abort(); this.abort = null;
     this.input?.stop(); this.input = null;
     if (this.socket) { this.socket.onopen = this.socket.onmessage = this.socket.onerror = this.socket.onclose = null; this.socket.close(); this.socket = null; }
     this.session = ''; this.accepted = 0; this.lastActivity = ''; this.probe = this.lastProbe = 0;
     this.emit({ phase: 'off', error: message, turn: 0, vad: 0, probing: false, level: 0, sessionId: '' });
-    if (wasActive) this.callbacks.cancel();
+    if (wasActive && cancelReply) this.callbacks.cancel();
   }
   async start(pause: string, options: AudioSourceOptions = { audioSource: 'browser' }) {
     if (this.active) return;

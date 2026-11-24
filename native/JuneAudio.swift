@@ -113,7 +113,7 @@ final class CaptureToken {
     init(diagnostic: Bool = false) { self.diagnostic = diagnostic }
     func active() -> Bool { lock.lock(); defer { lock.unlock() }; return !cancelled }
     func cancel() { lock.lock(); cancelled = true; lock.unlock() }
-    func claim() -> Bool { lock.lock(); defer { lock.unlock() }; if cancelled || queued >= 32 { return false }; queued += 1; return true }
+    func claim() -> Bool { lock.lock(); defer { lock.unlock() }; if cancelled || queued >= 256 { return false }; queued += 1; return true }
     func consumed() { lock.lock(); queued -= 1; lock.unlock() }
 }
 final class JuneAudio {
@@ -127,7 +127,18 @@ final class JuneAudio {
     var captureToken: CaptureToken?
     var lastHeartbeat = Date(), configuring = false, graphReady = false
     var captureConverter: AVAudioConverter?
+    var captureInputFormat: AVAudioFormat?
     var tapInstalled = false
+    // When this helper last stopped its engine. macOS corrupts the built-in speaker's DSP
+    // ("Adding hardware DSP while IO is running") if voice processing is switched while the
+    // previous IO is still winding down, so a new graph waits for the device to settle.
+    var lastEngineStop = Date.distantPast
+    let engineSettleSeconds = 0.8
+    func stopEngine() { if engine.isRunning { engine.stop(); lastEngineStop = Date() } }
+    func settleAfterStop() {
+        let wait = engineSettleSeconds - Date().timeIntervalSince(lastEngineStop)
+        if wait > 0 { Thread.sleep(forTimeInterval: min(wait, engineSettleSeconds)) }
+    }
     let captureQueue = DispatchQueue(label: "local.june.audio.capture", qos: .userInitiated)
     var ticker: Timer?
     var configurationObserver: NSObjectProtocol?
@@ -146,10 +157,12 @@ final class JuneAudio {
     func setupGraph(capture: Bool) throws {
         configuring = true; defer { configuring = false }
         if graphReady && (captureSession != nil) == capture { return }
-        if engine.isRunning { engine.stop() }
+        stopEngine()
         if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
         if let observer=configurationObserver { NotificationCenter.default.removeObserver(observer); configurationObserver=nil }
         engine = AVAudioEngine(); player = AVAudioPlayerNode()
+        // The old engine is released above; let its device IO finish stopping first.
+        settleAfterStop()
         if capture {
             try engine.inputNode.setVoiceProcessingEnabled(true)
             if #available(macOS 14.0, *) {
@@ -174,8 +187,21 @@ final class JuneAudio {
             // Hardware changes stop the engine before notification. Observe
             // only this graph, not replaced graphs or the synthesizer's graph.
             guard let self, let configuredEngine, self.engine === configuredEngine, self.graphReady, !self.configuring else { return }
-            self.failDevice()
+            self.recoverConfigurationChange()
         }
+    }
+    // Enabling voice processing makes macOS rebuild the device route and post a configuration
+    // change shortly after the engine starts. That is not a lost device: Apple's guidance is to
+    // restart the engine. Only a changed microphone format, an interrupted reply, or a failed
+    // restart is reported as a device failure.
+    func recoverConfigurationChange() {
+        if playing != nil { failDevice(); return }
+        if let expected = captureInputFormat, captureSession != nil {
+            let current = engine.inputNode.outputFormat(forBus: 0)
+            guard current.sampleRate == expected.sampleRate, current.channelCount == expected.channelCount else { failDevice(); return }
+        }
+        if engine.isRunning { return }
+        do { try engine.start() } catch { failDevice() }
     }
     func startCapture(_ command: [String: Any]) {
         let id = command["id"] as? String ?? "", session = command["session"] as? String ?? ""
@@ -199,6 +225,7 @@ final class JuneAudio {
                           let output = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: false),
                           let converter = makeCaptureConverter(from: format, to: output) else { throw NSError(domain: "JuneAudio", code: 1) }
                     self.captureConverter = converter
+                    self.captureInputFormat = format
                     self.captureSession = session
                     captureStage = "tap"
                     input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
@@ -263,8 +290,8 @@ final class JuneAudio {
         guard session == requestedSession || session == captureSession else { return }
         requestedSession = nil; captureToken?.cancel(); captureToken = nil
         if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
-        if engine.isRunning { engine.stop() }
-        captureSession = nil; captureConverter = nil; graphReady = false
+        stopEngine()
+        captureSession = nil; captureConverter = nil; captureInputFormat = nil; graphReady = false
         cancelAll()
     }
     // PCM is always signed little-endian int16, mono, 24 kHz. rate is
@@ -383,7 +410,11 @@ final class JuneAudio {
             if !graphReady { try setupGraph(capture: captureSession != nil) }
             try startEngine()
             result(id, ["prepared": true])
-        } catch { result(id, ["error": "The Mac audio output could not start."]) }
+        } catch {
+            graphReady = false
+            emit(["type":"device-error"])
+            result(id, ["error": "The Mac audio output could not start (code \((error as NSError).code)). Check Mac Sound settings, then refresh audio."])
+        }
     }
     func startEngine() throws {
         // Only capture explicitly requests permission. Output-only graphs never
@@ -391,7 +422,14 @@ final class JuneAudio {
         if captureSession != nil && AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
             throw NSError(domain: "JuneAudio", code: 2)
         }
-        if !engine.isRunning { try engine.start() }
+        if !engine.isRunning {
+            do { try engine.start() }
+            catch {
+                graphReady = false
+                emit(["type":"device-error"])
+                throw error
+            }
+        }
     }
     func speak(_ command: [String: Any], silent: Bool = false) {
         let job = SpeechJob(command, silent: silent)
@@ -522,11 +560,13 @@ final class JuneAudio {
         for job in all { cancel(job) }
     }
     func failDevice() {
+        emit(["type":"device-error"])
         if let session = captureSession { emit(["type":"capture-error","session":session]); releaseCapture(session) }
         cancelAll(); graphReady = false
     }
     func tick() {
-        if Date().timeIntervalSince(lastHeartbeat)>3 {
+        // A busy, swapping Mac can delay the backend heartbeat by several seconds.
+        if Date().timeIntervalSince(lastHeartbeat)>10 {
             if let session = requestedSession { emit(["type":"capture-error","session":session]); releaseCapture(session) }
             cancelAll()
         }

@@ -29,17 +29,22 @@ class VoiceRuntime:
         self.detectors_warm=True
 
     def retry_preparation(self):
-        if (self.enabled and (self.task is None or self.task.done()) and time.monotonic()-self.last_prepare>=30
-                and self.audio.capture_owner is None and not self.coordinator.tasks):
+        if ((self.enabled or getattr(self.audio,'output_error',None)) and (self.task is None or self.task.done()) and time.monotonic()-self.last_prepare>=30
+                and (self.audio.capture_owner is None or getattr(self.audio,'capture_flowing',lambda:False)())
+                and not getattr(self.audio,'jobs',{}) and not self.coordinator.tasks):
             self.task=asyncio.create_task(self.prepare())
 
     async def prepare(self):
         self.last_prepare=time.monotonic()
         try:
             await self.audio.warm()
-            await self.speech.warm();self.whisper_warm=True
-            await self.warm_detection()
-            await self.prime_model()
+            if not self.enabled:
+                self.message='Native audio output recovered.'
+                return
+            if not getattr(getattr(self.speech,'worker',None),'ready',False):await self.speech.warm()
+            self.whisper_warm=True
+            if not self.detectors_warm:await self.warm_detection()
+            if not self.model_warm:await self.prime_model()
             self.message='Local voice components are warm.'
         except asyncio.CancelledError:raise
         except (JuneError,httpx.HTTPError,TimeoutError,OSError,ValueError):

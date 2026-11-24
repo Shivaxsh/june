@@ -29,7 +29,7 @@ lock=threading.Lock()
 def emit(value):
     with lock: print(json.dumps(value),flush=True)
 if mode=='startup-hang': time.sleep(30)
-emit({'type':'ready','protocol':1,'model':'base.en'})
+emit({'type':'ready','protocol':1,'model':'small.en-q5_1'})
 for line in sys.stdin.buffer:
     command=json.loads(line)
     kind=command['type']; identity=command['id']
@@ -188,12 +188,12 @@ class SpeechServiceWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.peer = Path(self.directory.name) / 'peer.py'
         self.peer.write_text(PEER)
-        self.service = SpeechService(SimpleNamespace(speech_home=Path(self.directory.name)))
+        self.service = SpeechService(SimpleNamespace(speech_home=Path(self.directory.name)), engine='whisper')
         self.service.worker_binary.parent.mkdir(parents=True)
         self.service.worker_binary.write_text('placeholder')
         self.service.worker_binary.chmod(0o700)
         with self.service.model.open('wb') as model: model.truncate(100000001)
-        (self.service.home / 'ready.json').write_text(json.dumps({'version':'v1.9.5','model':'base.en','sha256':'0'*64}))
+        (self.service.home / 'ready.json').write_text(json.dumps({'version':'v1.9.5','model':'small.en-q5_1','sha256':'0'*64}))
         # Integrity hashing is covered separately; this fixture has no model.
         self.service._hash = lambda: '0' * 64
         self.worker = None
@@ -235,12 +235,12 @@ class SpeechReadinessTests(unittest.IsolatedAsyncioTestCase):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            service = SpeechService(SimpleNamespace(speech_home=root))
+            service = SpeechService(SimpleNamespace(speech_home=root), engine='whisper')
             service.worker_binary.parent.mkdir(parents=True)
             service.worker_binary.write_text('unused')
             service.worker_binary.chmod(0o700)
             with service.model.open('wb') as model: model.truncate(100000001)
-            (root / 'ready.json').write_text(json.dumps({'version':'v1.9.5','model':'base.en','sha256':'0'*64}))
+            (root / 'ready.json').write_text(json.dumps({'version':'v1.9.5','model':'small.en-q5_1','sha256':'0'*64}))
             try:
                 with patch.object(service, '_hash', side_effect=ValueError('bad hash')):
                     status = await service.status()

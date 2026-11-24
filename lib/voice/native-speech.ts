@@ -38,6 +38,8 @@ export class NativeSpeechController {
   private emit(state: SpeechState) {
     if (!this.disposed) this.notify({ ...state, ...(Object.keys(this.timings).length ? { timings: { ...this.timings } } : {}) });
   }
+  /** The native request id June is speaking now (sent to the backend as `requestId`), or '' when idle. */
+  currentRequest() { return this.request; }
   setRate(rate: number) { this.rate = [.98, .92, 1.04].includes(rate) ? rate : .98; }
   stop(_reason = 'stop') {
     const requestId = this.request; this.request = ''; this.streamId = null;
@@ -105,7 +107,8 @@ export class NativeSpeechController {
       void this.play(segment, this.request);
     } else if (!this.segments.size && !this.queue.length) {
       this.activity.current = 0;
-      this.emit({ ...EMPTY_SPEECH, phase: this.streamId === null ? 'idle' : 'waiting' });
+      // Every segment of a finished stream played to its end: report which request completed (a stop never does).
+      this.emit({ ...EMPTY_SPEECH, phase: this.streamId === null ? 'idle' : 'waiting', ...(this.streamId === null && this.nextOrdinal > 0 ? { completedRequest: this.request } : {}) });
     }
   }
   private async play(segment: Segment, requestId: string) {

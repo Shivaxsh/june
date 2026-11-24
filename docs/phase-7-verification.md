@@ -2,6 +2,10 @@
 
 Implementation and automated acceptance pass. **Human spoken document question and follow-up remain pending; Phase 7 build is not marked complete.** Existing acoustic and latency limitations remain open.
 
+## 15 November rigorous audit
+
+See [phase-7-rigorous-audit.md](phase-7-rigorous-audit.md). Final frozen-code checks: typecheck 0, JS 305/305, backend 543/543, build 0. Real-model reruns 6/6, a JSON parameter screen (defaults unchanged), and a live typed document question plus follow-up with correct citations. **Human spoken acceptance PASSED (15 November, user-confirmed):** in a hands-free session, "What time does the workshop start in Workshop Audit?" → "10:15", then "And the budget?" → "740 credits", both cited to Workshop Audit.md, and the user heard both replies in full. Earlier attempts failed and were fixed first: spoken-filename matching, plus June Audio treating Apple voice-processing configuration changes as device loss.
+
 ## Latest reliability audit
 
 The November 9 audit of **Library + general** fixed overlapping filenames, PDF-only source requests, general questions about file formats, and mixed questions whose general clause uses a pronoun. A follow-up now stays with the latest named or cited source even after a missing answer. Deleted, ambiguous, and missing sources require clarification before June can cite a different file. Browser voice readiness now retries a transient status failure once, and the status request preserves the browser fetch receiver.

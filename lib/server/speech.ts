@@ -9,9 +9,11 @@ import { MAX_AUDIO_BYTES, validateWav } from '../voice/pcm';
 export class SpeechError extends Error {
   constructor(public code: string, message: string, public status = 503) { super(message); }
 }
+// The speech model June uses (scripts/speech-worker.mjs MODEL_ID must match).
+export const SPEECH_MODEL_ID = 'small.en-q5_1', SPEECH_MODEL_NAME = 'small.en';
 const settings = () => {
   const root = process.env.JUNE_SPEECH_HOME || join(homedir(), 'Library', 'Application Support', 'June', 'speech');
-  return { root, binary: join(root, 'whisper.cpp', 'build', 'bin', 'whisper-cli'), model: join(root, 'ggml-base.en.bin') };
+  return { root, binary: join(root, 'whisper.cpp', 'build', 'bin', 'whisper-cli'), model: join(root, `ggml-${SPEECH_MODEL_ID}.bin`) };
 };
 export function localRequest(request: Request): boolean {
   try {
@@ -22,20 +24,20 @@ export function localRequest(request: Request): boolean {
 let verifiedModel = "";
 export async function speechStatus() {
   const config = settings();
-  try { await access(config.binary); } catch { return { state: 'runtime-missing', engine: 'whisper.cpp', model: 'base.en', message: 'Local speech needs setup. Run npm run speech:setup, then refresh speech.' }; }
-  try { await access(config.model); } catch { return { state: 'model-missing', engine: 'whisper.cpp', model: 'base.en', message: 'Whisper base.en is missing. Run npm run speech:setup, then refresh speech.' }; }
+  try { await access(config.binary); } catch { return { state: 'runtime-missing', engine: 'whisper.cpp', model: SPEECH_MODEL_NAME, message: 'Local speech needs setup. Run npm run speech:setup, then refresh speech.' }; }
+  try { await access(config.model); } catch { return { state: 'model-missing', engine: 'whisper.cpp', model: SPEECH_MODEL_NAME, message: `Whisper ${SPEECH_MODEL_NAME} is missing. Run npm run speech:setup, then refresh speech.` }; }
   try {
     const ready = JSON.parse(await readFile(join(config.root, 'ready.json'), 'utf8'));
     const model = await stat(config.model);
-    if (ready.version !== 'v1.9.5' || ready.model !== 'base.en' || !/^[a-f0-9]{64}$/.test(ready.sha256) || model.size < 100000000) throw new Error();
+    if (ready.version !== 'v1.9.5' || ready.model !== SPEECH_MODEL_ID || !/^[a-f0-9]{64}$/.test(ready.sha256) || model.size < 100000000) throw new Error();
     const identity = `${config.model}:${model.size}:${model.mtimeMs}:${ready.sha256}`;
     if (verifiedModel !== identity) {
       const digest = createHash('sha256'); for await (const chunk of createReadStream(config.model)) digest.update(chunk);
       if (digest.digest('hex') !== ready.sha256) throw new Error();
       verifiedModel = identity;
     }
-    return { state: 'ready', engine: 'whisper.cpp', model: 'base.en', message: 'Local English transcription · Whisper base.en · ready on this Mac' };
-  } catch { return { state: 'error', engine: 'whisper.cpp', model: 'base.en', message: 'Speech installation has not passed its transcription check. Run npm run speech:setup.' }; }
+    return { state: 'ready', engine: 'whisper.cpp', model: SPEECH_MODEL_NAME, message: `Local English transcription · Whisper ${SPEECH_MODEL_NAME} · ready on this Mac` };
+  } catch { return { state: 'error', engine: 'whisper.cpp', model: SPEECH_MODEL_NAME, message: 'Speech installation has not passed its transcription check. Run npm run speech:setup.' }; }
 }
 export async function readAudio(request: Request): Promise<Uint8Array> {
   if (Number(request.headers.get('content-length')) > MAX_AUDIO_BYTES) throw new SpeechError('too-large', 'Audio is too large. Record at most 30 seconds.', 413);
@@ -85,7 +87,7 @@ export async function transcribe(data: Uint8Array, signal: AbortSignal) {
     if (!Array.isArray(result.transcription)) throw new SpeechError('invalid-result', 'The speech engine returned an invalid transcript. Try again.');
     const text = result.transcription.map((item: { text?: unknown }) => typeof item.text === 'string' ? item.text : '').join(' ').replace(/\s+/g, ' ').trim();
     if (!text || /^\s*[\[(].*[\])]\s*$/.test(text)) throw new SpeechError('no-speech', 'No words were recognised. Try a clear, short sentence.', 422);
-    return { text, engine: 'whisper.cpp', model: 'base.en', durationMs: Math.round(performance.now() - started) };
+    return { text, engine: 'whisper.cpp', model: SPEECH_MODEL_NAME, durationMs: Math.round(performance.now() - started) };
   } finally {
     try { if (directory) await rm(directory, { recursive: true, force: true }); } finally { shared.juneSpeechBusy = false; }
   }

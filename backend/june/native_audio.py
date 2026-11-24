@@ -1,5 +1,6 @@
 """One local native audio graph. IPC contains audio; diagnostics never do."""
 import asyncio
+import time
 import base64
 from collections import deque
 from contextlib import suppress
@@ -59,13 +60,15 @@ class NativeAudioService:
     def __init__(self, home):
         self.home=Path(home);self.binary=self.home/'JuneAudio.app/Contents/MacOS/JuneAudio'
         self.process=None;self.reader=None;self.heartbeat=None;self.ready=None
-        self.start_lock=asyncio.Lock();self.write_lock=asyncio.Lock()
+        self.start_lock=asyncio.Lock();self.write_lock=asyncio.Lock();self.warm_lock=asyncio.Lock()
+        self.output_error=None;self.output_generation=0
         self.available_voices=[];self.permission='not-determined';self.voice_warm=False
         self.commands={};self.jobs={};self.captures={};self.revoked=deque(maxlen=512)
         self.capture_owner=None;self.capture_session=None;self.capture_turn=0
         self.capture_released=asyncio.Event();self.capture_released.set()
-        self.capture_generation=object()
+        self.capture_generation=object();self.last_capture_frame=0.0
         self.closed=False
+        self.commerce_consent=None
 
     async def ensure_started(self):
         if self.closed:raise JuneError('audio-offline','June Audio is shutting down.',503)
@@ -124,7 +127,9 @@ class NativeAudioService:
             async with asyncio.timeout(timeout):
                 await self.send({'type':kind,'id':uid,**values})
                 result=await future
-            if result.get('error'):raise JuneError('audio-failed',result['error'],503)
+            if result.get('error'):
+                if kind=='prepare-output':self.invalidate_output()
+                raise JuneError('audio-failed',result['error'],503)
             return result
         except (TimeoutError,asyncio.CancelledError) as error:
             # Prepare has no command-level cancellation in the helper protocol.
@@ -181,6 +186,8 @@ class NativeAudioService:
             if value.get('permission'):self.permission=value['permission']
             future=self.commands.get(value.get('id'))
             if future is not None and not future.done():future.set_result(value)
+        elif kind=='device-error':
+            self.invalidate_output()
         elif kind=='playback':
             job=self.jobs.get(value.get('id'))
             if job is not None:
@@ -198,7 +205,11 @@ class NativeAudioService:
                     level=value.get('level',0)
                     if not finite_number(level):raise ValueError('Invalid boundary level')
                     event.update(charIndex=index,charLength=length,level=max(0,min(1,level)))
-                if phase=='error':event['message']='The local voice could not play. Refresh voices or select another installed female voice.'
+                if phase=='error':
+                    self.invalidate_output()
+                    event['message']='Audio output was interrupted. June will reconnect when idle; retry this reply manually.'
+                if self.commerce_consent is not None:
+                    self.commerce_consent.playback(job, phase, value.get('id'))
                 self.offer(job['queue'],event)
         elif kind=='audio':
             q=self.captures.get(value.get('session'))
@@ -207,8 +218,10 @@ class NativeAudioService:
                 if not isinstance(encoded,str) or not finite_number(rms):raise ValueError('Invalid audio frame')
                 pcm=base64.b64decode(encoded,validate=True)
                 if len(pcm)!=640 or not 0<=rms<=1:raise ValueError('Invalid audio frame')
+                self.last_capture_frame=time.monotonic()
                 self.offer(q,{'pcm':pcm,'rms':rms})
         elif kind=='capture-error':
+            self.invalidate_output()
             q=self.captures.get(value.get('session'))
             if q is not None:self.offer(q,{'error':'The audio device changed or capture stopped. Enable hands-free again.'})
 
@@ -216,7 +229,7 @@ class NativeAudioService:
         if not self.binary.is_file():return {'state':'missing','message':'Run npm run audio:setup to install June Audio. Browser push-to-talk is still available.','permission':self.permission,'nativeReady':False,'voiceWarm':False}
         try:
             await self.ensure_started()
-            return {'state':'ready','message':'June Audio · native Mac echo processing ready','permission':self.permission,'nativeReady':True,'voiceWarm':self.voice_warm}
+            return {'state':'ready','message':'June Audio · native Mac echo processing ready','permission':self.permission,'nativeReady':True,'voiceWarm':self.voice_warm,'outputError':self.output_error}
         except (JuneError,OSError) as error:
             return {'state':'error','message':error.message if isinstance(error,JuneError) else 'June Audio could not start. Run npm run audio:setup.','permission':self.permission,'nativeReady':False,'voiceWarm':False}
 
@@ -224,11 +237,38 @@ class NativeAudioService:
         status=await self.status()
         return {**status,'voices':self.available_voices if status['state']=='ready' else []}
 
+    def invalidate_output(self):
+        self.voice_warm=False;self.output_generation+=1
+        self.output_error='Audio output was interrupted. Reconnecting when June is idle. If this persists, check Mac Sound settings and refresh audio.'
+
+    def capture_flowing(self):
+        """Hands-free capture is live: its graph is running and audio arrived within two seconds."""
+        return self.capture_owner is not None and self.capture_session in self.captures and time.monotonic()-self.last_capture_frame<2
+
     async def warm(self):
-        await self.ensure_started()
-        if not self.voice_warm:
-            await self.command('prepare-output',timeout=20)
-            self.voice_warm=True
+        async with self.warm_lock:
+            if self.voice_warm:return
+            # Playback in progress, or a capture that is starting or stalled, is never touched.
+            # A live capture shares its running engine with playback, so preparing output
+            # only confirms that engine; it never rebuilds the graph or stops listening.
+            capturing=self.capture_owner is not None
+            if self.jobs or (capturing and not self.capture_flowing()):
+                raise JuneError('audio-busy','Audio recovery waits until June is idle.',409)
+            # A stale CoreAudio graph may survive a daemon/device restart.
+            # Retire only idle workers; recovery never replays speech or captures.
+            if self.output_error and self.process is not None and not capturing:
+                async with self.start_lock:
+                    if self.capture_owner is not None or self.jobs:
+                        raise JuneError('audio-busy','Audio recovery waits until June is idle.',409)
+                    await finish_cleanup(self._terminate_locked(asyncio.current_task()))
+            generation=self.output_generation
+            try:
+                await self.command('prepare-output',timeout=20)
+                if generation!=self.output_generation:
+                    raise JuneError('audio-offline','The audio device changed during preparation. June will retry when idle.',503)
+            except (JuneError,OSError):
+                self.invalidate_output();raise
+            self.voice_warm=True;self.output_error=None
 
     async def capture(self,owner,session):
         if not identifier(owner) or not identifier(session):raise JuneError('voice-request','Invalid capture owner.',400)
@@ -319,7 +359,7 @@ class NativeAudioService:
             raise JuneError('voice-stale','That voice turn is no longer active.',409)
         if sid in self.jobs or len(self.jobs)>=2:raise JuneError('audio-busy','June already has two speech segments queued.',409)
         queue=asyncio.Queue(128);job={'owner':owner,'request':request,'queue':queue,
-                                    'voiceSessionId':value.get('voiceSessionId')}
+                                    'voiceSessionId':value.get('voiceSessionId'),'text':value.get('text','')}
         self.jobs[sid]=job
         process,ready=self.process,self.ready
         completed=False
@@ -376,7 +416,7 @@ class NativeAudioService:
             raise JuneError('voice-stale','That voice turn is no longer active.',409)
         if sid in self.jobs or len(self.jobs)>=2:raise JuneError('audio-busy','Two speech segments are already queued.',409)
         queue=asyncio.Queue(128)
-        job={'owner':owner,'request':request,'queue':queue,'voiceSessionId':value.get('voiceSessionId')}
+        job={'owner':owner,'request':request,'queue':queue,'voiceSessionId':value.get('voiceSessionId'),'text':value.get('text','')}
         self.jobs[sid]=job
         process,ready=self.process,self.ready
         completed=False;producer=None

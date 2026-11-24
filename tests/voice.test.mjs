@@ -18,7 +18,7 @@ const { SentenceBuffer, spokenText, spokenChatReply, mergeTranscript } = await l
 
 test('chat speech gives brief attribution without reading provenance headings aloud', () => {
   const reply = 'From your documents\n- Use H/VOID.\n\nGeneral knowledge\nCheck the ticket status first.';
-  assert.equal(spokenText(spokenChatReply(reply)), 'Your documents say: Use H/VOID. General knowledge Check the ticket status first.');
+  assert.equal(spokenText(spokenChatReply(reply)), 'Your documents say: Use H/VOID. In general: Check the ticket status first.');
   assert.equal(spokenChatReply('General knowledge\nVRAM holds graphics data.'), 'VRAM holds graphics data.');
   assert.equal(spokenChatReply('Document evidence\nI could not find that detail.'), 'I could not find that detail.');
 });
@@ -286,4 +286,15 @@ test('unfinished markdown links stay buffered instead of changing text already s
   assert.deepEqual(buffer.push('Read [the guide. '), []);
   assert.deepEqual(buffer.push('More](https://example.com). Next '), ['Read the guide.', 'More.']);
   assert.deepEqual(buffer.finish(), ['Next']);
+});
+
+test('speech cleanup reads tables and lists, keeps identifiers and maths, and never silences the rest', () => {
+  assert.equal(spokenText('Note [see below and more text. Next sentence.'), 'Note [see below and more text. Next sentence.');
+  assert.equal(spokenText('| Part | Price |\n|---|---|\n| GPU | 500 |'), 'Part, Price. GPU, 500');
+  assert.equal(spokenText('Open my_file.txt and compute 5 * 3.'), 'Open my_file.txt and compute 5 times 3.');
+  assert.equal(spokenText('## Setup\n• Install Python\n• Learn **loops**\n---\nDone [1].'), 'Setup. Install Python. Learn loops. Done.');
+  assert.equal(spokenText('Use <b>bold</b> *care* and _focus_.'), 'Use bold care and focus.');
+  assert.equal(spokenText('Read [the guide](https://x.y) and https://x.y now.'), 'Read the guide and now.');
+  // While streaming, only a short unfinished link at the very end is held back.
+  assert.equal(spokenText('See [the gui', true), 'See ');
 });

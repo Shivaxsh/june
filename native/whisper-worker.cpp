@@ -142,6 +142,9 @@ json infer(whisper_context * context, State & state, const std::string & id,
     params.temperature_inc = .2f; // Established fallback; fast decoder withheld.
     params.language = "en";
     params.no_context = true; // No cross-job prompts or transcript conditioning.
+    // Speech replies are short: encode a 10.24 s window instead of the full 30 s when the clip fits (measured: same
+    // transcripts, ~3x faster on this CPU). Longer recordings keep the full window.
+    if (samples.size() <= size_t(16000 * 9.5)) params.audio_ctx = 512;
     params.no_timestamps = true;
     params.print_special = false;
     params.print_progress = false;
@@ -184,7 +187,12 @@ int main(int argc, char ** argv) {
     std::unique_ptr<whisper_context, decltype(&whisper_free)> context(
         whisper_init_from_file_with_params(argv[2], params), whisper_free);
     if (!context) { error("", "model-load-failed"); return 2; }
-    emit({{"type", "ready"}, {"protocol", 1}, {"model", "base.en"}});
+    // Report the model actually loaded (ggml-<id>.bin), so the parent can refuse a mismatched installation.
+    std::string model = argv[2];
+    model = model.substr(model.find_last_of('/') + 1);
+    if (model.rfind("ggml-", 0) == 0) model = model.substr(5);
+    if (model.size() > 4 && model.compare(model.size() - 4, 4, ".bin") == 0) model = model.substr(0, model.size() - 4);
+    emit({{"type", "ready"}, {"protocol", 1}, {"model", model}});
     State state;
     std::thread reader(control, std::ref(state));
     while (true) {

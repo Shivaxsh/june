@@ -3,6 +3,7 @@ import asyncio
 from dataclasses import replace
 from contextlib import aclosing, asynccontextmanager, suppress
 import json
+import sqlite3
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -10,7 +11,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 import httpx
 from starlette.requests import ClientDisconnect
 
-from .chat import model_status, stream_chat, validate_chat
+from .chat import model_parameters, model_status, stream_chat, validate_chat
 from .knowledge import Knowledge
 from .knowledge_api import router as knowledge_router
 from .memory import Store
@@ -26,6 +27,21 @@ from .voice_api import router as voice_router
 from .voice_runtime import VoiceRuntime
 from .heart_voice import HeartVoice
 from .model_selection import ModelSelection
+from .reminders import Reminders
+from .reminders_api import router as reminders_router
+from .timers import Timers
+from .timers_api import router as timers_router
+from .actions import Actions
+from .actions_api import router as actions_router
+from .integrations import create_tools
+from .integrations_api import router as integrations_router
+from .daily_assistant import DailyAssistant
+from .calendar_tools import CalendarNative
+from .app_actions import AppNative
+from .daily_api import router as daily_router
+from .google_calendar import GoogleCalendar
+from .keychain import Keychain
+from .music_tools import MusicNative
 
 
 @asynccontextmanager
@@ -40,10 +56,58 @@ async def lifespan(app):
         app.state.store = Store(app.state.settings.data_home)
     except JuneError:
         app.state.store = None
+    try:
+        app.state.actions = Actions(app.state.settings.data_home)
+    except (OSError, sqlite3.Error):
+        app.state.actions = None
+    try:
+        app.state.daily = DailyAssistant(app.state.settings.data_home,
+            music=MusicNative(app.state.settings.data_home/'tools'/'JuneMusic.app'/'Contents'/'MacOS'/'JuneMusic'),
+            calendar=CalendarNative(app.state.settings.data_home/'tools'/'JuneCalendar.app'/'Contents'/'MacOS'/'JuneCalendar'))
+        app.state.daily.google=GoogleCalendar(app.state.daily,Keychain(app.state.settings.data_home/'tools'/'JuneSecrets'),app.state.settings.backend)
+    except (OSError,sqlite3.Error):
+        app.state.daily=None
+    try:
+        app.state.plans = create_tools(app.state.settings.data_home, app.state.actions,app.state.daily,
+            apps=AppNative(app.state.settings.data_home/'tools'/'JuneApps'))
+        from .quick_actions import QuickNative, register as register_quick
+        register_quick(app.state.plans, hands=app.state.actions, native=QuickNative(app.state.settings.data_home/'tools'/'JuneQuick.app'/'Contents'/'MacOS'/'JuneQuick'))
+        from .project_commands import register as register_commands
+        register_commands(app.state.plans, app.state.settings.data_home, hands=app.state.actions)
+        if app.state.daily is not None:app.state.daily.plans = app.state.plans
+        from .creations import Creations
+        app.state.creations = Creations(app.state.settings.data_home)
+        if app.state.daily is not None:app.state.daily.creations = app.state.creations
+        from .websites import register as register_sites
+        register_sites(app.state.plans, app.state.creations, app.state.plans.commands)
+        from .mail_tools import Mail, MailNative, register as register_mail
+        from .jobs import BrowserNative, Jobs, register as register_jobs
+        tools = app.state.settings.data_home / 'tools'
+        register_mail(app.state.plans, Mail(app.state.settings.data_home, MailNative(tools / 'JuneMail.app' / 'Contents' / 'MacOS' / 'JuneMail')))
+        register_jobs(app.state.plans, Jobs(app.state.settings.data_home, BrowserNative(tools / 'JuneBrowser.app' / 'Contents' / 'MacOS' / 'JuneBrowser')))
+        from .commerce import Commerce, register as register_commerce
+        register_commerce(app.state.plans, Commerce(app.state.settings.data_home, app.state.plans))
+        from .screen import Screen, ScreenNative
+        app.state.plans.screen = Screen(app.state.settings.data_home, ScreenNative(tools / 'JuneScreen.app' / 'Contents' / 'MacOS' / 'JuneScreen'))
+    except (OSError, sqlite3.Error):
+        app.state.plans = None
+    try:
+        app.state.timers = Timers(app.state.settings.data_home)
+        app.state.timers.start()
+    except (OSError, sqlite3.Error):
+        app.state.timers = None
+    try:
+        app.state.reminders = Reminders(app.state.settings.data_home)
+        app.state.reminders.start()
+    except (OSError, sqlite3.Error, JuneError):
+        app.state.reminders = None
     app.state.speech = SpeechService(app.state.settings)
     app.state.voice_assets = RealtimeAssets(app.state.settings)
     app.state.voice_slots = VoiceSlots()
     app.state.native_audio = NativeAudioService(app.state.settings.audio_home)
+    if app.state.plans is not None and hasattr(app.state.plans, 'commerce'):
+        from .commerce_voice import VoiceConsent
+        VoiceConsent(app.state.plans.commerce, app.state.native_audio)
     async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=5), trust_env=False,
                                  limits=httpx.Limits(max_connections=6, max_keepalive_connections=3)) as client:
         app.state.client = client
@@ -54,6 +118,12 @@ async def lifespan(app):
             # Document failure must not take ordinary chat and voice offline.
             app.state.knowledge = None
         app.state.voice_provider = HeartVoice(app.state.native_audio,coordinator=app.state.coordinator)
+        jobs_service = getattr(app.state.plans, 'naukri', None) if getattr(app.state, 'plans', None) is not None else None
+        if jobs_service is not None:
+            # New recruiter questions are asked live: spoken in June's voice, notified, and judged for rewording locally.
+            from .notify import Announcer, judge_with
+            jobs_service.announce = Announcer(lambda: getattr(app.state, 'voice_provider', None))
+            jobs_service.judge = judge_with(client, app.state.settings)
         app.state.voice_runtime = VoiceRuntime(app.state.settings,client,app.state.speech,app.state.native_audio,app.state.voice_assets,app.state.coordinator,app.state.store)
         app.state.voice_runtime.start()
         async def sweep():
@@ -67,6 +137,10 @@ async def lifespan(app):
         finally:
             sweeper.cancel()
             cleanup=[]
+            if app.state.plans:cleanup.append(app.state.plans.close)
+            if app.state.timers:cleanup.append(app.state.timers.close)
+            if app.state.reminders:cleanup.append(app.state.reminders.close)
+            if app.state.actions:cleanup.append(app.state.actions.close)
             if app.state.knowledge:cleanup.append(app.state.knowledge.close)
             cleanup.extend([app.state.voice_runtime.close,app.state.voice_provider.close,app.state.native_audio.close])
             if hasattr(app.state.speech,'close'):cleanup.append(app.state.speech.close)
@@ -138,11 +212,27 @@ app.add_middleware(LocalOnly)
 app.include_router(memory_router)
 app.include_router(knowledge_router)
 app.include_router(voice_router)
+app.include_router(actions_router)
+app.include_router(integrations_router)
+from .commerce_api import router as commerce_router
+app.include_router(commerce_router)
+from .commands_api import router as commands_router
+app.include_router(commands_router)
+from .creations_api import router as creations_router
+app.include_router(creations_router)
+from .mail_api import router as mail_router
+app.include_router(mail_router)
+app.include_router(daily_router)
+app.include_router(timers_router)
+app.include_router(reminders_router)
 
 
 @app.exception_handler(JuneError)
 async def failure(request, error):
-    data = {'error': {'code': error.code, 'message': error.message}} if '/speech/' in request.url.path else {'message': error.message}
+    if request.url.path.startswith(('/api/plans', '/api/capabilities', '/api/connections','/api/assistant')):
+        data = {'code': error.code, 'message': error.message}
+    else:
+        data = {'error': {'code': error.code, 'message': error.message}} if '/speech/' in request.url.path else {'message': error.message}
     return JSONResponse(data, status_code=error.status)
 
 
@@ -168,7 +258,12 @@ async def health():
 
 @app.get('/api/status')
 async def status(request: Request):
-    return await model_status(request.app.state.client, request.app.state.settings)
+    result = await model_status(request.app.state.client, request.app.state.settings)
+    if result['state'] == 'ready':
+        parameters = await model_parameters(request.app.state.client, request.app.state.settings)
+        if parameters:
+            result['parameters'] = parameters
+    return result
 
 
 @app.get('/api/models')
@@ -201,7 +296,7 @@ async def chat(request: Request):
         if getattr(request.app.state,'knowledge',None) is None:raise JuneError('storage','Private document storage is unavailable.',503)
         request.app.state.knowledge.db.select(selection(value))
     if mode == 'local' and not value.get('conversationId'):
-        available = await status(request)
+        available = await model_status(request.app.state.client, request.app.state.settings)
         if available['state'] != 'ready':
             raise JuneError('model-unavailable', available['message'])
 
@@ -209,7 +304,7 @@ async def chat(request: Request):
         # StreamingResponse cancels this iterator on disconnect. No background
         # model task is detached from its browser request.
         try:
-            async with aclosing(persisted_chat(request.app.state.client, request.app.state.settings, request.app.state.store, request.app.state.coordinator, value, mode, messages, getattr(request.app.state,'knowledge',None))) as source:
+            async with aclosing(persisted_chat(request.app.state.client, request.app.state.settings, request.app.state.store, request.app.state.coordinator, value, mode, messages, getattr(request.app.state,'knowledge',None),actions=getattr(request.app.state,'actions',None),timers=getattr(request.app.state,'timers',None),reminders=getattr(request.app.state,'reminders',None),daily=getattr(request.app.state,'daily',None))) as source:
                 async for event in source:
                     yield json.dumps(event, ensure_ascii=False).encode() + b'\n'
         except JuneError as error:
@@ -237,11 +332,14 @@ async def realtime_status(request: Request):
     if result['state']=='ready' and runtime.enabled and not (runtime.model_warm and runtime.detectors_warm and whisper_warm and audio.get('voiceWarm')):
         result={'state':'preparing','message':runtime.readiness_message(whisper_warm=whisper_warm,voice_warm=bool(audio.get('voiceWarm')))}
         runtime.retry_preparation()
+    if audio.get('outputError') and not audio.get('voiceWarm'):
+        result={'state':'preparing','message':audio['outputError']}
+        runtime.retry_preparation()
     if result['state']=='ready' and provider['state']!='ready':result={'state':provider['state'],'message':provider['message']}
     return {**result,'busy':state.voice_slots.owner is not None,'wakePhrase':'Hey June',
-        'transport':'local-websocket','model':'Whisper base.en','audioEngine':'mac-native',
+        'transport':'local-websocket','model':'Parakeet','audioEngine':'mac-native',
         'nativeReady':audio.get('nativeReady',False),'permission':audio.get('permission','unknown'),
-        'whisperWarm':whisper_warm,'modelWarm':runtime.model_warm,'voiceWarm':audio.get('voiceWarm',False),
+        'whisperWarm':whisper_warm,'modelWarm':runtime.model_warm,'voiceWarm':audio.get('voiceWarm',False),'outputError':audio.get('outputError'),
         'provider':provider['provider'],'voiceId':provider['voiceId'],'voiceName':provider['voiceName'],'ttsModel':provider['ttsModel'],
         'providerState':provider['state'],'providerMessage':provider['message']}
 
@@ -321,7 +419,7 @@ async def socket_chat(socket: WebSocket):
                 await send({'type': 'error', 'message': available['message']})
                 return
         try:
-            async with aclosing(persisted_chat(socket.app.state.client, settings, socket.app.state.store, socket.app.state.coordinator, value, mode, messages, getattr(socket.app.state,'knowledge',None))) as source:
+            async with aclosing(persisted_chat(socket.app.state.client, settings, socket.app.state.store, socket.app.state.coordinator, value, mode, messages, getattr(socket.app.state,'knowledge',None),actions=getattr(socket.app.state,'actions',None),timers=getattr(socket.app.state,'timers',None),reminders=getattr(socket.app.state,'reminders',None),daily=getattr(socket.app.state,'daily',None))) as source:
                 async for event in source:
                     await send(event)
         except JuneError as error:

@@ -555,3 +555,96 @@ class NativeLifecycle(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.service.capture_owner,'owner-2')
             self.assertEqual(self.service.capture_session,'session-2')
             self.assertFalse(self.service.capture_released.is_set())
+
+class OutputRecovery(unittest.IsolatedAsyncioTestCase):
+    async def test_device_loss_invalidates_warmth_and_reconnects_without_replaying_speech(self):
+        service=FakeAudio();service.voice_warm=True
+        await service.receive({'type':'device-error'})
+        self.assertFalse(service.voice_warm)
+        # Fake only the native transport; exercise real command/warm lifecycle.
+        async def send(value):
+            service.sent.append(value)
+            if value['type']=='prepare-output':
+                await service.receive({'type':'result','id':value['id'],'prepared':True})
+        service.send=send
+        await service.warm()
+        self.assertTrue(service.voice_warm)
+        self.assertEqual([v['type'] for v in service.sent],['prepare-output'])
+        self.assertIsNone(service.capture_owner)
+        await service.close()
+
+    async def test_output_recovers_during_live_hands_free_capture_without_retiring_the_helper(self):
+        # Live failure: a capture glitch at hands-free start marked output broken, and recovery
+        # waited for capture to end, so June stayed silent for the whole hands-free session.
+        import asyncio,base64
+        service=FakeAudio();service.process=object()
+        retired=[]
+        async def terminate(*args,**kwargs):retired.append(True)
+        service._terminate_locked=lambda *a,**k:terminate()
+        service.capture_owner='owner';service.capture_session='session'
+        service.captures['session']=asyncio.Queue(100)
+        await service.receive({'type':'device-error'})
+        self.assertFalse(service.voice_warm)
+        with self.assertRaises(JuneError):await service.warm()  # no audio has flowed yet
+        await service.receive({'type':'audio','session':'session','pcm':base64.b64encode(bytes(640)).decode(),'rms':0.01})
+        async def send(value):
+            service.sent.append(value)
+            if value['type']=='prepare-output':await service.receive({'type':'result','id':value['id'],'prepared':True})
+        service.send=send
+        await service.warm()
+        self.assertTrue(service.voice_warm);self.assertIsNone(service.output_error)
+        self.assertEqual(retired,[],'a live capture must never be torn down by output recovery')
+        self.assertEqual(service.capture_owner,'owner')
+        self.assertEqual([v['type'] for v in service.sent],['prepare-output'])
+        service.jobs={'playing':{}}
+        service.voice_warm=False
+        with self.assertRaises(JuneError):await service.warm()  # never during playback
+        service.jobs={}
+        service.captures.clear();service.capture_owner=None;service.process=None
+        await service.close()
+
+    async def test_playback_error_clears_ready_but_user_cancellation_does_not(self):
+        service=FakeAudio();service.voice_warm=True
+        stream=service.speak(VALUE);await anext(stream)
+        await service.receive({'type':'playback','id':'segment-1','phase':'error'})
+        self.assertEqual((await anext(stream))['type'],'error')
+        self.assertFalse(service.voice_warm)
+        await stream.aclose()
+        service.voice_warm=True
+        await service.receive({'type':'playback','id':'retired-segment','phase':'cancelled'})
+        self.assertTrue(service.voice_warm)
+        await service.close()
+
+    async def test_new_device_loss_during_prepare_cannot_publish_stale_ready(self):
+        service=FakeAudio()
+        async def send(value):
+            if value['type']=='prepare-output':
+                await service.receive({'type':'device-error'})
+                await service.receive({'type':'result','id':value['id'],'prepared':True})
+        service.send=send
+        with self.assertRaises(JuneError):await service.warm()
+        self.assertFalse(service.voice_warm)
+        await service.close()
+
+
+class NativeSourceGuards(unittest.TestCase):
+    def test_graph_rebuild_waits_for_the_previous_engine_to_stop(self):
+        # Live fault: enabling voice processing ~15 ms after stopping the idle output engine made
+        # coreaudiod log "Adding hardware DSP while IO is running" and broke the speaker system-wide.
+        source=(Path(__file__).resolve().parents[2]/'native/JuneAudio.swift').read_text()
+        graph=source[source.index('func setupGraph'):source.index('func startCapture')]
+        self.assertIn('stopEngine()',graph)
+        self.assertLess(graph.index('settleAfterStop()'),graph.index('setVoiceProcessingEnabled(true)'))
+        self.assertNotRegex(source.replace('func stopEngine() { if engine.isRunning { engine.stop()',''),r'engine\.stop\(\)')
+
+    def test_configuration_change_restarts_the_engine_instead_of_dropping_hands_free(self):
+        # Live fault: enabling voice processing posts a configuration change after the engine
+        # starts; treating it as device loss killed every hands-free start and June's voice.
+        source=(Path(__file__).resolve().parents[2]/'native/JuneAudio.swift').read_text()
+        observer=source[source.index('configurationObserver = NotificationCenter'):source.index('func recoverConfigurationChange')]
+        self.assertIn('recoverConfigurationChange()',observer)
+        self.assertNotIn('failDevice()',observer)
+        recover=source[source.index('func recoverConfigurationChange'):source.index('func startCapture')]
+        self.assertIn('try engine.start()',recover)
+        self.assertIn('if playing != nil { failDevice(); return }',recover)
+        self.assertIn('captureInputFormat',recover)

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import TimingReadout from "./TimingReadout";
 import type { VoiceControls } from "./useVoice";
 export default function VoicePanel({ voice, busy = false, onUse, onActivate }: { voice: VoiceControls; busy?: boolean; onUse: (text: string) => void; onActivate: () => void }) {
@@ -15,18 +15,36 @@ export default function VoicePanel({ voice, busy = false, onUse, onActivate }: {
     const timer = setInterval(update, 100); update(); return () => clearInterval(timer);
   }, [voice.level]);
   const status = { idle: "Ready for a voice request", requesting: "Requesting microphone…", listening: "Listening · release to transcribe", finishing: "Transcribing on this Mac…" }[phase];
+  const [repairing, setRepairing] = useState(false);
+  const [repairNote, setRepairNote] = useState("");
+  // One fixed repair: the backend asks macOS to restart its sound service after the person authorises it.
+  async function repairSound() {
+    if (repairing) return;
+    setRepairing(true); setRepairNote("macOS is asking for your password in its own window.");
+    try {
+      const response = await fetch("/api/voice/repair", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", cache: "no-store" });
+      const data = await response.json().catch(() => null) as { message?: unknown } | null;
+      setRepairNote(typeof data?.message === "string" && data.message ? data.message.slice(0, 300) : response.ok ? "Done." : "The repair did not run. Restart the Mac instead.");
+      if (response.ok) setTimeout(() => voice.refresh(), 4000);
+    } catch { setRepairNote("June could not confirm the repair. Check the sound, or restart the Mac."); }
+    finally { setRepairing(false); }
+  }
   const start = () => { onActivate(); voice.startTalk(); };
   return <section className="voice-panel" aria-label="June voice controls">
     <div className="voice-heading"><strong>A conversation you can hear</strong><label className="motion-option"><input type="checkbox" checked={voice.speakReplies} onChange={event => voice.setSpeakReplies(event.target.checked)} /> Speak replies</label></div>
-    <div className="voice-settings"><p><strong>June</strong> · Heart · American English · local playback</p><button className="quiet-button" disabled={busy || !voice.support.speech} onClick={() => { onActivate(); voice.preview(); }}>Preview voice</button><button className="quiet-button" disabled={busy} onClick={voice.refresh}>Refresh audio</button><button className="quiet-button" disabled={voice.speech.phase === "idle"} onClick={() => voice.stopVoice()}>Stop voice</button></div>
+    <div className="voice-settings"><p><strong>June</strong> · Heart · American English · local playback</p><button className="quiet-button" disabled={busy || !voice.support.speech} onClick={() => { onActivate(); voice.preview(); }}>Preview voice</button><button className="quiet-button" disabled={busy} onClick={voice.refresh}>Refresh audio</button><button className="quiet-button" disabled={busy || repairing} onClick={() => void repairSound()}>{repairing ? "Waiting for macOS…" : "Repair Mac sound"}</button><button className="quiet-button" disabled={voice.speech.phase === "idle"} onClick={() => voice.stopVoice()}>Stop voice</button></div>
+    <p className="voice-description">No sound from June, Music or anything else, even though the volume is up? Choose Repair Mac sound. macOS asks for your password and restarts its sound service; June never sees the password.</p>
+    {repairNote && <p className="quick-result" role="status">{repairNote}</p>}
     <p className="voice-description" role="status">{voice.choices.message}</p>
     <p className="voice-description" role="status">{voice.audioStatus.providerMessage || voice.audioStatus.message}</p>
+    {/* Not a live region: the countdown would chatter; the status line above already announces changes. */}
+    {voice.audioRecovery?.message && <p className="voice-description voice-recovery">{voice.audioRecovery.message}</p>}
     {voice.speech.phase === 'waiting' && <p className="voice-status" role="status">Preparing Heart speech on this Mac…</p>}
     <p className="recognition-notice">Heart generates June’s voice entirely on this Mac. No speech API, account, internet connection or credits are needed after setup. Reply text and microphone audio stay local.</p>
     <p className="voice-description">Steady uses the sample C pace. Calm is slower; Bright is slightly faster. These are pacing presets, not guaranteed emotional acting.</p>
     <label className="motion-option"><input type="checkbox" checked={voice.browserCapture} disabled={busy || active || !voice.browserCaptureSupported} onChange={event => { onActivate(); voice.setBrowserCapture(event.target.checked); }} /> Use browser microphone for manual recording only</label>
     <p className="voice-description">Native hands-free uses this Mac’s microphone. Manual browser recording is capture only; June’s replies always use her local Heart voice through native playback.</p>
-    <p className="recognition-notice">Local English transcription · Whisper base.en. Your recording is processed only on this Mac, then deleted. Stop listening to transcribe; review the words before sending. Maximum 30 seconds.</p>
+    <p className="recognition-notice">Local English transcription · NVIDIA Parakeet. Your recording is processed only on this Mac, then deleted. Stop listening to transcribe; review the words before sending. Maximum 30 seconds.</p>
     <div className="talk-controls"><button className={`talk-button ${phase === "listening" ? "is-listening" : ""}`} disabled={blocked || transcribing} onPointerDown={event => {
       if (event.button !== 0) return; event.currentTarget.setPointerCapture(event.pointerId); start();
     }} onPointerUp={voice.finishTalk} onPointerCancel={() => voice.cancel()} onLostPointerCapture={voice.finishTalk} onKeyDown={event => {

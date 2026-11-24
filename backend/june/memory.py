@@ -162,7 +162,7 @@ class Store:
             os.chmod(self.path, 0o600)
             with self.db() as db:
                 version = db.execute('PRAGMA user_version').fetchone()[0]
-                if version > 3: raise invalid('This database needs a newer June version.', 503)
+                if version > 4: raise invalid('This database needs a newer June version.', 503)
                 if version == 0:
                     db.executescript('''
 CREATE TABLE meta (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
@@ -178,6 +178,35 @@ PRAGMA user_version=1;
                     db.execute('INSERT INTO profile VALUES(1,?)', (json.dumps(profile_defaults()),))
             from .knowledge_store import migrate
             migrate(self, version)
+            if version < 4:
+                backup = self.directory / 'june.pre-reply-state.sqlite3'
+                valid_backup = False
+                if backup.exists() and backup.stat().st_size:
+                    try:
+                        with sqlite3.connect(backup.as_uri()+'?mode=ro',uri=True) as saved:
+                            valid_backup = saved.execute('PRAGMA user_version').fetchone()[0] == 3 and bool(saved.execute("SELECT 1 FROM sqlite_master WHERE name='turns'").fetchone())
+                    except sqlite3.Error:
+                        pass
+                if not valid_backup:
+                    temporary = backup.with_name(backup.name+'.'+uuid.uuid4().hex+'.tmp')
+                    fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                    os.close(fd)
+                    try:
+                        with sqlite3.connect(self.path) as source, sqlite3.connect(temporary) as target:
+                            source.backup(target)
+                        temporary.replace(backup)
+                    finally:
+                        if temporary.exists(): temporary.unlink()
+                with self.db() as db:
+                    db.execute('BEGIN IMMEDIATE')
+                    db.execute('ALTER TABLE turns ADD COLUMN limited INTEGER NOT NULL DEFAULT 0 CHECK(limited IN (0,1))')
+                    db.execute('ALTER TABLE turns ADD COLUMN incomplete INTEGER NOT NULL DEFAULT 0 CHECK(incomplete IN (0,1))')
+                    db.execute('ALTER TABLE turns ADD COLUMN continuedFrom TEXT')
+                    from .reply_state import open_fence
+                    for row in db.execute("SELECT id,assistant FROM turns WHERE status='complete'").fetchall():
+                        if open_fence(row['assistant']):
+                            db.execute('UPDATE turns SET incomplete=1 WHERE id=?',(row['id'],))
+                    db.execute('PRAGMA user_version=4')
             with self.db() as db:
                 # Back up before changing even pending pre-migration turns.
                 db.execute("UPDATE turns SET status='stopped' WHERE status='pending'")
@@ -198,6 +227,13 @@ PRAGMA user_version=1;
 
     def cleanup(self):
         with self.db() as db: db.execute('DELETE FROM conversations WHERE updated<=?', (self.clock()-RETENTION,))
+        # A rollback snapshot must not retain expired chats beyond live storage.
+        backup = self.directory / 'june.pre-reply-state.sqlite3'
+        if backup.exists() and backup.stat().st_size:
+            with sqlite3.connect(backup) as saved:
+                saved.execute('PRAGMA foreign_keys=ON')
+                saved.execute('PRAGMA secure_delete=ON')
+                saved.execute('DELETE FROM conversations WHERE updated<=?',(self.clock()-RETENTION,))
     def revision(self):
         with self.db() as db: return db.execute('SELECT revision FROM meta').fetchone()[0]
     def reset(self, db):
@@ -213,6 +249,8 @@ PRAGMA user_version=1;
             c = db.execute('SELECT * FROM conversations WHERE id=?',(cid,)).fetchone()
             if not c: raise invalid('This chat was deleted or expired.',404)
             result = {**dict(c), 'turns':[dict(x) for x in db.execute('SELECT * FROM turns WHERE conversation=? ORDER BY created,rowid',(cid,))]}
+            for turn in result['turns']:
+                turn['limited'] = bool(turn['limited']); turn['incomplete'] = bool(turn['incomplete'])
             scope = db.execute('SELECT documentIds,revision,mode FROM conversation_knowledge WHERE conversation=?',(cid,)).fetchone()
             if scope:
                 result['knowledge'] = {'mode':'auto'} if scope['mode'] == 'auto' else {'documentIds':json.loads(scope['documentIds'])}
@@ -224,7 +262,24 @@ PRAGMA user_version=1;
                         if citation['documentId'] not in live:
                             citation['deleted'] = True
                             citation['name'] = 'Source deleted'
+            from .reply_state import resumable_turn
+            result['resumable'] = resumable_turn(result['turns'],db.execute('SELECT revision FROM meta').fetchone()[0])
             return result
+    def graph_links(self):
+        """Links only, for June's constellation: no message, memory or passage text."""
+        self.cleanup()
+        with self.db() as db:
+            live = {r[0] for r in db.execute('SELECT id FROM documents')}
+            cited = set()
+            for cid, raw in db.execute("SELECT conversation, citations FROM turns WHERE status='complete' AND citations IS NOT NULL AND citations != '[]'"):
+                try:
+                    for citation in json.loads(raw):
+                        if isinstance(citation, dict) and citation.get('documentId') in live:
+                            cited.add((cid, citation['documentId']))
+                except (ValueError, TypeError):
+                    continue
+            memories = [{'id': r[0], 'source': r[1]} for r in db.execute('SELECT id, source FROM memories')]
+        return {'citations': [{'conversation': c, 'documentId': d} for c, d in sorted(cited)], 'memories': memories}
     def bind_library_chat(self, cid):
         self.conversation(cid)
         with self.db() as db:
@@ -244,11 +299,14 @@ PRAGMA user_version=1;
             row = db.execute('SELECT documentIds FROM conversation_knowledge WHERE conversation=?', (cid,)).fetchone()
             return json.loads(row[0]) if row else []
 
-    def finish_library_turn(self, cid, tid, content, citations, provenance, revision, memory_ids=()):
+    def finish_library_turn(self, cid, tid, content, citations, provenance, revision, memory_ids=(), output=None):
         with self.db() as db:
             changed = db.execute("UPDATE turns SET assistant=?,status='complete',citations=?,provenance=?,knowledgeRevision=?,memories=? WHERE id=? AND conversation=? AND status='pending'",
                                  (content, json.dumps(citations), provenance, revision, json.dumps(memory_ids), tid, cid)).rowcount
             if changed:
+                flags = output or {}
+                db.execute('UPDATE turns SET limited=?,incomplete=?,continuedFrom=? WHERE id=?',
+                           (bool(flags.get('limited')),bool(flags.get('incomplete')),flags.get('continuedFrom'),tid))
                 db.execute('UPDATE conversation_knowledge SET revision=? WHERE conversation=?', (revision, cid))
                 db.execute('UPDATE conversations SET updated=? WHERE id=?', (self.clock(), cid))
         return bool(changed)
@@ -264,10 +322,13 @@ PRAGMA user_version=1;
             if db.execute('SELECT 1 FROM turns WHERE id=?',(tid,)).fetchone(): raise invalid('This turn was already submitted. Reopen the saved chat.',409)
             db.execute('INSERT INTO turns(id,conversation,user,status,revision,created,memories) VALUES(?,?,?,?,?,?,?)',(tid,cid,text(content,2000),'pending',revision,self.clock(),json.dumps([x['id'] for x in memories])))
             db.execute("UPDATE conversations SET title=CASE WHEN title='New conversation' THEN ? ELSE title END,updated=? WHERE id=?",(content[:90],self.clock(),cid))
-    def finish_turn(self, tid, content, status, propose=False):
+    def finish_turn(self, tid, content, status, propose=False, output=None):
         with self.db() as db:
             changed=db.execute("UPDATE turns SET assistant=?,status=? WHERE id=? AND status='pending'",(content,status,tid)).rowcount
             db.execute('UPDATE conversations SET updated=? WHERE id=(SELECT conversation FROM turns WHERE id=?)',(self.clock(),tid))
+            if changed and output:
+                db.execute('UPDATE turns SET limited=?,incomplete=?,continuedFrom=? WHERE id=?',
+                           (bool(output.get('limited')),bool(output.get('incomplete')),output.get('continuedFrom'),tid))
             if changed and status=='complete' and propose:
                 turn=db.execute('SELECT * FROM turns WHERE id=?',(tid,)).fetchone()
                 sources=' '.join(r[0] for r in db.execute('SELECT user FROM turns WHERE conversation=?',(turn['conversation'],)))

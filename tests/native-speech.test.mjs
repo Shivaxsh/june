@@ -300,3 +300,28 @@ test('cloud chunks stay within 600 characters without losing words or splitting 
     } finally { f.controller.dispose(); }
   }
 });
+test('a request that plays to its end reports its native id once; a stop, cancel or error never does', async () => {
+  const f = fixture();
+  try {
+    f.controller.begin(1, voice, true, true, { voiceSessionId: '123e4567-e89b-42d3-a456-426614174001', turnId: 3 }); f.controller.push(1, 'Your quote is ready. Shall I book it?');
+    const id = f.controller.currentRequest();
+    assert.match(id, /^[0-9a-f-]{36}$/i); await tick();
+    assert.equal(f.requests[0].body.requestId, id, 'the id the backend sees');
+    f.controller.finish(1); await tick();
+    assert.ok(!f.states.some(s => s.completedRequest), 'not before playback ends');
+    for (const r of f.requests) r.event({ type: 'end' });
+    await tick();
+    assert.equal(f.states.at(-1).completedRequest, id);
+    // A stopped request never reports completion.
+    f.controller.begin(2, voice, true, true, { voiceSessionId: '123e4567-e89b-42d3-a456-426614174001', turnId: 4 }); f.controller.push(2, 'Another reply.'); f.controller.finish(2);
+    const stopped = f.controller.currentRequest(); await tick();
+    f.controller.stop('test'); await tick();
+    assert.ok(!f.states.some(s => s.completedRequest === stopped));
+    // A native cancellation never reports completion either.
+    f.controller.begin(3, voice, true, true, { voiceSessionId: '123e4567-e89b-42d3-a456-426614174001', turnId: 5 }); f.controller.push(3, 'Third.'); f.controller.finish(3);
+    const cancelled = f.controller.currentRequest(); await tick();
+    f.requests.at(-1).event({ type: 'cancelled' }); await tick();
+    assert.ok(!f.states.some(s => s.completedRequest === cancelled));
+    assert.equal(f.controller.currentRequest(), '', 'idle after a stop');
+  } finally { f.controller.dispose(); }
+});

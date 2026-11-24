@@ -8,11 +8,12 @@ import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { setupWorker, checkWorker } from './speech-worker.mjs';
+import { setupWorker, checkWorker, MODEL_ID, MODEL_NAME, MODEL_FILE } from './speech-worker.mjs';
+import { ENGINE, PARAKEET_ID, parakeetModel, setupParakeet, smokeParakeet } from './speech-parakeet.mjs';
 if (existsSync('.env.local')) process.loadEnvFile('.env.local');
 export const root = process.env.JUNE_SPEECH_HOME || join(homedir(), 'Library', 'Application Support', 'June', 'speech');
 const source = join(root, 'whisper.cpp');
-const model = join(root, 'ggml-base.en.bin');
+const model = join(root, MODEL_FILE);
 const binary = join(source, 'build', 'bin', 'whisper-cli');
 const exists = async path => { try { await access(path); return true; } catch { return false; } };
 function run(command, args, options = {}) {
@@ -25,9 +26,15 @@ async function hash(path) { const digest = createHash('sha256'); for await (cons
 export async function check() {
   if (!await exists(binary) || !await exists(model)) throw new Error('Local speech is not installed. Run npm run speech:setup.');
   const manifest = JSON.parse(await readFile(join(root, 'ready.json'), 'utf8'));
-  if (manifest.version !== 'v1.9.5' || manifest.model !== 'base.en' || await hash(model) !== manifest.sha256) throw new Error('Speech installation failed its integrity check. Run npm run speech:setup.');
+  // The marker names the active engine's model and its checksum. Whisper stays installed as the fallback.
+  const active = ENGINE === 'parakeet' ? { id: PARAKEET_ID, file: parakeetModel(root) } : { id: MODEL_ID, file: model };
+  if (manifest.version !== 'v1.9.5' || manifest.model !== active.id || !await exists(active.file) || await hash(active.file) !== manifest.sha256) throw new Error('Speech installation failed its integrity check. Run npm run speech:setup.');
   await checkWorker({ root });
-  console.log('Whisper base.en is installed and verified. Audio stays on this Mac.');
+  if (ENGINE === 'parakeet') {
+    const text = await smokeParakeet({ root, sample: join(source, 'samples', 'jfk.wav') });
+    if (!text.toLowerCase().includes('country')) throw new Error('Parakeet smoke transcription failed. Run npm run speech:setup.');
+    console.log('NVIDIA Parakeet is installed and verified (Whisper ' + MODEL_NAME + ' kept as fallback). Audio stays on this Mac.');
+  } else console.log(`Whisper ${MODEL_NAME} is installed and verified. Audio stays on this Mac.`);
 }
 async function setup() {
   await mkdir(root, { recursive: true, mode: 0o700 });
@@ -43,13 +50,13 @@ async function setup() {
   const metadataResponse = await fetch('https://huggingface.co/api/models/ggerganov/whisper.cpp/tree/main?recursive=false&expand=true');
   if (!metadataResponse.ok) throw new Error('Could not obtain the model checksum. Retry setup.');
   const metadata = await metadataResponse.json();
-  const entry = metadata.find(item => item.path === 'ggml-base.en.bin');
+  const entry = metadata.find(item => item.path === MODEL_FILE);
   const expected = entry?.lfs?.oid;
   if (!/^[a-f0-9]{64}$/.test(expected || '')) throw new Error('The official model checksum was unavailable. Retry setup.');
   if (!await exists(model) || await hash(model) !== expected) {
     const part = model + '.part';
     try {
-      const response = await fetch('https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin');
+      const response = await fetch(`https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${MODEL_FILE}`);
       if (!response.ok || !response.body) throw new Error('The model download failed. Retry setup.');
       await pipeline(Readable.fromWeb(response.body), createWriteStream(part, { mode: 0o600 }));
       if (await hash(part) !== expected) throw new Error('The downloaded model checksum did not match. Retry setup.');
@@ -62,7 +69,14 @@ async function setup() {
   const result = JSON.parse(await readFile(output + '.json', 'utf8'));
   if (!result.transcription?.map(item => item.text).join(' ').toLowerCase().includes('country')) throw new Error('Speech smoke transcription failed. No readiness marker was saved.');
   await rm(output + '.json', { force: true });
-  await writeFile(join(root, 'ready.json'), JSON.stringify({ version: 'v1.9.5', model: 'base.en', sha256: expected, verifiedAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
+  let marker = { version: 'v1.9.5', model: MODEL_ID, sha256: expected };
+  if (ENGINE === 'parakeet') {
+    await setupParakeet({ root });
+    const text = await smokeParakeet({ root, sample: join(source, 'samples', 'jfk.wav') });
+    if (!text.toLowerCase().includes('country')) throw new Error('Parakeet smoke transcription failed. No readiness marker was saved.');
+    marker = { version: 'v1.9.5', engine: 'parakeet', model: PARAKEET_ID, sha256: await hash(parakeetModel(root)) };
+  }
+  await writeFile(join(root, 'ready.json'), JSON.stringify({ ...marker, verifiedAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
   await check();
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -211,7 +211,7 @@ test('engine failure and forced timeout remove temporary audio and free the proc
   let startupWatch;
   try {
     await mkdir(join(directory,'whisper.cpp/build/bin'),{recursive:true});
-    await symlink(join(actual,'ggml-base.en.bin'),join(directory,'ggml-base.en.bin'));
+    await symlink(join(actual,'ggml-small.en-q5_1.bin'),join(directory,'ggml-small.en-q5_1.bin'));
     await writeFile(join(directory,'ready.json'),await readFile(join(actual,'ready.json')));
     const executable = join(directory,'whisper.cpp/build/bin/whisper-cli');
     const clip = new Uint8Array(pcm.encodeWav(new Float32Array(16000).fill(.2)));

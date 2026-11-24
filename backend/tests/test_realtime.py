@@ -1,3 +1,5 @@
+import json
+import contextlib
 """Hands-free state invariants, using deterministic audio detector results."""
 import asyncio
 import unittest
@@ -93,6 +95,9 @@ class Turns(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(remove_wake_phrase('Hey, June! How are you?'), 'How are you?')
         self.assertEqual(remove_wake_phrase('I enjoy June weather.'), 'I enjoy June weather.')
         self.assertEqual(remove_wake_phrase('Hey June'), '')
+        for heard in ('Hey Joan.', 'Hey, Jean!', 'Hey Jane'):
+            self.assertEqual(remove_wake_phrase(heard, confirmed=True), '', heard)  # Vosk already confirmed the wake
+            self.assertEqual(remove_wake_phrase(heard), heard.strip(), heard)  # never strip a real name otherwise
         self.assertEqual(len(pcm_wav(b'\x00\x10' * 16000)), 32044)
     async def test_thinking_pause_and_patient_mode(self):
         self.turn.pause = 2.5
@@ -212,6 +217,67 @@ class Transport(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(slots.owner)
         self.assertIn('-10875',events[0]['message'])
         self.assertTrue(events[0]['fatal'])
+
+    async def native_session(self, queues):
+        """Run a native-capture voice session whose June Audio captures yield `queues` in order."""
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from june.realtime_socket import VoiceSlots, voice_socket
+        slots, events, captures, released = VoiceSlots(), asyncio.Queue(), [], []
+        class Socket:
+            async def accept(self): pass
+            async def receive(self):
+                if not hasattr(self, 'started'):
+                    self.started = True
+                    return {'type': 'websocket.receive', 'text': json.dumps({'type': 'start', 'audioSource': 'native', 'ownerId': 'a' * 32, 'voiceId': 'kokoro-af-heart'})}
+                await asyncio.Future()
+            async def send_json(self, event): await events.put(event)
+            async def close(self, **_): pass
+        class Audio:
+            async def capture(self, owner, session):
+                captures.append(session); return queues[len(captures) - 1]
+            async def release(self, session): released.append(session)
+            async def update_turn(self, *_args, **_kwargs): pass
+        async def ready(): return {'state': 'ready'}
+        def make_pipeline(detectors, turn, consumed, fail, ready_event, metrics):
+            stop = asyncio.Event()
+            class Pipeline:
+                async def queue_frame(self, frame): pass
+                async def cancel(self): stop.set()
+            class Runner:
+                async def run(self, pipeline): ready_event.set(); await stop.wait()
+            return Pipeline(), Runner()
+        detectors = SimpleNamespace(analyse=lambda pcm: (0, 0, .1))
+        engine = SimpleNamespace(Detectors=lambda _: detectors, make_pipeline=make_pipeline, PCMFrame=lambda *a, **k: a)
+        with patch('june.realtime_socket.importlib.import_module', return_value=engine):
+            task = asyncio.create_task(voice_socket(Socket(), SimpleNamespace(status=ready, model='test'), slots, SimpleNamespace(status=ready, transcribe=None), Audio()))
+            first = await asyncio.wait_for(events.get(), 5)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        return first, captures, released
+
+    @staticmethod
+    def capture_queue(packets, error=False):
+        queue = asyncio.Queue()
+        if error:
+            queue.put_nowait({'error': 'The audio device changed or capture stopped. Enable hands-free again.'})
+        for _ in range(packets):
+            queue.put_nowait({'pcm': b'\0' * 640, 'rms': .01})
+        return queue
+
+    async def test_native_capture_stopping_during_calibration_retries_once(self):
+        first, captures, released = await self.native_session([self.capture_queue(0, error=True), self.capture_queue(60)])
+        self.assertEqual(first['type'], 'ready')
+        self.assertEqual(len(captures), 2)
+        self.assertIn(captures[0], released)
+
+    async def test_native_capture_that_keeps_stopping_reports_the_real_reason(self):
+        from june.realtime_socket import CAPTURE_STOPPED
+        first, captures, _ = await self.native_session([self.capture_queue(0, error=True), self.capture_queue(0, error=True)])
+        self.assertEqual((first['type'], first['fatal'], first['message']), ('error', True, CAPTURE_STOPPED))
+        self.assertNotIn('invalid message', first['message'])
+        self.assertEqual(len(captures), 2)
 
     async def test_missing_assets_release_slot(self):
         from types import SimpleNamespace
@@ -962,3 +1028,163 @@ class FalseInterruptions(unittest.IsolatedAsyncioTestCase):
         for _ in range(80): await self.packet(False)
         await self.turn.flush()
         self.assertEqual([e['text'] for e in self.events if e['type'] == 'transcript'], ['How about you explain workers?'])
+
+
+class ShortFollowupReplies(unittest.IsolatedAsyncioTestCase):
+    """Quiet-room short replies after June speaks (synthetic frames; no real audio)."""
+    REPLY, ROOM = b'\x00\x10', b'\x01\x20'  # distinct sample patterns: the user's reply vs earlier room/playback audio
+
+    async def asyncSetUp(self):
+        self.events, self.clips = [], []
+        async def emit(event): self.events.append(event)
+        async def transcribe(data):
+            self.clips.append(data)
+            return {'text': 'Choose for me.', 'durationMs': 5}
+        self.clock = 0.
+        self.turn = VoiceTurn(emit, transcribe, clock=lambda: self.clock)
+        self.turn.number, self.turn.phase = 1, 'speaking'
+        await self.turn.activity(1, 'complete')
+        self.assertEqual(self.turn.phase, 'followup')
+
+    async def asyncTearDown(self):
+        await self.turn.close()
+
+    async def packet(self, voiced=False, pattern=REPLY, seconds=.02):
+        self.clock += seconds
+        await self.turn.audio(pattern * int(16000 * seconds), voiced)
+
+    async def reply(self, voiced_seconds, silence_seconds=2.):
+        for _ in range(round(voiced_seconds / .02)): await self.packet(True)
+        for _ in range(round(silence_seconds / .02)): await self.packet(False)
+        await self.turn.flush()
+
+    async def test_a_short_gated_reply_is_transcribed_not_silently_dropped(self):
+        # A crisp "yes"/"okay"/"choose for me" whose frames pass the strict gate for only 0.3 s in total.
+        await self.reply(.3)
+        self.clock += 11; await self.turn.tick()
+        self.assertEqual(len(self.clips), 1, 'a short reply after June spoke must reach Whisper, not expire at the deadline')
+        self.assertEqual([e['text'] for e in self.events if e['type'] == 'transcript'], ['Choose for me.'])
+
+    async def test_a_single_click_or_breath_is_still_not_a_reply(self):
+        await self.reply(.06)
+        self.clock += 11; await self.turn.tick()
+        self.assertEqual(self.clips, [])
+        self.assertEqual(self.turn.phase, 'waiting')
+
+    def seconds_of(self, clip, pattern):
+        audio = clip[44:]
+        return sum(1 for i in range(0, len(audio), 2) if audio[i:i + 2] == pattern) * 2 / 32000
+
+    async def test_followup_clip_keeps_a_soft_first_word_said_after_june_stopped(self):
+        # "Choose" is soft: the strict gate only fires on "for me". Everything since playback ended must reach Whisper.
+        SOFT = b'\x02\x30'
+        for _ in range(30): await self.packet(False, SOFT)  # 0.6 s of first word, below the gate
+        await self.reply(.4)
+        self.assertEqual(len(self.clips), 1)
+        self.assertAlmostEqual(self.seconds_of(self.clips[0], SOFT), .6, places=2)
+
+    async def test_followup_clip_excludes_junes_playback_from_before_she_stopped(self):
+        turn = self.turn
+        turn.phase = 'speaking'
+        for _ in range(100): await self.packet(False, self.ROOM)  # June's own voice and its echo, before 'complete'
+        await turn.activity(1, 'complete')
+        await self.reply(.6)
+        self.assertEqual(len(self.clips), 1)
+        self.assertLessEqual(self.seconds_of(self.clips[0], self.ROOM), .2 + 1e-9, 'only the minimum onset margin of earlier audio')
+
+    async def test_followup_clip_is_capped_at_two_seconds_of_preroll(self):
+        for _ in range(150): await self.packet(False, self.ROOM)  # a 3 s pause after June stopped
+        await self.reply(.6)
+        self.assertLessEqual(self.seconds_of(self.clips[0], self.ROOM), 2. + 1e-9)
+        self.assertGreaterEqual(self.seconds_of(self.clips[0], self.ROOM), 1.9)
+
+    async def test_a_normal_length_followup_is_unchanged(self):
+        await self.reply(.8)
+        self.assertEqual(len(self.clips), 1)
+        self.assertEqual(self.turn.number, 2)
+
+    async def test_native_short_reply_crossing_playback_end_keeps_its_onset(self):
+        turn = self.turn
+        turn.phase, turn.processed_input = 'speaking', True
+        for _ in range(5):
+            self.clock += .02
+            await turn.audio(self.REPLY * 320, False, barge=True)
+        playback_end = self.clock
+        await turn.activity(1, 'complete')
+        await self.reply(.12)
+        self.assertEqual(len(self.clips), 1)
+        self.assertGreaterEqual(self.seconds_of(self.clips[0], self.REPLY), .22 - 1e-9)
+        self.assertLess(turn.capture_started, playback_end)
+
+    async def test_native_playback_evidence_cannot_start_a_followup_on_its_own(self):
+        turn = self.turn
+        turn.phase, turn.processed_input = 'speaking', True
+        for _ in range(5):
+            self.clock += .02
+            await turn.audio(self.ROOM * 320, False, barge=True)
+        await turn.activity(1, 'complete')
+        await self.reply(0., .3)
+        self.assertEqual(turn.phase, 'followup')
+        await self.reply(.12)
+        self.assertEqual(self.clips, [])
+
+    async def test_a_short_echo_of_junes_last_words_is_still_not_a_reply(self):
+        async def echo(data):
+            self.clips.append(data); return {'text': 'Shall I proceed?', 'durationMs': 5}
+        self.turn.transcribe = echo
+        self.turn.playback = ['Total 550 rupees. Shall I proceed?']
+        await self.reply(.24)
+        self.assertFalse(any(e['type'] == 'transcript' for e in self.events), 'June hearing herself is never a new turn')
+        self.assertEqual(self.turn.phase, 'followup')
+
+    async def test_reply_start_time_is_the_users_onset_not_the_kept_preroll(self):
+        # The approval check compares this with the end of June's review; the pre-roll must not move it earlier.
+        for _ in range(100): await self.packet(False, self.ROOM)
+        onset = self.clock + .02
+        await self.packet(True)
+        self.assertAlmostEqual(self.turn.capture_started, onset - .02, places=6)
+        self.assertGreaterEqual(self.turn.capture_started + 1e-9, onset - .02)
+
+
+class PauseMidSentence(unittest.IsolatedAsyncioTestCase):
+    """"Book a table for two … tomorrow at 8 pm": a pause, then more words while the first part is transcribed."""
+    FIRST, REST = b'\x00\x10', b'\x03\x40'
+
+    async def run_case(self, followup):
+        now = 0.; events = []; clips = []; release = asyncio.Event(); started = asyncio.Event()
+        async def emit(e): events.append(e)
+        async def transcribe(clip):
+            clips.append(clip)
+            if len(clips) == 1:
+                started.set(); await release.wait()  # a slow model: the user goes on speaking meanwhile
+                return {'text': 'Book a table for two.', 'durationMs': 2500}
+            return {'text': 'Book a table for two tomorrow at 8 pm.', 'durationMs': 2500}
+        turn = VoiceTurn(emit, transcribe, pause='short', clock=lambda: now)
+        async def packet(voiced=False, pattern=self.FIRST, wake=False):
+            nonlocal now
+            now += .02; await turn.audio(pattern * 320, voiced, wake)
+        if followup:
+            turn.number, turn.phase = 1, 'speaking'; await turn.activity(1, 'complete')
+        else:
+            for i in range(10): await packet(True, wake=(i == 9))  # "Hey June"
+        for _ in range(40): await packet(True)                     # "book a table for two"
+        for _ in range(45): await packet()                         # a 0.9 s pause: longer than the 0.8 s setting
+        await started.wait()
+        for _ in range(35): await packet(True, self.REST)          # "tomorrow at 8 pm", said during the decode
+        release.set()
+        for _ in range(60): await packet()
+        await turn.flush()
+        await turn.close()
+        return [e['text'] for e in events if e['type'] == 'transcript'], clips
+
+    def has(self, clip, pattern):
+        audio = clip[44:]
+        return any(audio[i:i + 2] == pattern for i in range(0, len(audio), 2))
+
+    async def test_words_said_during_transcription_are_kept_and_decoded_with_the_first_part(self):
+        for followup in (False, True):
+            with self.subTest(followup=followup):
+                transcripts, clips = await self.run_case(followup)
+                self.assertEqual(transcripts, ['Book a table for two tomorrow at 8 pm.'], 'never the first half alone')
+                self.assertEqual(len(clips), 2)
+                self.assertTrue(self.has(clips[1], self.FIRST) and self.has(clips[1], self.REST), 'one clip with the whole sentence')

@@ -7,6 +7,7 @@ from .chat import stream_chat, MODEL_KEEP_ALIVE
 from .app_info import (application_reply_for_turn, personal_recall,
                        recall_field_for_turn, recall_query_for_turn, recall_fields, request_words, fact_fields, nonliteral_request, recall_requests_source, memory_check_followup)
 from .errors import JuneError
+from .reply_state import output_state
 from .memory import FICTION, validate_candidates, explicit_candidates, exclude_proposals
 
 
@@ -154,10 +155,18 @@ class Coordinator:
             async with self.lock:yield
         finally:self.tasks.pop(task,None)
 
-async def persisted_chat(client,settings,store,coordinator,value,mode,messages,knowledge=None):
+async def persisted_chat(client,settings,store,coordinator,value,mode,messages,knowledge=None,*,actions=None,timers=None,reminders=None,daily=None):
+    # Shared HTTP/WebSocket/direct ingress: never persist or model-process commerce payment secrets.
+    from .commerce import protect, domain_for, SECRET
+    commerce=getattr(getattr(daily,'plans',None),'commerce',None)
+    commerce_cid=value.get('conversationId') or value.get('transactionSessionId')
+    active=commerce.current(commerce_cid) if commerce and isinstance(commerce_cid,str) else None
+    for message in messages:
+        if message.get('role')=='user' and (active or domain_for(message['content']) or SECRET.search(message['content'])):
+            protect(message['content'])
     if value.get('knowledge') == {'mode':'auto'}:
         from .library_chat import automatic_chat
-        async with aclosing(automatic_chat(client,settings,store,coordinator,knowledge,value,messages)) as source:
+        async with aclosing(automatic_chat(client,settings,store,coordinator,knowledge,value,messages,actions=actions,timers=timers,reminders=reminders,daily=daily)) as source:
             async for event in source:
                 yield event
         return
@@ -212,12 +221,13 @@ async def persisted_chat(client,settings,store,coordinator,value,mode,messages,k
                     if event['type']=='delta': reply+=event['text']
                     if event['type']=='error': ending='failed'
                     if event['type']=='done':
+                        if mode=='local': event={**event, **output_state(reply,event.get('limited',False))}
                         ending='stopped' if event.get('repetitionStopped') else 'complete' if reply.strip() else 'failed'
                         if started:
                             # Exact explicit clauses need no CPU inference and
                             # must not disappear when the next voice turn starts.
                             # Store pending suggestions only; approval stays human.
-                            if not store.finish_turn(tid,reply,ending,propose=mode=='local'):
+                            if not store.finish_turn(tid,reply,ending,propose=mode=='local',output=event):
                                 raise JuneError('stale-turn','This reply was interrupted before it could be saved. Reopen the chat or send your question again.',409)
                         if started or temporary: event={**event,'persistence':'saved' if started else 'temporary','memoryIds':[x['id'] for x in facts], 'revision':revision, 'conversationId':cid, 'turnId':tid}
                     yield event

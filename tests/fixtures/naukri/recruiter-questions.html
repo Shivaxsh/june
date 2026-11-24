@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Frontend Engineer</title></head><body>
+<h1>Frontend Engineer</h1><div id="banner"></div>
+<div class="chatbot_DrawerContentWrapper" id="drawer"><ul id="list"></ul><div id="input"></div><div class="sendMsgbtn_container"><div class="sendMsg" id="save">Save</div></div></div>
+<script>
+window.__answers=[];
+const Q=[{q:'What is your notice period?',kind:'text'},{q:'Are you willing to relocate to Gurugram?',kind:'radio',o:['Yes','No']},{q:'Do you have your own laptop?',kind:'chips',o:['Yes','No']},{q:'Have you used AI coding tools? Which ones?',kind:'textskip'},{q:'Are you okay working from our Noida (Noida Extension) office?',kind:'radio',o:['yes','no','Skip this question']}];
+let i=0;
+function show(){const li=document.createElement('li');li.className='botItem';li.innerHTML='<div class="botMsg"><span></span></div>';li.querySelector('span').textContent=Q[i].q;list.appendChild(li);
+ const inp=document.getElementById('input');inp.innerHTML='';
+ if(Q[i].kind==='text'){inp.innerHTML='<div class="textArea" contenteditable="true"></div>';}
+ if(Q[i].kind==='textskip'){inp.innerHTML='<div class="textArea" contenteditable="true"></div>';const skip=document.createElement('div');skip.className='chatbot_Chip skipBtn';skip.textContent='Skip this question';skip.onclick=()=>{__answers.push('__skipped__');next();};inp.appendChild(skip);}
+ if(Q[i].kind==='radio'){Q[i].o.forEach((o,n)=>{inp.insertAdjacentHTML('beforeend','<div class="ssrc__radio-btn-container"><input type="radio" name="r" id="r'+n+'" value="'+o+'"><label for="r'+n+'">'+o+'</label></div>')});}
+ if(Q[i].kind==='chips'){const box=document.createElement('div');box.className='chatbot_ChipsContainer';inp.appendChild(box);Q[i].o.forEach(o=>{const c=document.createElement("div");c.className="chatbot_Chip";c.textContent=o;c.onclick=()=>{__answers.push(o);next();};box.appendChild(c);});}}
+function next(){i++; if(i<Q.length) show(); else {drawer.remove(); banner.textContent='Applied to "Frontend Engineer"';}}
+save.onclick=()=>{const q=Q[i]; if(!q||q.kind==='chips')return; let v=''; if(q.kind==='text'||q.kind==='textskip')v=document.querySelector('.textArea').innerText; else {const r=document.querySelector('input[type=radio]:checked'); v=r?r.value:'';} if(!v)return; __answers.push(v); next();};
+// Test hooks: make a different question appear (as if the page moved on), and take it away again.
+window.__interject=q=>{const li=document.createElement('li');li.className='botItem interjected';li.innerHTML='<div class="botMsg"><span></span></div>';li.querySelector('span').textContent=q;list.appendChild(li);};
+window.__uninterject=()=>document.querySelectorAll('.interjected').forEach(e=>e.remove());
+show();
+</script></body></html>

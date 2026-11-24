@@ -99,7 +99,7 @@ class KnowledgeTests(unittest.IsolatedAsyncioTestCase):
         backup=self.store.directory/'june.pre-phase7.sqlite3'
         with sqlite3.connect(backup) as db:self.assertEqual(db.execute('pragma user_version').fetchone()[0],1)
         self.assertEqual(os.stat(backup).st_mode&0o777,0o600)
-        with self.store.db() as db:self.assertEqual(db.execute('pragma user_version').fetchone()[0],3)
+        with self.store.db() as db:self.assertEqual(db.execute('pragma user_version').fetchone()[0],4)
         did=await self.ready()
         reopened=Store(self.store.directory)
         self.assertEqual(reopened.revision(),0)
@@ -201,6 +201,34 @@ class KnowledgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('PrivateName',json.dumps(model_payload))
         self.assertEqual(self.store.export(True)['conversations'],[])
         with self.assertRaises(JuneError):self.store.context(cid)
+
+    def test_serialized_citation_metadata_is_not_a_document_answer(self):
+        source={'id':'x','document':'d','name':'n','page':None,'lineStart':1,'lineEnd':1,'text':'Memory: 32 GB.'}
+        for answer in ('[{"chunkId":"S1"}]','{"documentAnswer":"32 GB","citations":[]}', '```json\n[{"chunkId":"S1"}]\n```', '~~~json\n[{"chunkId":"S1"}]\n~~~'):
+            result=validate_answer({'supported':True,'answer':answer,'citations':[{'chunkId':'x','quote':'Memory: 32 GB.'}]},[source])
+            self.assertEqual(result,(UNSUPPORTED,[]))
+        good=validate_answer({'supported':True,'answer':'32 GB.','citations':[{'chunkId':'x','quote':'Memory: 32 GB.'}]},[source])
+        self.assertEqual(good[0],'32 GB.')
+
+    def test_miscopied_cited_values_are_not_verified_answers(self):
+        # Live parameter screen: valid citations, but the model truncated or padded 1200.
+        alpha={'id':'a','document':'da','name':'Alpha Build.txt','page':None,'lineStart':1,'lineEnd':2,
+               'text':'Alpha build motherboard: Example Board A. Graphics: Example 5070 Ti. Memory: 32 GB. Budget: 1200 credits.\n'}
+        beta={'id':'b','document':'db','name':'Beta Build.txt','page':None,'lineStart':1,'lineEnd':2,
+              'text':'Beta build motherboard: Example Board B. Graphics: Example 9070 XT. Memory: 64 GB. Budget: 1600 credits.\n'}
+        cites=[{'chunkId':'a','quote':alpha['text']},{'chunkId':'b','quote':beta['text']}]
+        for answer in ('The budget for Alpha Build.txt is 120  credits, and for Beta Build.txt it is 1600 credits.',
+                       'The budget for Alpha Build.txt is 120 000 credits, and for Beta Build.txt it is 1600 credits.',
+                       'Beta lists 16000 credits.', 'Alpha has 12 credits.'):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_answer({'supported':True,'answer':answer,'citations':cites},[alpha,beta]),(UNSUPPORTED,[]))
+        # Known limit: single digits are not compared ("3 GB" for "32 GB" is not caught), so counts such as "1 motherboard" stay valid.
+        # Exact copies, separators, derived arithmetic and identifiers remain valid.
+        for answer in ('The budget for Alpha Build.txt is 1200 credits, while Beta Build.txt is 1600 credits. Beta is higher by 400 credits.',
+                       'Alpha lists 1,200 credits and an Example 5070 Ti with 32 GB.', 'Beta has 64 GB and an Example 9070 XT.',
+                       'Both builds list one motherboard each.'):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_answer({'supported':True,'answer':answer,'citations':cites},[alpha,beta])[0],answer)
 
     async def test_invalid_quotes_or_ids_never_emit_raw_json_or_fallback(self):
         did=await self.ready()

@@ -1,5 +1,6 @@
 """Audio turn ownership; independent of sockets, models and React."""
 import asyncio
+from collections import deque
 from contextlib import suppress
 import re
 import struct
@@ -11,6 +12,11 @@ from .errors import JuneError
 from .speech_text import clean_transcript
 
 PAUSES = {'short': .8, 'normal': 1.5, 'patient': 2.5}
+FOLLOWUP_MINIMUM_VOICED = .2   # seconds of gated speech that make a follow-up reply
+FOLLOWUP_MIN_PREROLL_BYTES = 6400  # a follow-up clip keeps at least 0.2 s before its onset
+FOLLOWUP_MAX_PREROLL_BYTES = 64000  # and at most 2 s: everything since June stopped speaking
+INTERRUPT_PREROLL_SECONDS = 1.0  # audio kept from before a native barge-in is confirmed
+BARGE_WINDOW_SECONDS, BARGE_MIN_SECONDS = .4, .12  # native barge-in: 0.12 s of evidence within any 0.4 s
 
 
 def pause_only(text):
@@ -43,7 +49,7 @@ def remove_wake_phrase(text, confirmed=False):
     # Only a lexical wake already confirmed by Vosk permits ASR homophones.
     # Ordinary transcripts/names remain untouched. In particular a wake-only
     # "Hey, Jude" must not become a model turn and discard the buffered question.
-    name = r'(?:june|jun|jude)' if confirmed else 'june'
+    name = r'(?:june|jun|jude|joan|jean|jane)' if confirmed else 'june'
     return re.sub(r'^\s*hey[\s,;:.!—–-]*' + name + r'\b[\s,;:.!?—–-]*', '', text, flags=re.I).strip()
 
 
@@ -126,8 +132,11 @@ class VoiceTurn:
         self.processed_input = processed_input
         self.pause = PAUSES[pause]
         self.phase, self.number = 'waiting', 0
+        self.capture_started = self.clock()
         self.buffer, self.preroll = bytearray(), bytearray()
         self.preroll_voice = bytearray()
+        # Bytes ever added to the pre-roll, and that count when June last finished speaking (start of follow-up).
+        self.preroll_total = self.followup_mark = 0
         self.silence = self.voiced = 0.
         self.deadline = None
         self.question_deadline = None
@@ -137,6 +146,8 @@ class VoiceTurn:
         self.last_wake = float('-inf')
         self.minimum_voiced = .5
         self.interrupt_voiced = 0.
+        self.barge_window = deque()
+        self.followup_bridge = None
         self.probe = None
         self.probe_number = 0
         self.probe_cooldown = 0.
@@ -181,10 +192,13 @@ class VoiceTurn:
         seconds = self.interrupt_voiced
         # Quantise to whole PCM16 samples; wall-clock jitter can produce an odd
         # byte count, which would shift every sample and invalidate the WAV.
-        size = min(len(self.preroll), int((seconds + .2) * 16000) * 2)
+        # The gate confirms speech late (AEC chops the user's voice while June talks): keep a full second before the
+        # trigger so the first word is in the clip. Echo of June's own words there is removed by echo_check.
+        size = min(len(self.preroll), int((seconds + INTERRUPT_PREROLL_SECONDS) * 16000) * 2)
         clip = bytes(candidate['audio']) if candidate else bytes(probe['audio']) if probe else bytes(self.preroll[-size:])
         self.number += 1
         number = self.number
+        self.capture_started = probe['started'] if probe else self.clock() - max(seconds, .2)
         await self.emit({'type': 'interrupt', 'turn': number})
         await self.clear_probe(resume=False)
         await self.cancel_job()
@@ -410,15 +424,22 @@ class VoiceTurn:
                     self.generation_job = None
         self.generation_job = asyncio.create_task(confirm())
 
-    async def consider_interruption(self, voiced, duration, now, pcm=b''):
+    async def consider_interruption(self, voiced, duration, now, pcm=b'', barge=None):
         if self.processed_input and self.phase == 'generating':
             await self.capture_generation_candidate(pcm, voiced, duration)
             return
         if self.processed_input:
-            # Only native AEC/NS output reaches this path. Its VAD and adaptive
-            # energy gate run upstream; raw browser sound never uses it.
-            self.interrupt_voiced = self.interrupt_voiced + duration if voiced else 0.
-            if self.interrupt_voiced + 1e-6 >= .18:
+            # Only native AEC/NS output reaches this path. Its loudness-led barge-in evidence is computed upstream
+            # (signal_gate.barge_evidence); raw browser sound never uses it. AEC chops the user's voice while June
+            # talks, so count evidence within a short window rather than one unbroken run.
+            evidence = voiced if barge is None else barge
+            window = self.barge_window
+            window.append((self.audio_time, duration if evidence else 0.))
+            while window and window[0][0] <= self.audio_time - BARGE_WINDOW_SECONDS:
+                window.popleft()
+            self.interrupt_voiced = sum(value for _, value in window)
+            if self.interrupt_voiced + 1e-6 >= BARGE_MIN_SECONDS:
+                window.clear()
                 await self.interrupt()
             return
         if self.probe:
@@ -454,9 +475,11 @@ class VoiceTurn:
         self.pending_started = None
         self.pending_voiced = self.pending_silence = 0.
         self.pending_finished = False
+        # True while an ordinary capture is being transcribed: keep anything the user goes on saying meanwhile.
+        self.collect_during_decode = False
 
     def pending_audio(self, pcm, voiced, now, duration):
-        continuation = self.replacement_capture or self.generation_job is not None
+        continuation = self.replacement_capture or self.generation_job is not None or self.collect_during_decode
         if (self.question_deadline is None and not continuation) or self.pending_finished:
             return
         if self.pending_started is None:
@@ -494,6 +517,10 @@ class VoiceTurn:
 
     async def state(self, phase):
         number = self.number
+        if phase != 'followup':
+            self.followup_bridge = None
+        if phase != 'speaking':
+            self.barge_window.clear()
         if phase == 'waiting':
             await self.clear_probe()
             if self.closed or number != self.number:
@@ -502,6 +529,8 @@ class VoiceTurn:
             self.reset_pending()
             self.replacement_capture = False
             self.deadline = self.question_deadline = None
+        if phase == 'followup':
+            self.followup_mark = self.preroll_total
         self.phase = phase
         await self.emit({'type': 'state', 'phase': phase, 'turn': self.number})
 
@@ -521,6 +550,7 @@ class VoiceTurn:
             self.job = None
 
     async def wake(self):
+        self.capture_started = self.clock() - min(.5, len(self.preroll)/32000)
         self.number += 1
         number = self.number
         await self.clear_probe(resume=False)
@@ -545,10 +575,11 @@ class VoiceTurn:
         self.question_deadline = self.deadline
         await self.state('listening')
 
-    async def audio(self, pcm, voiced, wake=False):
+    async def audio(self, pcm, voiced, wake=False, barge=None):
         if self.closed:
             return
         self.preroll.extend(pcm)
+        self.preroll_total += len(pcm)
         self.preroll_voice.extend(bytes([int(voiced)]) * len(pcm))
         if len(self.preroll) > 64000:
             del self.preroll[:-64000]
@@ -566,14 +597,32 @@ class VoiceTurn:
         if self.phase in ('generating', 'speaking') or self.probe:
             if self.generation_job is not None:
                 self.pending_audio(pcm, voiced, now, duration)
-            await self.consider_interruption(voiced, duration, now, pcm)
+            await self.consider_interruption(voiced, duration, now, pcm, barge)
             return
         if self.phase == 'followup' and voiced:
+            self.capture_started = now - duration
+            bridge = self.followup_bridge
+            carry = 0.
+            extra = 0
+            if bridge is not None:
+                end, onset, evidence, preroll = bridge
+                if self.audio_time - duration - end <= .2 + 1e-6:
+                    # Speech that began during playback must retain its old onset
+                    # so that it cannot count as approval after a spoken review.
+                    self.capture_started = min(self.capture_started, onset)
+                    carry, extra = evidence, preroll
             self.number += 1
-            self.minimum_voiced = .5
+            # A reply straight after June spoke is often one short word ("yes", "no", "choose for me"), and the strict
+            # processed gate counts only its loudest frames. The echo check, pause-only check and the approval rules
+            # still apply; a click or breath stays below this.
+            self.minimum_voiced = FOLLOWUP_MINIMUM_VOICED
             self.echo_check = True
-            self.buffer = bytearray(self.preroll[:-len(pcm)])
-            self.voiced = self.silence = 0.
+            # The strict gate fires late, often on a later, louder syllable: keep everything said since June stopped
+            # speaking (a soft first word like "choose"), but not her own playback from before that.
+            since = self.preroll_total - len(pcm) - self.followup_mark
+            keep = max(FOLLOWUP_MIN_PREROLL_BYTES, min(FOLLOWUP_MAX_PREROLL_BYTES, since + extra))
+            self.buffer = bytearray(self.preroll[:-len(pcm)][-keep:])
+            self.voiced, self.silence = carry, 0.
             self.deadline = now + 10
             await self.state('listening')
         if self.phase == 'transcribing':
@@ -606,6 +655,7 @@ class VoiceTurn:
         self.preroll.clear()
         self.preroll_voice.clear()
         self.reset_pending()
+        self.collect_during_decode = True
         self.interrupt_voiced = 0.
         self.deadline = None
         await self.state('transcribing')
@@ -657,6 +707,11 @@ class VoiceTurn:
                     return
                 if len(text.encode('utf-16-le')) // 2 > 2000:
                     raise JuneError('too-long', 'That question is too long. Try a shorter question.', 400)
+                # The user paused, then kept talking while this part was transcribed ("book a table for two ...
+                # tomorrow at 8 pm"). Never send the first half and drop the rest: decode the whole utterance once.
+                if self.pending_started is not None and self.pending_voiced + 1e-6 >= .24 and len(clip) - 44 < 960000:
+                    await self.listen_for_replacement(clip[44:], captured_voiced)
+                    return
                 self.question_deadline = None
                 self.reset_pending()
                 self.replacement_capture = False
@@ -721,11 +776,20 @@ class VoiceTurn:
                 await self.state(phase)
             elif phase == 'complete':
                 self.generation_candidate = None
+                recent = [(end, voiced) for end, voiced in self.barge_window
+                          if voiced and end > self.audio_time - BARGE_WINDOW_SECONDS]
+                self.followup_bridge = None
+                evidence = sum(voiced for _, voiced in recent)
+                if evidence + 1e-6 >= .06 and self.audio_time - recent[-1][0] <= .12:
+                    age = self.audio_time - recent[0][0] + recent[0][1]
+                    self.followup_bridge = (self.audio_time, self.clock() - age, evidence,
+                                            round((age + .2) * 16000) * 2)
                 await self.clear_probe()
                 if self.closed or number != self.number:
                     return
-                self.preroll.clear()
-                self.preroll_voice.clear()
+                if self.followup_bridge is None:
+                    self.preroll.clear()
+                    self.preroll_voice.clear()
                 self.deadline = self.clock() + 30
                 await self.state('followup')
             elif phase == 'failed':

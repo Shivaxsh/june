@@ -13,9 +13,9 @@ test('worker check validates readiness and closes a real private process', async
   const root = await mkdtemp(join(tmpdir(), 'june-worker-script-'));
   try {
     await mkdir(join(root, 'worker/build/bin'), { recursive: true });
-    await writeFile(join(root, 'ggml-base.en.bin'), 'fixture');
+    await writeFile(join(root, 'ggml-small.en-q5_1.bin'), 'fixture');
     const binary = join(root, 'worker/build/bin/june-whisper-worker');
-    await writeFile(binary, '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({type:"ready",protocol:1,model:"base.en"})+"\\n");process.stdin.resume();process.stdin.on("end",()=>process.exit(0));\n', { mode: 0o700 });
+    await writeFile(binary, '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({type:"ready",protocol:1,model:"small.en-q5_1"})+"\\n");process.stdin.resume();process.stdin.on("end",()=>process.exit(0));\n', { mode: 0o700 });
     await worker.checkWorker({ root, timeoutMs: 20000 });
     await writeFile(binary, '#!/usr/bin/env node\nprocess.stdout.write("malformed\\n");process.stdin.resume();\n', { mode: 0o700 });
     await assert.rejects(worker.checkWorker({ root, timeoutMs: 20000 }), /worker|protocol/i);

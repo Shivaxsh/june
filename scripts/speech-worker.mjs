@@ -8,6 +8,8 @@ import { join, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 if (existsSync('.env.local')) process.loadEnvFile('.env.local');
 const repository = fileURLToPath(new URL('..', import.meta.url));
+// The speech model June uses (a quantised small.en: more accurate than base.en). The one place to change it.
+export const MODEL_ID = 'small.en-q5_1', MODEL_NAME = 'small.en', MODEL_FILE = `ggml-${MODEL_ID}.bin`;
 const speechHome = () => process.env.JUNE_SPEECH_HOME || join(homedir(), 'Library', 'Application Support', 'June', 'speech');
 const workerPath = root => join(root, 'worker', 'build', 'bin', 'june-whisper-worker');
 function run(command, args, { capture = false, ...options } = {}) {
@@ -55,10 +57,10 @@ export async function setupWorker({ root = speechHome() } = {}) {
 }
 export async function checkWorker({ root = speechHome(), timeoutMs = 120000 } = {}) {
   await access(workerPath(root));
-  await access(join(root, 'ggml-base.en.bin'));
+  await access(join(root, MODEL_FILE));
   // Only load readiness, no inference. stdout is bounded and never printed.
   await new Promise((resolvePromise, reject) => {
-    const child = spawn(workerPath(root), ['--model', join(root, 'ggml-base.en.bin')], { stdio: ['pipe', 'pipe', 'ignore'] });
+    const child = spawn(workerPath(root), ['--model', join(root, MODEL_FILE)], { stdio: ['pipe', 'pipe', 'ignore'] });
     let buffer = Buffer.alloc(0), ready = false, error;
     const stop = reason => { error ||= reason; child.kill('SIGKILL'); };
     const timer = setTimeout(() => stop(new Error('Speech worker readiness timed out.')), timeoutMs);
@@ -70,7 +72,7 @@ export async function checkWorker({ root = speechHome(), timeoutMs = 120000 } = 
       if (!buffer.includes(10)) return;
       try {
         const message = JSON.parse(buffer.toString('utf8'));
-        if (message.type !== 'ready' || message.protocol !== 1 || message.model !== 'base.en') throw Error();
+        if (message.type !== 'ready' || message.protocol !== 1 || message.model !== MODEL_ID) throw Error();
         ready = true;
         child.stdin.end();
       } catch { stop(new Error('Invalid speech worker readiness protocol.')); }
@@ -89,6 +91,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (process.argv[2] === 'check') await checkWorker();
     else if (!process.argv[2] || process.argv[2] === 'setup') { await setupWorker(); await checkWorker(); }
     else throw new Error('Use speech-worker.mjs setup or check.');
-    console.log('Resident Whisper base.en worker is ready.');
+    console.log(`Resident Whisper ${MODEL_NAME} worker is ready.`);
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

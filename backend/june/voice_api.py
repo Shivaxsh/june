@@ -39,3 +39,19 @@ async def speak(request:Request):
                 async for event in source:yield json.dumps(event).encode()+b'\n'
         except JuneError as error:yield json.dumps({'type':'error','message':error.message}).encode()+b'\n'
     return NativeStream(events(),media_type='application/x-ndjson')
+
+
+@router.post('/repair')
+async def repair(request:Request):
+    """Restart the Mac's sound service after the person authorises it in macOS's own prompt."""
+    if await body(request,1000)!={}:raise JuneError('voice-request','Repair takes no arguments.',400)
+    from .sound_repair import restart_sound_service
+    outcome=await restart_sound_service()
+    if outcome=='cancelled':return {'outcome':'cancelled','message':'Nothing was changed. The sound service was not restarted.'}
+    if outcome!='restarted':raise JuneError('repair-failed','The Mac did not restart its sound service. Restart the Mac instead.',503)
+    audio=request.app.state.native_audio
+    # A helper that lived through the restart can report ready while silent: start a fresh one.
+    audio.invalidate_output()
+    await audio.terminate()
+    request.app.state.voice_runtime.retry_preparation()
+    return {'outcome':'restarted','message':'The Mac’s sound service was restarted. June is reconnecting her voice; this takes a few seconds.'}

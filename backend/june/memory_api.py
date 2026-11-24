@@ -29,12 +29,32 @@ async def body(request,limit=2*1024*1024):
 @router.get('/state')
 async def state(request:Request,search:str=''):
     return store(request).snapshot(search[:200])
+@router.get('/graph')
+async def graph(request:Request):
+    return store(request).graph_links()
 @router.post('/conversations')
 async def create(request:Request):
     return store(request).create_conversation()
 @router.get('/conversations/{cid}')
 async def conversation(cid:str,request:Request):
-    return store(request).conversation(cid)
+    chat=store(request).conversation(cid)
+    actions=getattr(request.app.state,'actions',None)
+    if actions:
+        links=actions.links(cid)
+        for turn in chat['turns']:
+            if turn['id'] in links:turn['actionId']=links[turn['id']]
+    timers=getattr(request.app.state,'timers',None)
+    if timers:
+        links=timers.links(cid)
+        for turn in chat['turns']:
+            if turn['id'] in links:turn['timerId']=links[turn['id']]
+    reminders=getattr(request.app.state,'reminders',None)
+    if reminders:
+        links=reminders.links(cid);series_links=reminders.series_links(cid)
+        for turn in chat['turns']:
+            if turn['id'] in links:turn['reminderId']=links[turn['id']]
+            if turn['id'] in series_links:turn['reminderSeriesId']=series_links[turn['id']]
+    return chat
 @router.post('/conversations/{cid}/library-mode')
 async def library_mode(cid:str,request:Request):
     saved = store(request)
@@ -44,11 +64,23 @@ async def library_mode(cid:str,request:Request):
 async def clear(request:Request):
     await request.app.state.coordinator.cancel()
     store(request).delete_conversation()
+    actions=getattr(request.app.state,'actions',None)
+    if actions:actions.unlink()
+    timers=getattr(request.app.state,'timers',None)
+    if timers:timers.unlink()
+    reminders=getattr(request.app.state,'reminders',None)
+    if reminders:reminders.unlink()
     return {'saved':True}
 @router.delete('/conversations/{cid}')
 async def delete_chat(cid:str,request:Request):
     await request.app.state.coordinator.cancel()
     store(request).delete_conversation(cid)
+    actions=getattr(request.app.state,'actions',None)
+    if actions:actions.unlink(cid)
+    timers=getattr(request.app.state,'timers',None)
+    if timers:timers.unlink(cid)
+    reminders=getattr(request.app.state,'reminders',None)
+    if reminders:reminders.unlink(cid)
     return {'saved':True}
 @router.post('/memories')
 async def add(request:Request):

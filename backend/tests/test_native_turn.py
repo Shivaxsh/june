@@ -71,3 +71,58 @@ class NativeTurnTests(unittest.IsolatedAsyncioTestCase):
                     await turn.finish_capture();await turn.flush()
                     self.assertEqual([e['text'] for e in events if e['type']=='transcript'],[raw])
                 finally:await turn.close()
+
+    async def test_native_barge_in_clip_keeps_the_start_of_the_users_words(self):
+        # 2026-11-23: an interruption clip began at full volume (its first word was missing).
+        clips=[];events=[]
+        async def emit(e):events.append(e)
+        async def decode(data):clips.append(data);return {'text':'two','durationMs':1}
+        turn=VoiceTurn(emit,decode,pause='short',processed_input=True)
+        turn.number=1;turn.phase='speaking'
+        EARLY,LATE=b'\x05\x50',b'\x00\x10'
+        try:
+            for _ in range(40):await turn.audio(EARLY*320,False)  # the soft start the gate missed (0.8 s)
+            for _ in range(10):await turn.audio(LATE*320,True)    # the part that confirmed the barge-in
+            for _ in range(50):await turn.audio(b'\x00\x00'*320,False)
+            await turn.flush()
+            self.assertTrue(any(e['type']=='interrupt' for e in events))
+            audio=clips[0][44:]
+            kept=sum(1 for i in range(0,len(audio),2) if audio[i:i+2]==EARLY)*2/32000
+            self.assertGreaterEqual(kept,.75,f'only {kept:.2f} s from before the trigger was kept')
+        finally:await turn.close()
+
+
+class MeasuredBargeIn(unittest.IsolatedAsyncioTestCase):
+    """Frame numbers (VAD probability / RMS) measured on this Mac's voice-processed input on 2026-11-23."""
+    ECHO = [(0,0),(0,.002),(.66,.020),(.66,.039),(.62,.042),(.62,.045),(.46,.049),(.31,.029),(.31,.020),(.15,.017),(.07,.002)]
+    TWO = [(0,0),(.02,.089),(.02,.321),(.68,.199),(.73,.162),(.73,.130),(.43,.129),(.44,.246),(.44,.209),(.34,.184),(.34,.055),(.52,.018),(.48,.019)]
+    STOP = [(0,.144),(0,.440),(.70,.203),(.61,.190),(.61,.195),(.35,.208),(.35,.153),(.30,.171),(.22,.253),(.22,.243),(.32,.196),(.32,.109),(.32,.075)]
+    FLOOR = .00111
+
+    async def replay(self, frames):
+        from june.signal_gate import barge_evidence, ProcessedSignalGate
+        events=[]
+        async def emit(e):events.append(e)
+        async def decode(_):return {'text':'two','durationMs':1}
+        turn=VoiceTurn(emit,decode,pause='short',processed_input=True)
+        turn.number=1;turn.phase='speaking';gate=ProcessedSignalGate()
+        try:
+            for p,rms in [(0,0)]*20+frames+[(0,0)]*20:
+                voiced,_=gate.accept(640,p,rms,self.FLOOR,False)
+                await turn.audio(b'\x00\x10'*320,voiced,barge=barge_evidence(p,rms,self.FLOOR))
+            return any(e['type']=='interrupt' for e in events)
+        finally:await turn.close()
+
+    async def test_the_users_measured_words_interrupt_june(self):
+        for name,frames in (('two',self.TWO),('stop',self.STOP)):
+            with self.subTest(word=name):
+                self.assertTrue(await self.replay(frames),f'"{name}" (VAD 0.3-0.73, RMS up to 0.44) must interrupt')
+
+    async def test_junes_measured_echo_and_silence_never_interrupt(self):
+        self.assertFalse(await self.replay(self.ECHO*3),'her own echo peaked at RMS 0.049')
+        self.assertFalse(await self.replay([(0,0)]*200))
+        self.assertFalse(await self.replay([(.9,.5),(0,0),(0,0),(0,0),(.9,.5)]),'two isolated 20 ms spikes are not a word')
+
+    def test_the_old_rule_missed_both_words(self):
+        # The previous gate needed VAD >= 0.8 for 0.18 s unbroken: none of these frames qualified.
+        self.assertFalse(any(p>=.8 for p,_ in self.TWO+self.STOP))

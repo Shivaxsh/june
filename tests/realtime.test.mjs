@@ -454,3 +454,41 @@ test('hands-free timings are scoped to the current session and turn rather than 
     assert.deepEqual(f.states.at(-1).timings, { endDetection: 0 });
   } finally { f.controller.stop(); }
 });
+
+test('a hidden-page stop releases capture without cancelling the reply; an explicit stop still cancels', async () => {
+  const f = fixture(); await f.controller.start('normal'); f.ws.readyState = 1; f.ws.onopen();
+  f.event({ type: 'ready', turn: 0 }); f.event({ type: 'wake', turn: 1 });
+  f.event({ type: 'transcript', text: 'question', turn: 1 });
+  f.controller.stop('', { cancelReply: false });
+  assert.equal(f.states.at(-1).phase, 'off'); assert.equal(f.input.stopped, true); assert.equal(f.ws.readyState, 3);
+  assert.deepEqual(f.cancels, [], 'the reply being written is allowed to finish');
+  const g = fixture(); await g.controller.start('normal'); g.ws.readyState = 1; g.ws.onopen();
+  g.event({ type: 'ready', turn: 0 });
+  g.controller.stop(); assert.deepEqual(g.cancels, [true]);
+});
+
+test('a capture failure after the question was accepted keeps the reply; before it, the turn is cancelled', async () => {
+  const f = fixture(); await f.controller.start('normal'); f.ws.readyState = 1; f.ws.onopen();
+  f.event({ type: 'ready', turn: 0 }); f.event({ type: 'wake', turn: 1 });
+  f.event({ type: 'transcript', text: 'question', turn: 1 }); f.event({ type: 'state', phase: 'generating', turn: 1 });
+  f.event({ type: 'error', fatal: true, message: 'Native microphone capture stopped.' });
+  assert.equal(f.states.at(-1).phase, 'off'); assert.equal(f.states.at(-1).error, 'Native microphone capture stopped.');
+  assert.deepEqual(f.cancels, [], 'the answer being generated is kept');
+  const g = fixture(); await g.controller.start('normal'); g.ws.readyState = 1; g.ws.onopen();
+  g.event({ type: 'ready', turn: 0 }); g.event({ type: 'wake', turn: 1 });
+  g.event({ type: 'error', fatal: true, message: 'Native microphone capture stopped.' });
+  assert.deepEqual(g.cancels, [true], 'a half-heard question is cancelled');
+});
+
+test('voice status adapter types outputError and voiceWarm safely: a malformed failure field never reads as healthy', async () => {
+  const { fetchVoiceConfig } = await load('../lib/voice/realtime-client.ts');
+  const base = { state: 'preparing', message: 'Audio output was interrupted.', nativeReady: true, providerState: 'ready' };
+  const read = value => fetchVoiceConfig(new AbortController().signal, async () => Response.json({ ...base, ...value }));
+  assert.equal((await read({ outputError: 'Audio output was interrupted.', voiceWarm: false })).outputError, 'Audio output was interrupted.');
+  assert.equal((await read({ outputError: null, voiceWarm: true })).outputError, null);
+  assert.equal((await read({ voiceWarm: true })).voiceWarm, true);
+  assert.equal((await read({ voiceWarm: 'yes' })).voiceWarm, false, 'only a real true counts as warm');
+  for (const bad of [42, {}, ['x'], '', '   ', 'x'.repeat(501), true])
+    assert.match((await read({ outputError: bad })).outputError, /output reported an error/, `malformed ${JSON.stringify(bad)} fails safe`);
+  assert.ok(!('outputError' in (await read({}))), 'absent stays absent (older servers)');
+});

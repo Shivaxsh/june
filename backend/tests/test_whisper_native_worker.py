@@ -66,8 +66,17 @@ class NativeTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         self.assertTrue(self.source.exists(), 'native resident control loop must exist')
-        self.process = await asyncio.create_subprocess_exec(str(self.binary), '--model', 'unused', stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        self.assertEqual(await self.read(), {'type': 'ready', 'protocol': 1, 'model': 'base.en'})
+        self.process = await asyncio.create_subprocess_exec(str(self.binary), '--model', '/fixture/ggml-small.en-q5_1.bin', stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        self.addAsyncCleanup(self.reap_failed_setup)
+        # A freshly compiled executable can take longer to launch on macOS.
+        # Keep the two-second protocol/job/cancellation bounds below unchanged.
+        self.assertEqual(await self.read(timeout=15), {'type': 'ready', 'protocol': 1, 'model': 'small.en-q5_1'})
+
+    async def reap_failed_setup(self):
+        # asyncTearDown does not run when the ready handshake fails.
+        if self.process.returncode is None:
+            self.process.kill()
+            await self.process.wait()
 
     async def asyncTearDown(self):
         if self.process.returncode is None:
@@ -75,7 +84,7 @@ class NativeTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(self.process.wait(), 2)
         self.assertEqual(await self.process.stderr.read(), b'')
 
-    async def read(self): return json.loads(await asyncio.wait_for(self.process.stdout.readline(), 2))
+    async def read(self, timeout=2): return json.loads(await asyncio.wait_for(self.process.stdout.readline(), timeout))
 
     async def send(self, identity, data=None, kind='transcribe'):
         command = {'type': kind, 'id': identity}

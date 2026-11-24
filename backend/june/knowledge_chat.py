@@ -44,6 +44,10 @@ def validate_answer(value, sources):
     answer=value.get('answer');citations=value.get('citations')
     if value.get('supported') is not True or not isinstance(answer,str) or not answer.strip() or len(answer)>2000:
         return UNSUPPORTED,[]
+    # Model transport fields are not an answer, even when the outer envelope and
+    # selected citations are valid. Reject before persistence, display or speech.
+    prose=answer.strip()
+    if prose.startswith(('{','[','```','~~~')):return UNSUPPORTED,[]
     try:
         answer.encode('utf-8')
     except UnicodeError:
@@ -63,7 +67,26 @@ def validate_answer(value, sources):
             return UNSUPPORTED,[]
         result.append({'documentId':source['document'],'chunkId':source['id'],'name':source['name'],
                        'page':source['page'],'lineStart':source['lineStart'],'lineEnd':source['lineEnd'],'quote':quote})
+    if miscopied_number(answer,[c['quote'] for c in result]):return UNSUPPORTED,[]
     return answer.strip(),result
+
+
+NUMBER=re.compile(r'(?<![\w.])\d+(?:[ ,\u202f]\d{3})*(?:\.\d+)?(?![\d])')
+
+
+def numbers(text):
+    return {re.sub(r'[ ,\u202f]','',n) for n in NUMBER.findall(text)}
+
+
+def miscopied_number(answer,quotes):
+    """A value that is a truncated or padded copy of a cited value ("120" or "120000"
+    for "1200"), and is not itself cited, is a copying error, not a verified fact.
+    Derived values such as a difference are left alone."""
+    cited=set().union(*(numbers(q) for q in quotes)) if quotes else set()
+    for value in numbers(answer)-cited:
+        if len(value)>=2 and any(q!=value and (q.startswith(value) or value.startswith(q)) and len(q)>=2 for q in cited):
+            return True
+    return False
 
 
 async def document_chat(knowledge,value,mode,messages):
@@ -108,6 +131,7 @@ async def document_chat(knowledge,value,mode,messages):
                         'If evidence does not answer the current question, return {"supported":false,"answer":"","citations":[]}. '
                         'Otherwise return JSON {"supported":true,"answer":"brief factual answer","citations":[{"chunkId":"S1"}]}. '
                         'Every factual claim must be supported by the selected passages. Choose only supplied chunkIds. '
+                        'Write the answer field as plain factual prose, not JSON, source labels or citation metadata. '
                         'The application attaches exact source quotations; do not generate a quote field.')
                 try:
                     result=await bounded_json(knowledge.client,knowledge.settings.ollama+'/api/chat',{

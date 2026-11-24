@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import struct
+import sys
 import tempfile
 import time
 
@@ -38,31 +39,50 @@ def validate_wav(data):
     return {'durationMs': duration, 'rms': rms}
 
 
+# The listening engine June uses. Parakeet (NVIDIA TDT 0.6B, int8) heard the user's real voice best on 2026-11-22 and
+# doesn't invent words; Whisper stays installed as the fallback (set ENGINE = 'whisper'). scripts/speech.mjs must match.
+ENGINE = 'parakeet'
+PARAKEET_ID, PARAKEET_DIR = 'parakeet-tdt-0.6b-v2-int8', 'parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8'
+WHISPER_ID, WHISPER_NAME = 'small.en-q5_1', 'small.en'
+ENGINES = {'parakeet': (PARAKEET_ID, 'Parakeet', 'parakeet'), 'whisper': (WHISPER_ID, WHISPER_NAME, 'whisper.cpp')}
+MODEL_ID, MODEL_NAME, ENGINE_NAME = ENGINES[ENGINE]
+
+
 class SpeechService:
-    def __init__(self, settings):
+    def __init__(self, settings, engine=None):
         self.home = settings.speech_home
         self.binary = self.home / 'whisper.cpp/build/bin/whisper-cli'
         self._default_cli = self.binary
-        self.worker_binary = self.home / 'worker/build/bin/june-whisper-worker'
-        self.model = self.home / 'ggml-base.en.bin'
+        self.engine = engine or ENGINE
+        self.model_id, self.model_name, self.engine_name = ENGINES[self.engine]
+        if self.engine == 'parakeet':
+            # Same resident-worker protocol, a separate process (its ONNX runtime never shares June's).
+            self.worker_binary = Path(sys.executable)
+            self.model_dir = self.home / PARAKEET_DIR
+            self.model = self.model_dir / 'encoder.int8.onnx'
+            command = [self.worker_binary, str(Path(__file__).with_name('parakeet_worker.py')), '--model', self.model_dir]
+        else:
+            self.worker_binary = self.home / 'worker/build/bin/june-whisper-worker'
+            self.model = self.home / f'ggml-{self.model_id}.bin'
+            command = [self.worker_binary, '--model', self.model]
         self.busy = False
         self.verified = None
         self._verify_lock = asyncio.Lock()
         self.timeout = 120
-        self.worker = WhisperWorker([self.worker_binary, '--model', self.model])
+        self.worker = WhisperWorker(command, model=self.model_id)
 
     async def status(self):
-        result = {'engine': 'whisper.cpp', 'model': 'base.en',
+        result = {'engine': self.engine_name, 'model': self.model_name,
                   'workerReady': self.worker.ready, 'warm': self.worker.ready, 'workerProtocol': 1,
                   'decoder': 'conservative-beam', 'threads': 4, 'fastDecoderReleased': False}
         binary = self.binary if self.binary != self._default_cli else self.worker_binary
         if not os.access(binary, os.X_OK):
             return {**result, 'state': 'runtime-missing', 'message': 'Local speech needs setup. Run npm run speech:setup, then refresh speech.'}
         if not self.model.is_file():
-            return {**result, 'state': 'model-missing', 'message': 'Whisper base.en is missing. Run npm run speech:setup, then refresh speech.'}
+            return {**result, 'state': 'model-missing', 'message': f'The {self.model_name} speech model is missing. Run npm run speech:setup, then refresh speech.'}
         try:
             self._model_identity()
-            return {**result, 'state': 'ready', 'message': 'Local English transcription · Whisper base.en · ready on this Mac'}
+            return {**result, 'state': 'ready', 'message': f'Local English transcription · {self.model_name} · ready on this Mac'}
         except (OSError, ValueError, TypeError, AttributeError):
             return {**result, 'state': 'error', 'message': 'Speech installation has not passed its transcription check. Run npm run speech:setup.'}
 
@@ -75,7 +95,7 @@ class SpeechService:
         ready = json.loads(marker.read_text())
         info = self.model.stat()
         digest = ready.get('sha256', '')
-        if (ready.get('version') != 'v1.9.5' or ready.get('model') != 'base.en'
+        if (ready.get('version') != 'v1.9.5' or ready.get('model') != self.model_id
                 or not re.fullmatch('[a-f0-9]{64}', digest) or info.st_size < 100000000):
             raise ValueError('Invalid speech installation')
         return (str(self.model), info.st_size, info.st_mtime_ns, digest)
@@ -99,7 +119,7 @@ class SpeechService:
             return hashlib.file_digest(file, 'sha256').hexdigest()
 
     async def warm(self):
-        """Load and retain base.en; parent owns when to warm and close."""
+        """Load and retain the speech model; parent owns when to warm and close."""
         status = await self.status()
         if status['state'] != 'ready':
             raise JuneError(status['state'], status['message'])
@@ -111,6 +131,13 @@ class SpeechService:
         await self.worker.close()
 
     async def transcribe(self, data):
+        # A user-authorised diagnostic records one existing utterance, never ambient capture.
+        diagnostic=getattr(self,'_audit_capture',None)
+        if diagnostic is None:
+            from .speech_diagnostic import OneShotSpeechDiagnostic
+            diagnostic=self._audit_capture=OneShotSpeechDiagnostic()
+        validate_wav(data)
+        diagnostic.capture(data)
         # Preserve explicit legacy CLI binary overrides for downstream diagnostic
         # callers and CLI lifecycle tests. Normal execution never falls back to
         # per-WAV spawning when the resident worker fails.
@@ -134,7 +161,7 @@ class SpeechService:
             if (not text or result['confidence'] < .35 or result['noSpeechProbability'] > .6
                     or re.fullmatch(r'\s*[\[(].*[\])]\s*', text)):
                 raise JuneError('no-speech', 'No clear words were recognised. Try a clear, short sentence.', 422)
-            return {'text': text, 'engine': 'whisper.cpp', 'model': 'base.en',
+            return {'text': text, 'engine': self.engine_name, 'model': self.model_name,
                     'durationMs': round((time.perf_counter() - started) * 1000),
                     'confidence': result['confidence'],
                     'noSpeechProbability': result['noSpeechProbability']}
@@ -183,7 +210,7 @@ class SpeechService:
             text = clean_transcript(text)
             if not text or re.fullmatch(r'\s*[\[(].*[\])]\s*', text):
                 raise JuneError('no-speech', 'No words were recognised. Try a clear, short sentence.', 422)
-            return {'text': text, 'engine': 'whisper.cpp', 'model': 'base.en', 'durationMs': round((time.perf_counter() - started) * 1000)}
+            return {'text': text, 'engine': 'whisper.cpp', 'model': self.model_name, 'durationMs': round((time.perf_counter() - started) * 1000)}
         except (OSError, ValueError, AttributeError) as error:
             raise JuneError('engine-failed', 'June could not transcribe this recording. Run npm run speech:check, then retry.') from error
         finally:

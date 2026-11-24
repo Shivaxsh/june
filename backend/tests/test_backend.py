@@ -1,5 +1,6 @@
 """Focused migration regressions; run without downloading any AI models."""
 import asyncio
+import json
 import os
 import struct
 import sys
@@ -68,6 +69,26 @@ class Streaming(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await model_status(client, Settings.from_env()))['state'], 'offline')
             events = [x async for x in stream_chat(client, Settings.from_env(), 'local', [])]
             self.assertEqual(events[-1]['type'], 'error')
+
+    async def test_ready_status_reports_the_models_real_parameter_count(self):
+        from june import chat as chat_module
+        chat_module._PARAMETERS.clear()
+        settings = Settings.from_env()
+        shows = []
+        def ollama(request):
+            if request.url.path == '/api/show':
+                shows.append(json.loads(request.content)['model'])
+                return httpx.Response(200, json={'model_info': {'general.parameter_count': 4022468096}})
+            return httpx.Response(200, json={'models': [{'name': settings.model}]})
+        from june.chat import model_parameters
+        async with httpx.AsyncClient(transport=httpx.MockTransport(ollama)) as client:
+            self.assertNotIn('parameters', await model_status(client, settings))
+            self.assertEqual(shows, [], 'chat-path status checks must not query model info')
+            first = await model_parameters(client, settings)
+            second = await model_parameters(client, settings)
+        self.assertEqual((first, second), (4022468096, 4022468096))
+        self.assertEqual(shows, [settings.model])
+        chat_module._PARAMETERS.clear()
 
     async def test_split_utf8_and_oversized_frames(self):
         class Fragmented(httpx.AsyncByteStream):

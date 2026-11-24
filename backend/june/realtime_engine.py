@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import json
 import time
 from functools import lru_cache
-from .signal_gate import ProcessedSignalGate
+from .signal_gate import ProcessedSignalGate, barge_evidence
 
 from loguru import logger
 logger.disable('pipecat')
@@ -67,6 +67,9 @@ class DetectionFrame(DataFrame):
     voiced: bool
     wake: bool
     probability: float
+    rms: float = 0.
+    noise_floor: float = 0.
+    barge: bool | None = None
 
 
 class DetectionProcessor(FrameProcessor):
@@ -82,7 +85,8 @@ class DetectionProcessor(FrameProcessor):
                 voiced, wake, probability = await asyncio.to_thread(self.detectors.analyse, frame.audio)
                 if frame.processed:
                     voiced,wake = self.processed_gate.accept(len(frame.audio),probability,frame.rms,frame.noise_floor,wake)
-                await self.push_frame(DetectionFrame(frame.audio, voiced, wake, probability), direction)
+                barge = barge_evidence(probability, frame.rms, frame.noise_floor) if frame.processed else None
+                await self.push_frame(DetectionFrame(frame.audio, voiced, wake, probability, frame.rms, frame.noise_floor, barge), direction)
             except Exception:
                 await self.fail('Local speech detection failed. Disable hands-free and run its setup again.')
         else:
@@ -95,6 +99,8 @@ class TurnProcessor(FrameProcessor):
         self.turn, self.consumed, self.fail = turn, consumed, fail
         self.ready, self.metrics = ready, metrics
         self.last_meter = 0.
+        from .speech_diagnostic import FrameAudit
+        self.audit = FrameAudit()  # off unless explicitly armed; numbers only
 
     async def process_frame(self, frame, direction):
         await super().process_frame(frame, direction)
@@ -102,7 +108,9 @@ class TurnProcessor(FrameProcessor):
             self.ready.set()
         if isinstance(frame, DetectionFrame):
             try:
-                await self.turn.audio(frame.audio, frame.voiced, frame.wake)
+                if self.audit.out is not None:
+                    self.audit.frame(self.turn.phase, frame.probability, frame.rms, frame.noise_floor, frame.voiced)
+                await self.turn.audio(frame.audio, frame.voiced, frame.wake, barge=frame.barge)
                 if time.monotonic() - self.last_meter >= .5:
                     self.last_meter = time.monotonic()
                     await self.metrics(frame.probability)

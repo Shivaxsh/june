@@ -14,6 +14,13 @@ from fastapi import WebSocketDisconnect
 from .realtime_state import VoiceTurn, PAUSES
 from .errors import JuneError
 
+NATIVE_STALL_SECONDS = 12
+CAPTURE_STOPPED = 'June Audio stopped listening. The Mac may be busy or the audio device changed. Enable hands-free again.'
+
+
+class CaptureStopped(Exception):
+    """June Audio reported that capture ended."""
+
 
 class VoiceSlots:
     def __init__(self):
@@ -67,6 +74,9 @@ async def voice_socket(socket, assets, slots, speech, native_audio=None, runtime
                 await work
 
     async def emit(event):
+        consent=getattr(native_audio, 'commerce_consent', None) if native_source else None
+        if consent is not None and turn is not None:
+            consent.observe(owner,event,getattr(turn,'capture_started',time.monotonic()))
         if not alive:
             return
         if native_source and client_owner and type(event.get('turn')) is int:
@@ -121,18 +131,29 @@ async def voice_socket(socket, assets, slots, speech, native_audio=None, runtime
         detectors = await startup(runtime.detector(engine) if runtime and native_source else asyncio.to_thread(engine.Detectors, assets.model))
         native_queue=None
         if native_source:
-            native_queue=await startup(native_audio.capture(client_owner,owner))
             # Measure one second of processed room audio before announcing ready.
             async def calibrate():
                 values=[]
                 for _ in range(50):
-                    packet=await asyncio.wait_for(native_queue.get(),3)
-                    if packet.get('error'):raise ValueError('Capture stopped')
+                    packet=await asyncio.wait_for(native_queue.get(),NATIVE_STALL_SECONDS)
+                    if packet.get('error'):raise CaptureStopped(packet['error'])
                     _,_,probability=await asyncio.to_thread(detectors.analyse,packet['pcm'])
                     if probability<.35:values.append(packet['rms'])
                 return max(.0005,statistics.median(values) if values else .001)
-            noise_floor=await startup(calibrate())
+            # Starting capture while June's voice output is stopping can make macOS
+            # reconfigure the audio device once; a single retry rides that out.
+            for attempt in range(2):
+                native_queue=await startup(native_audio.capture(client_owner,owner))
+                try:
+                    noise_floor=await startup(calibrate());break
+                except CaptureStopped as stopped:
+                    logging.getLogger('june.voice').warning('Native capture stopped during calibration attempt=%s session=%s',attempt+1,owner)
+                    with suppress(Exception):await native_audio.release(owner)
+                    if attempt:raise JuneError('audio-capture',CAPTURE_STOPPED,503) from stopped
+                    await asyncio.sleep(.6)
         turn = VoiceTurn(emit, speech.transcribe, config.get('pause', 'normal'),processed_input=native_source)
+        consent=getattr(native_audio,'commerce_consent',None) if native_source else None
+        if consent is not None:consent.session(owner,turn)
         pipeline, runner = engine.make_pipeline(detectors, turn, consumed, fail, ready, metrics)
         runner_task = asyncio.create_task(runner.run(pipeline))
         await startup(ready.wait())
@@ -147,7 +168,10 @@ async def voice_socket(socket, assets, slots, speech, native_audio=None, runtime
             nonlocal pending,native_level,noise_floor
             try:
                 while True:
-                    packet=await asyncio.wait_for(native_queue.get(),3)
+                    # Packets normally arrive every few tens of milliseconds. Under memory
+                    # pressure (an 8 GB Mac swapping while the model generates) the helper
+                    # can stall for several seconds; that is not a lost device.
+                    packet=await asyncio.wait_for(native_queue.get(),NATIVE_STALL_SECONDS)
                     if packet.get('error'):
                         await fail(packet['error']);return
                     pcm=packet['pcm'];native_level=packet['rms']
@@ -156,7 +180,9 @@ async def voice_socket(socket, assets, slots, speech, native_audio=None, runtime
                     pending+=len(pcm)
                     await pipeline.queue_frame(engine.PCMFrame(pcm,processed=True,rms=native_level,noise_floor=noise_floor))
             except asyncio.CancelledError:raise
-            except (TimeoutError,JuneError,ValueError):await fail('Native microphone capture stopped. Check the audio device and enable hands-free again.')
+            except (TimeoutError,JuneError,ValueError):
+                logging.getLogger('june.voice').warning('Native capture stalled or stopped session=%s',owner)
+                await fail(CAPTURE_STOPPED)
         if native_source:native_feeder=asyncio.create_task(feed_native())
 
         async def watchdog():
@@ -218,13 +244,17 @@ async def voice_socket(socket, assets, slots, speech, native_audio=None, runtime
         pass
     except JuneError as error:
         await fail(error.message)
-    except (ValueError, TypeError, KeyError, RecursionError, UnicodeError):
+    except (ValueError, TypeError, KeyError, RecursionError, UnicodeError) as error:
+        frame=traceback.extract_tb(error.__traceback__)[-1]
+        logging.getLogger('june.voice').warning('Voice message rejected type=%s location=%s:%s session=%s',type(error).__name__,frame.name,frame.lineno,owner)
         await fail('The voice connection received an invalid message. Enable hands-free again.')
     except Exception as error:
         frame=traceback.extract_tb(error.__traceback__)[-1]
         logging.getLogger('june.voice').warning('Voice startup failure type=%s location=%s:%s session=%s',type(error).__name__,frame.name,frame.lineno,owner)
         await fail('Local hands-free could not start. Run npm run realtime:setup and restart June.')
     finally:
+        consent=getattr(native_audio,'commerce_consent',None) if native_source else None
+        if consent is not None:consent.close(owner)
         alive = False
         if native_source and native_audio is not None:
             with suppress(Exception):await native_audio.release(owner)

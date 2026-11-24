@@ -60,7 +60,8 @@ test('binary proxy preserves bytes, encoded filename, method and backend error r
 });
 test('all typed/native sends use the shared scope and document streaming remains gated',async()=>{
   const chat=await read('../components/Chat.tsx');
-  assert.match(chat,/transcript:.*send\(\{ content, voiceTurn: turn \}\)/);
+  // A hands-free transcript still goes through the shared send (after the spoken-consent router lets it pass).
+  assert.match(chat,/transcript: \(content, turn\) => \{[\s\S]{0,700}?void send\(\{ content, voiceTurn: turn \}\)/);
   assert.match(chat,/knowledge: libraryScope/);
   assert.match(chat,/citations=validatedDocumentReply\(reply,event,libraryScope\)/);
   assert.doesNotMatch(chat,/voice.push\(id, event.text\)|source-mode|Reply source|Continue with Library \+ general/);
@@ -76,4 +77,66 @@ test('citations render source buttons with provenance and disable deleted source
   assert.match(html,/<button[^>]*>Notes.md/);assert.match(html,/Lines 1–3/);assert.match(html,/Open supporting passage/);
   const deleted=renderToStaticMarkup(React.createElement(Sources,{citations:[citation],deleted:['doc-a']}));
   assert.match(deleted,/<button[^>]*disabled/);assert.match(deleted,/Source deleted/);
+});
+
+test('a verified general continuation may open with a code fence or bracket; envelopes stay rejected elsewhere',()=>{
+  const auto={mode:'auto'};
+  const general={...done,citations:[],provenance:'general',continuedFrom:'seg-1'};
+  // Suffix-only: the earlier segment opened the block; this one only closes it.
+  assert.deepEqual(types.validatedDocumentReply('```',general,auto),[]);
+  assert.deepEqual(types.validatedDocumentReply('\n```\nThat completes the loop.',general,auto),[]);
+  assert.deepEqual(types.validatedDocumentReply('{ "retries": 3 }\n```',{...general,provenance:'memory',memoryIds:['fact-a']},auto),[]);
+  // Without a verified continuation the envelope guard is unchanged.
+  for(const raw of ['```json\n{}\n```','{"answer":"Friday","citations":[]}','["answer"]'])
+    assert.throws(()=>types.validatedDocumentReply(raw,{...done,citations:[],provenance:'general'},auto),raw);
+  // A continuation claim cannot carry a document envelope, citations, a selected-document scope or a non-string link.
+  assert.throws(()=>types.validatedDocumentReply('{"answer":"Friday","citations":[]}',{...done,provenance:'documents',continuedFrom:'seg-1'},auto));
+  assert.throws(()=>types.validatedDocumentReply('```',{...general,citations:[citation]},auto));
+  assert.throws(()=>types.validatedDocumentReply('```',general,scope));
+  // Only a verified continuation may start with a bracket; a malformed link is an ordinary reply.
+  assert.throws(()=>types.validatedDocumentReply('{ "retries": 3 }\n```',{...general,continuedFrom:true},auto));
+  assert.throws(()=>types.validatedDocumentReply('{ "retries": 3 }\n```',{...general,continuedFrom:''},auto));
+  assert.throws(()=>types.validatedDocumentReply('  \n ',general,auto), 'an empty suffix is never a valid continuation');
+});
+
+test('a general or memory reply may open with fenced code; transport envelopes and document violations stay rejected',()=>{
+  const auto={mode:'auto'};
+  const general={...done,citations:[],provenance:'general',memoryIds:[]};
+  // Live regression: a cut-off general calculator reply that starts with code.
+  assert.deepEqual(types.validatedDocumentReply('```python\ndef add(a, b):\n    return a + b\n',general,auto),[]);
+  assert.deepEqual(types.validatedDocumentReply('```\nplain block\n```\nDone.',general,auto),[]);
+  assert.deepEqual(types.validatedDocumentReply('~~~js\nx()\n~~~',{...general,provenance:'memory',memoryIds:['fact-a']},auto),[]);
+  assert.deepEqual(types.validatedDocumentReply('```json\n{"name": "Avery", "retries": 3}\n```',general,auto),[],'a JSON code sample is still code');
+  // Transport envelopes: raw JSON, or a json fence that is empty or carries the model's answer fields.
+  for(const raw of ['{"answer":"Friday","citations":[]}','["answer"]','```json\n{}\n```','```json\n[]\n```','```JSON\n{"documentStatus":"supported","generalAnswer":"x"}\n```','```json\n{"answer": "Friday", "citations": []}'])
+    assert.throws(()=>types.validatedDocumentReply(raw,general,auto),raw);
+  // Document scope and document provenance keep the strict rule.
+  assert.throws(()=>types.validatedDocumentReply('```python\nx = 1\n```',{...done,provenance:'documents'},auto));
+  assert.throws(()=>types.validatedDocumentReply('```python\nx = 1\n```',done,scope));
+  assert.throws(()=>types.validatedDocumentReply('```python\nx = 1\n```',{...general,citations:[citation]},auto),'general provenance with citations is still a violation');
+});
+
+test('a document section whose body is serialized JSON is rejected after the app-owned provenance label (live R24)',()=>{
+  const auto={mode:'auto'};
+  const two=[citation,{...citation,chunkId:'chunk-b'}];
+  // Live failure: documentAnswer was the citations array as a string, with valid citations.
+  for(const body of ['[{"chunkId":"S1"},{"chunkId":"S2"}]','  {"answer":"Friday"}','```json\n{"answer":"Friday"}\n```','```\n[1]\n```']){
+    assert.throws(()=>types.validatedDocumentReply(`From your documents\n${body}`,{...done,citations:two,provenance:'documents'},auto),body);
+    assert.throws(()=>types.validatedDocumentReply(`From your documents\n${body}\n\nGeneral knowledge\nVRAM holds textures.`,{...done,citations:two,provenance:'mixed'},auto),body);
+    assert.throws(()=>types.validatedDocumentReply(`Document evidence\n${body}`,{...done,citations:[],provenance:'missing'},auto),body);
+    assert.throws(()=>types.validatedDocumentReply(`From your documents\n${body}`,{...done,citations:two},scope),body);
+  }
+  // Prose that quotes a bracket later, and a mixed reply whose general part opens with code, still pass.
+  assert.deepEqual(types.validatedDocumentReply('From your documents\nThe launch is Friday [per Notes.md].',{...done,provenance:'documents'},auto),[citation]);
+  assert.deepEqual(types.validatedDocumentReply('From your documents\nThe launch is Friday.\n\nGeneral knowledge\n```python\nx = 1\n```',{...done,provenance:'mixed'},auto),[citation]);
+  // General code replies and verified continuations are unchanged.
+  assert.deepEqual(types.validatedDocumentReply('```python\nx = 1\n```',{...done,citations:[],provenance:'general'},auto),[]);
+  assert.deepEqual(types.validatedDocumentReply('{ "retries": 3 }\n```',{...done,citations:[],provenance:'general',continuedFrom:'seg-1'},auto),[]);
+});
+
+test('the general part of a mixed reply cannot be a serialized model envelope; real JSON samples stay allowed',()=>{
+  const auto={mode:'auto'};
+  for(const body of ['[{"chunkId":"S1"}]','{"generalAnswer":"VRAM holds textures."}','```json\n{"documentStatus":"supported"}\n```'])
+    assert.throws(()=>types.validatedDocumentReply(`From your documents\nThe launch is Friday.\n\nGeneral knowledge\n${body}`,{...done,provenance:'mixed'},auto),body);
+  assert.deepEqual(types.validatedDocumentReply('From your documents\nThe launch is Friday.\n\nGeneral knowledge\n{"retries": 3} is a typical config.',{...done,provenance:'mixed'},auto),[citation]);
 });

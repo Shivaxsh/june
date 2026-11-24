@@ -5,6 +5,7 @@ import {readFile,mkdir,writeFile,chmod,rename} from 'node:fs/promises';
 import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {fileURLToPath} from 'node:url';
+import {signingIdentity} from './signing.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
 if(existsSync(join(root,'.env.local')))process.loadEnvFile(join(root,'.env.local'));
 const pkg=JSON.parse(await readFile(join(root,'package.json'),'utf8'));
@@ -17,6 +18,6 @@ await writeFile(join(contents,'Info.plist'),`<?xml version="1.0" encoding="UTF-8
 console.log('Compiling June Audio with the installed Apple SDK…');
 await run('/usr/bin/xcrun',['swiftc','-O',join(root,'native/JuneAudio.swift'),'-framework','AVFoundation','-framework','AppKit','-o',join(mac,'JuneAudio.next')]);
 await rename(join(mac,'JuneAudio.next'),join(mac,'JuneAudio'));
-await run('/usr/bin/codesign',['--force','--sign','-','--identifier','local.june.audio',bundle]);
+await run('/usr/bin/codesign',['--force','--sign',signingIdentity(),'--identifier','local.june.audio',bundle]);
 await run(join(mac,'JuneAudio'),['--self-test']);
 console.log('June Audio ready. Microphone permission is requested only after Enable hands-free.');

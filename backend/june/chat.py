@@ -3,9 +3,12 @@ import asyncio
 import json
 from pathlib import Path
 import httpx
+from time import perf_counter
+from .model_metrics import model_timings
 
 from .errors import JuneError
-from .speech_text import ReplyIdentityGuard, RepetitionGuard, model_label
+from .reply_state import output_state, open_fence
+from .speech_text import ReplyIdentityGuard, RepetitionGuard, ToolMarkerGuard, TOOL_FALLBACK, model_label
 from .app_info import CONFIRMATION, CONNECTED_CAPABILITIES, application_reply_for_turn
 import re
 
@@ -77,6 +80,10 @@ def validate_chat(value):
                 or not 1<=len(ids)<=50 or any(not isinstance(x,str) or not re.fullmatch(r'[\w-]{1,80}',x) for x in ids)
                 or len(set(ids))!=len(ids)):
             raise JuneError('invalid-chat','Select one or more ready documents.',400)
+    if 'continueTurn' in value and (value.get('knowledge') != {'mode':'auto'}
+            or value.get('temporary') is True or not value.get('conversationId') or not value.get('turnId')
+            or not isinstance(value['continueTurn'],str) or not re.fullmatch(r'[\w-]{1,80}',value['continueTurn'])):
+        raise JuneError('invalid-continuation','Continue requires a valid unfinished saved turn in Library + general mode.',400)
     mode, messages = value.get('mode', 'local'), value.get('messages')
     if value.get('knowledge') == {'mode':'auto'} and mode != 'local':
         raise JuneError('invalid-chat','Library + general requires Local AI.',400)
@@ -93,6 +100,25 @@ def validate_chat(value):
         raise JuneError('context-limit', 'This conversation is getting long for June’s small model. Start a new chat to continue.', 400)
     # Ignore extra fields instead of passing client-supplied metadata to the model.
     return mode, [{'role': x['role'], 'content': x['content']} for x in messages]
+
+
+_PARAMETERS = {}
+
+
+async def model_parameters(client, settings):
+    """The installed model's real parameter count, read once from Ollama's model info."""
+    if settings.model in _PARAMETERS:
+        return _PARAMETERS[settings.model]
+    try:
+        response = await client.post(settings.ollama + '/api/show', json={'model': settings.model}, timeout=5)
+        response.raise_for_status()
+        info = response.json().get('model_info') or {}
+        count = info.get('general.parameter_count')
+        value = count if isinstance(count, int) and not isinstance(count, bool) and count > 0 else None
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return None
+    _PARAMETERS[settings.model] = value
+    return value
 
 
 async def model_status(client, settings):
@@ -128,7 +154,7 @@ async def model_lines(response):
         yield json.loads(buffer)
 
 
-async def stream_chat(client, settings, mode, messages, memory_context=""):
+async def stream_chat(client, settings, mode, messages, memory_context="", *, continuation=None):
     if mode == 'demo':
         reply = 'This is a simulated practice reply, not a model answer. The same chat flow will show real replies when you select Local AI and connect Ollama. I’m June — ready to grow one phase at a time.'
         for word in reply.split(' '):
@@ -136,7 +162,7 @@ async def stream_chat(client, settings, mode, messages, memory_context=""):
             yield {'type': 'delta', 'text': word + ' '}
         yield {'type': 'done', 'model': 'Simulated demo'}
         return
-    information = application_reply_for_turn(settings.model, messages, bool(memory_context))
+    information = None if continuation else application_reply_for_turn(settings.model, messages, bool(memory_context))
     if information is not None:
         yield {'type': 'delta', 'text': information}
         yield {'type': 'done', 'model': 'June app information', 'source': 'application'}
@@ -147,11 +173,29 @@ async def stream_chat(client, settings, mode, messages, memory_context=""):
         # only inference context changes, never the saved transcript.
         reassess = reassessment_index(messages)
         inference_messages = messages[:reassess+1] if reassess is not None else messages
+        continuation_prompt = ''
+        if continuation:
+            # Keep the original request and exact recent tail together. This is
+            # server-owned saved output, not client-supplied assistant context.
+            inference_messages = [{'role':'user','content':continuation['question']},
+                                  {'role':'assistant','content':continuation['prefix'][-6000:]}]
+            continuation_prompt = ('\nContinue the final assistant message from its exact ending. '
+                'Emit only the missing suffix: no greeting, repeated opening, or restarted function. '
+                + ('An open code fence is already open; close it only after finishing that code. '
+                   if open_fence(continuation['prefix']) else '') +
+                'Do not claim the result was tested or verified.')
+        visible_reply = ''
+        prefill = inference_messages[-1]['content'] if continuation else ''
+        prefill_buffer = ''
+        prefill_pending = bool(continuation)
         identity = ReplyIdentityGuard(inference_messages)
         repetition = RepetitionGuard(inference_messages)
+        marker = ToolMarkerGuard()
+        model_started = perf_counter()
+        first_token_ms = None
         async with asyncio.timeout(180):
             async with client.stream('POST', settings.ollama + '/api/chat', json={
-                'model': settings.model, 'messages': [{'role': 'system', 'content': prompt_for_turn(inference_messages, identity, memory_context) + correction_focus(messages)}, *inference_messages],
+                'model': settings.model, 'messages': [{'role': 'system', 'content': prompt_for_turn(inference_messages, identity, memory_context) + correction_focus(messages) + continuation_prompt}, *inference_messages],
                 'stream': True, 'think': False, 'keep_alive': MODEL_KEEP_ALIVE,
                 'options': {'num_ctx': 4096, 'num_predict': 256, 'temperature': .1},
             }) as response:
@@ -166,11 +210,35 @@ async def stream_chat(client, settings, mode, messages, memory_context=""):
                         raise ValueError('Invalid model text')
                     if message.get('content'):
                         message['content'].encode('utf-8')
-                        safe_text = repetition.push(message['content'])
-                        for text in identity.push(safe_text):
+                        raw_text = message['content']
+                        if prefill_pending:
+                            prefill_buffer += raw_text
+                            if len(prefill_buffer) < len(prefill) and prefill.startswith(prefill_buffer):
+                                continue
+                            if not prefill_buffer.startswith(prefill):
+                                raise JuneError('continuation-invalid','The model did not resume the saved reply safely. Retry or ask for a smaller section.')
+                            raw_text = prefill_buffer[len(prefill):]
+                            prefill_pending = False
+                        if not raw_text:
+                            continue
+                        safe_text = marker.push(repetition.push(raw_text))
+                        if marker.rejected:
+                            # The model copied June's internal tool note: never show it; ask again instead.
+                            fallback = TOOL_FALLBACK if not visible_reply.strip() else ''
+                            for text in [*(identity.push(safe_text) if safe_text else []), *identity.finish()]:
+                                visible_reply += text; yield {'type': 'delta', 'text': text}
+                            if fallback:
+                                visible_reply += fallback; yield {'type': 'delta', 'text': fallback}
+                            yield {'type': 'done', 'model': settings.model}
+                            return
+                        for text in (identity.push(safe_text) if safe_text else []):
+                            if text and first_token_ms is None:
+                                first_token_ms = (perf_counter()-model_started)*1000
+                            visible_reply += text
                             yield {'type': 'delta', 'text': text}
                         if repetition.stopped:
                             for text in identity.finish():
+                                visible_reply += text
                                 yield {'type': 'delta', 'text': text}
                             yield {'type': 'done', 'model': settings.model, 'repetitionStopped': True}
                             return
@@ -178,11 +246,19 @@ async def stream_chat(client, settings, mode, messages, memory_context=""):
                             yield {'type': 'done', 'model': settings.model}
                             return
                     if chunk.get('done') is True:
-                        for text in identity.finish():
+                        held = marker.finish()
+                        for text in [*(identity.push(held) if held else []), *identity.finish()]:
+                            if text and first_token_ms is None:
+                                first_token_ms = (perf_counter()-model_started)*1000
+                            visible_reply += text
                             yield {'type': 'delta', 'text': text}
                         ending = {'type': 'done', 'model': settings.model}
+                        metrics = model_timings(chunk)
+                        if first_token_ms is not None: metrics['first_token'] = first_token_ms
+                        if metrics: ending['timings'] = metrics
                         if chunk.get('done_reason') == 'length' and not identity.rejected:
                             ending['limited'] = True
+                        ending.update({k:v for k,v in output_state((continuation['prefix'] if continuation else '') + visible_reply, ending.get('limited')).items() if v})
                         yield ending
                         return
                 raise JuneError('incomplete', 'The model connection ended before the reply finished. Please try again.')

@@ -8,8 +8,15 @@ export function useDocuments(onDeleted:(ids:string[])=>void){
   const callback=useRef(onDeleted);callback.current=onDeleted;
   const known=useRef<string[]|null>(null);const channel=useRef<BroadcastChannel|null>(null);
   const generation=useRef(0);const alive=useRef(false);const refreshController=useRef<AbortController|null>(null);
-  const refresh=useCallback(async()=>{
-    if(refreshController.current)return;
+  const listing=useRef<Promise<void>|null>(null);const queued=useRef<Promise<void>|null>(null);const checking=useRef(false);
+  // Status asks Ollama (up to 5 s while it is busy), so it never holds up the document list.
+  const checkStatus=useCallback(async()=>{
+    if(checking.current)return;checking.current=true;
+    try{const info=await knowledgeRequest<{state:string;message:string;model:string}>('status','GET');if(alive.current)setStatus(info);}
+    catch{/* The list request reports connection failures. */}
+    finally{checking.current=false;}
+  },[]);
+  const load=useCallback(async()=>{
     const version=++generation.current;const controller=new AbortController();refreshController.current=controller;
     try{
       const next=await knowledgeRequest<{documents:KnowledgeDocument[];revision:number}>('documents','GET',undefined,controller.signal);
@@ -18,13 +25,22 @@ export function useDocuments(onDeleted:(ids:string[])=>void){
       const ids=next.documents.map(d=>d.id);const removed=known.current?.filter(id=>!ids.includes(id))||[];
       known.current=ids;if(removed.length)callback.current(removed);
       setDocuments(next.documents);setLoaded(true);setError('');
-      const info=await knowledgeRequest<{state:string;message:string;model:string}>('status','GET',undefined,controller.signal);
-      if(alive.current&&version===generation.current)setStatus(info);
+      void checkStatus();
     }catch(e){if(alive.current&&version===generation.current&&!controller.signal.aborted)setError(e instanceof Error?e.message:'Documents unavailable.');}
     finally{if(refreshController.current===controller)refreshController.current=null;}
-  },[]);
+  },[checkStatus]);
+  // A refresh asked for while one is in flight runs once more after it, so a caller that
+  // awaits refresh() after an upload, retry, cancel or delete always sees a list fetched later.
+  const refresh=useCallback(():Promise<void>=>{
+    // After unmount (or before mount) nothing is fetched, including a queued follow-up.
+    if(!alive.current)return Promise.resolve();
+    const running=listing.current;
+    if(running)return queued.current??=running.then(()=>{queued.current=null;return refresh();});
+    const run:Promise<void>=load().finally(()=>{if(listing.current===run)listing.current=null;});
+    listing.current=run;return run;
+  },[load]);
   const invalidate=useCallback((ids:string[])=>{
-    generation.current++;refreshController.current?.abort();refreshController.current=null;
+    generation.current++;refreshController.current?.abort();refreshController.current=null;listing.current=null;
     if(known.current)known.current=known.current.filter(id=>!ids.includes(id));
     setDocuments(previous=>previous.filter(doc=>!ids.includes(doc.id)));
     callback.current(ids);
@@ -36,7 +52,7 @@ export function useDocuments(onDeleted:(ids:string[])=>void){
     if(typeof BroadcastChannel!=='undefined'){channel.current=new BroadcastChannel('june-documents');channel.current.onmessage=e=>receive(e.data?.deleted);}
     const storage=(e:StorageEvent)=>{if(e.key==='june-documents-deleted'&&e.newValue){try{receive(JSON.parse(e.newValue).deleted);}catch{/* Ignore unrelated storage. */}}};
     window.addEventListener('storage',storage);
-    return()=>{alive.current=false;generation.current++;refreshController.current?.abort();refreshController.current=null;clearInterval(timer);window.removeEventListener('focus',focus);window.removeEventListener('storage',storage);channel.current?.close();};
+    return()=>{alive.current=false;generation.current++;refreshController.current?.abort();refreshController.current=null;listing.current=null;clearInterval(timer);window.removeEventListener('focus',focus);window.removeEventListener('storage',storage);channel.current?.close();};
   },[refresh,invalidate]);
   async function remove(id:string){
     await knowledgeRequest(`documents/${encodeURIComponent(id)}`,'DELETE');

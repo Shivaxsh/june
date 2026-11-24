@@ -1,5 +1,5 @@
 "use client";
-import {useEffect,useId,useState,type RefObject} from "react";
+import {useEffect,useId,useRef,useState,type RefObject} from "react";
 import {openLatestConversation} from "@/lib/conversation-open";
 import {characterFields, libraryRequest, type Memory, type Profile, type SavedConversation, type ConversationSummary, type ImportPreview} from "@/lib/memory-types";
 import type {Library} from "./useLibrary";
@@ -15,8 +15,10 @@ function FactForm({initial,button,onSave,memories,onCancel,initialPinned=false}:
     {error&&<p role="alert" className="error-notice">{error}</p>}<div className="library-actions"><button disabled={busy||!value.trim()} className="quiet-button">{busy?"Saving…":button}</button>{onCancel&&<button type="button" className="quiet-button" onClick={onCancel}>Cancel</button>}</div>
   </form>;
 }
-export default function LibraryPanel({library,onOpen,activeId,onDeleteActive,openGeneration}:{openGeneration:RefObject<number>;onDeleteActive:()=>void;library:Library;onOpen:(chat:SavedConversation,token:number)=>void;activeId:string|null}) {
+export default function LibraryPanel({library,onOpen,activeId,onDeleteActive,openGeneration,request}:{request?:{tab:"memory"|"chats"|"personality";seq:number};openGeneration:RefObject<number>;onDeleteActive:()=>void;library:Library;onOpen:(chat:SavedConversation,token:number)=>void;activeId:string|null}) {
   const [tab,setTab]=useState<"memory"|"chats"|"personality"|null>(null);
+  // A Systems shortcut ("Open Memory", "Open saved chats") opens its tab.
+  useEffect(()=>{if(request)setTab(request.tab);},[request]);
   const [error,setError]=useState(""),[notice,setNotice]=useState(""),[editing,setEditing]=useState<string|null>(null),[adding,setAdding]=useState(false);
   const [search,setSearch]=useState(""),[results,setResults]=useState<ConversationSummary[]|null>(null);
   const [confirm,setConfirm]=useState<string|null>(null);
@@ -24,6 +26,7 @@ export default function LibraryPanel({library,onOpen,activeId,onDeleteActive,ope
   const [includeChats,setIncludeChats]=useState(false),[importChats,setImportChats]=useState(false),[preview,setPreview]=useState<ImportPreview|null>(null),[raw,setRaw]=useState<Record<string,unknown>|null>(null);
   const [working,setWorking]=useState(false);
   const data=library.data;
+  const searchFailed=useRef(false);
   useEffect(()=>()=>{openGeneration.current++;},[openGeneration]);
   function openSavedChat(id:string) {
     setError("");setNotice("");
@@ -34,8 +37,9 @@ export default function LibraryPanel({library,onOpen,activeId,onDeleteActive,ope
   }
   useEffect(()=>{if(data&&!dirty)setProfile(data.profile);},[data?.profile,dirty]);
   useEffect(()=>{
-    if(!search.trim()){setResults(null);return;}
-    const abort=new AbortController();const timer=setTimeout(()=>{void libraryRequest<{conversations:ConversationSummary[]}>(`state?search=${encodeURIComponent(search)}`,"GET",undefined,abort.signal).then(s=>setResults(s.conversations)).catch(e=>{if(!abort.signal.aborted)setError(e.message);});},250);
+    // Clearing the search also clears an error the search caused.
+    if(!search.trim()){setResults(null);if(searchFailed.current){searchFailed.current=false;setError('');}return;}
+    const abort=new AbortController();const timer=setTimeout(()=>{void libraryRequest<{conversations:ConversationSummary[]}>(`state?search=${encodeURIComponent(search)}`,"GET",undefined,abort.signal).then(s=>setResults(s.conversations)).then(()=>{if(searchFailed.current){searchFailed.current=false;setError('');}}).catch(e=>{if(!abort.signal.aborted){searchFailed.current=true;setError(e.message);}});},250);
     return()=>{clearTimeout(timer);abort.abort();};
   },[search,data?.conversations.length]);
   async function action(work:()=>Promise<unknown>,message="Saved on this Mac.") {

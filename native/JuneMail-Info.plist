@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>local.june.mail</string>
+<key>CFBundleName</key><string>June Mail</string>
+<key>CFBundleDisplayName</key><string>June Mail</string>
+<key>CFBundleExecutable</key><string>JuneMail</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>LSUIElement</key><true/>
+<key>NSAppleEventsUsageDescription</key><string>June reads your recent email when you ask, and sends an email only after you approve that exact message.</string>
+</dict></plist>
